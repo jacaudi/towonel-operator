@@ -1,0 +1,25 @@
+# Source layer (Tier 2) — annotated Service, single HTTPS exposure.
+# The operator materializes/owns a TowonelAgent entry from this Service (dogfooding),
+# exactly as if you had hand-authored it. No agent-ref → attaches to the tunnel's
+# default agent for this cluster (auto-created if absent).
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  annotations:
+    towonel.io/tunnel: enable
+    towonel.io/tunnel-ref: network/app
+    towonel.io/hostname: grafana.example.com
+    # towonel.io/origin: grafana.monitoring.svc:3000   # optional; defaults to ClusterIP:port below
+    # towonel.io/tls-mode: passthrough                 # optional
+    # towonel.io/dns-record: "false"                   # optional: skip DNS for this hostname
+spec:
+  selector: {app.kubernetes.io/name: grafana}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+# → operator emits the equivalent of:
+#     TowonelAgent(default for tunnel app).spec.services +=
+#       {hostname: grafana.example.com, origin: grafana.monitoring.svc:3000, tlsMode: passthrough}

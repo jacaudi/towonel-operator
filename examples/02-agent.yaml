@@ -1,0 +1,52 @@
+# TowonelAgent — placement-specific workload + routing.
+# References a TowonelTunnel; renders the agent Deployment + per-agent token Secret,
+# and is where the hostname->origin map lives (Towonel routing is agent-local).
+apiVersion: towonel.io/v1alpha1
+kind: TowonelAgent
+metadata:
+  name: app-primary
+  namespace: selfhosted
+spec:
+  tunnelRef: {name: app, namespace: network}
+
+  services:                              # → TOWONEL_AGENT_SERVICES (HTTPS / SNI)
+    - hostname: app.example.com
+      origin: app.selfhosted.svc:8080
+      tlsMode: passthrough               # passthrough (default) | terminate
+      proxyProtocol: false
+
+  tcp:                                   # → TOWONEL_AGENT_TCP_SERVICES
+    - name: app-ssh
+      origin: 10.0.10.5:22               # internal origin host:port
+      preferredPort: 20022               # optional: pin the PUBLIC listen port
+      hostname: ssh.example.com          # optional: public DNS name → A record to edge
+
+  udp: []                                # → TOWONEL_AGENT_UDP_SERVICES (none here)
+
+  relayUrl: ""                           # optional TOWONEL_AGENT_RELAY_URL override
+
+  connectivity:                          # OPTIONAL direct-path (iroh NAT-traversal) — off by default
+    autodiscover: false
+    irohPort: 0
+    extraLocalAddrs: []
+    nodePort: {create: false, name: ""}
+
+  workload:                              # connector knobs (CloudflareTunnel.spec.connector analog)
+    replicas: 1
+    image: codeberg.org/towonel/towonel-agent:latest
+    resources:
+      requests: {cpu: 25m, memory: 64Mi}
+      limits:   {memory: 128Mi}
+    nodeSelector: {}
+    tolerations: []
+# ─────────────────────────────────────────────────────────────────────────────
+# Illustrative status:
+# status:
+#   phase: Ready                         # Pending → WaitingForTunnel → Ready
+#   observedConfigHash: "sha256:9f1c…"
+#   renderedSecretRef: {name: app-primary-token}
+#   conditions:
+#     - {type: TunnelReady,       status: "True"}
+#     - {type: ConfigRendered,    status: "True"}
+#     - {type: WorkloadAvailable, status: "True"}
+#     - {type: PortsAllocated,    status: "True"}

@@ -1,0 +1,29 @@
+# Second TowonelAgent for the SAME tunnel — demonstrates N-agents-one-tunnel failover.
+# This agent runs in a different cluster/zone (its own operator instance) but references
+# the same TowonelTunnel "app", so it shares the invite/token and serves the same
+# hostnames from a different location. The hub fails traffic over between agents.
+#
+# Note: the origins differ because reachability is placement-specific (this agent reaches
+# the app via a different internal address from where it runs).
+apiVersion: towonel.io/v1alpha1
+kind: TowonelAgent
+metadata:
+  name: app-dr            # disaster-recovery / secondary site
+  namespace: selfhosted
+spec:
+  tunnelRef: {name: app, namespace: network}   # SAME tunnel as 02-agent.yaml
+  services:
+    - hostname: app.example.com                 # SAME hostname (failover, not a new route)
+      origin: app.dr.svc:8080                   # reachable from THIS placement
+      tlsMode: passthrough
+  tcp:
+    - name: app-ssh
+      origin: 10.20.10.5:22                     # DR-site origin for the same service
+      preferredPort: 20022                       # same public port (one reservation, shared)
+      hostname: ssh.example.com
+  workload:
+    replicas: 1
+    image: codeberg.org/towonel/towonel-agent:latest
+    resources:
+      requests: {cpu: 25m, memory: 64Mi}
+      limits:   {memory: 128Mi}

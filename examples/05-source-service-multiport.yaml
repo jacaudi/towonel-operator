@@ -1,0 +1,30 @@
+# Source layer — annotated Service exposing HTTP **and** raw TCP on one workload.
+# A flat single `protocol` annotation can't express two heterogeneous exposures, so use
+# PORT-NAME-SCOPED keys: towonel.io/<portName>.<verb>. The operator folds both into one
+# emitted TowonelAgent (services[] + tcp[]). Unreferenced ports are not exposed.
+#
+# (For heterogeneous exposure you can always author the TowonelAgent CR directly instead —
+#  see 02-agent.yaml. The annotation form is the convenience path.)
+apiVersion: v1
+kind: Service
+metadata:
+  name: gameserver
+  namespace: selfhosted
+  annotations:
+    towonel.io/tunnel: enable
+    towonel.io/tunnel-ref: network/app
+    # 'web' port → HTTPS with a hostname:
+    towonel.io/web.hostname: panel.example.com
+    # 'game' port → raw TCP, with a public DNS name + pinned public port:
+    towonel.io/game.tcp: "true"
+    towonel.io/game.hostname: game.example.com
+    towonel.io/game.public-port: "27015"
+spec:
+  selector: {app.kubernetes.io/name: gameserver}
+  ports:
+    - {name: web,  port: 8080, targetPort: 8080}
+    - {name: game, port: 27015, targetPort: 27015, protocol: TCP}
+# → operator emits the equivalent of:
+#     services: [{hostname: panel.example.com, origin: gameserver.selfhosted.svc:8080}]
+#     tcp:      [{name: gameserver-game, origin: gameserver.selfhosted.svc:27015,
+#                 preferredPort: 27015, hostname: game.example.com}]
