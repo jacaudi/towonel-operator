@@ -7,7 +7,7 @@ import (
 )
 
 // newTestClient spins up an httptest server whose handler is h, and returns a
-// Client pointed at it plus the server (caller defers srv.Close via t.Cleanup).
+// Client pointed at it (the server is closed via t.Cleanup).
 func newTestClient(t *testing.T, h http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(h)

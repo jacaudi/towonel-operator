@@ -14,9 +14,9 @@ import (
 
 // Client talks to a Towonel hub's user API.
 type Client struct {
-	baseURL string
-	apiKey  string
-	http    *http.Client
+	baseURL    string
+	apiKey     string
+	httpClient *http.Client
 }
 
 // NewClient returns a Client. baseURL is the hub root (no trailing slash
@@ -27,9 +27,9 @@ func NewClient(baseURL, apiKey string, hc *http.Client) *Client {
 		hc = http.DefaultClient
 	}
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		apiKey:  apiKey,
-		http:    hc,
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		apiKey:     apiKey,
+		httpClient: hc,
 	}
 }
 
@@ -65,7 +65,7 @@ func (c *Client) do(ctx context.Context, method, path string, reqBody, out any) 
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := c.http.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
