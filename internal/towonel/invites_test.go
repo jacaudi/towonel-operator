@@ -30,7 +30,7 @@ func TestCreateInvite(t *testing.T) {
 	if len(gotBody.Hostnames) != 1 || gotBody.Hostnames[0] != "app.example.com" {
 		t.Errorf("body hostnames = %v", gotBody.Hostnames)
 	}
-	if resp.Token != "tt_inv_2_abc" || resp.InviteID != "inv1" || resp.TenantID != "ten1" {
+	if resp.Token != "tt_inv_2_abc" || resp.InviteID != "inv1" || resp.TenantID != "ten1" || resp.Name != "app" {
 		t.Errorf("resp = %+v", resp)
 	}
 }
@@ -55,7 +55,7 @@ func TestAddHostnames(t *testing.T) {
 	if len(gotBody.Hostnames) != 1 || gotBody.Hostnames[0] != "b.dev" {
 		t.Errorf("body = %v", gotBody.Hostnames)
 	}
-	if len(resp.Hostnames) != 2 {
+	if len(resp.Hostnames) != 2 || resp.Hostnames[0] != "a.dev" || resp.Hostnames[1] != "b.dev" {
 		t.Errorf("resp hostnames = %v", resp.Hostnames)
 	}
 }
@@ -71,6 +71,20 @@ func TestRemoveHostname(t *testing.T) {
 	}
 	if gotMethod != http.MethodDelete || gotPath != "/v1/invites/inv1/hostnames/a.dev" {
 		t.Errorf("request = %s %s", gotMethod, gotPath)
+	}
+}
+
+func TestRemoveHostname_EscapedPathParams(t *testing.T) {
+	var gotPath string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusOK)
+	})
+	if err := c.RemoveHostname(context.Background(), "inv/1", "host/name"); err != nil {
+		t.Fatalf("RemoveHostname() error = %v", err)
+	}
+	if gotPath != "/v1/invites/inv%2F1/hostnames/host%2Fname" {
+		t.Errorf("path = %s, want escaped segments", gotPath)
 	}
 }
 
