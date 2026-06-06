@@ -9,14 +9,17 @@ import (
 )
 
 func TestAvailablePorts(t *testing.T) {
-	var gotPath, gotQuery string
+	var gotMethod, gotPath, gotQuery string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		gotMethod, gotPath, gotQuery = r.Method, r.URL.Path, r.URL.RawQuery
 		_, _ = w.Write([]byte(`{"protocol":"tcp","range_start":20000,"range_end":21000,"ports":[20001,20002]}`))
 	})
 	resp, err := c.AvailablePorts(context.Background(), "tcp", 2)
 	if err != nil {
 		t.Fatalf("AvailablePorts() error = %v", err)
+	}
+	if gotMethod != http.MethodGet {
+		t.Errorf("method = %s, want GET", gotMethod)
 	}
 	if gotPath != "/v1/ports/available" {
 		t.Errorf("path = %s", gotPath)
@@ -55,14 +58,17 @@ func TestReservePort(t *testing.T) {
 }
 
 func TestListPorts(t *testing.T) {
-	var gotPath string
+	var gotMethod, gotPath string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
+		gotMethod, gotPath = r.Method, r.URL.Path
 		_, _ = w.Write([]byte(`[{"status":"ok","port":4086,"protocol":"tcp","claimed_at_ms":1}]`))
 	})
 	got, err := c.ListPorts(context.Background(), "ten1")
 	if err != nil {
 		t.Fatalf("ListPorts() error = %v", err)
+	}
+	if gotMethod != http.MethodGet {
+		t.Errorf("method = %s, want GET", gotMethod)
 	}
 	if gotPath != "/v1/tenants/ten1/ports" {
 		t.Errorf("path = %s", gotPath)
@@ -83,5 +89,19 @@ func TestReleasePort(t *testing.T) {
 	}
 	if gotMethod != http.MethodDelete || gotPath != "/v1/tenants/ten1/ports/tcp/4086" {
 		t.Errorf("request = %s %s", gotMethod, gotPath)
+	}
+}
+
+func TestReleasePort_EscapedPathParams(t *testing.T) {
+	var gotPath string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusOK)
+	})
+	if err := c.ReleasePort(context.Background(), "ten/1", "tc/p", 4086); err != nil {
+		t.Fatalf("ReleasePort() error = %v", err)
+	}
+	if gotPath != "/v1/tenants/ten%2F1/ports/tc%2Fp/4086" {
+		t.Errorf("path = %s, want escaped segments", gotPath)
 	}
 }
