@@ -5,3 +5,10 @@
 
 # git worktrees
 /.worktrees/
+
+# internal planning artifacts — kept local, not published
+/docs/plans/
+/docs/designs/
+/prompts/
+*-prompt.md
+*.prompt.md
