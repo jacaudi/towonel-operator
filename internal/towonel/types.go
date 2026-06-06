@@ -21,6 +21,8 @@ type CreateInviteResponse struct {
 }
 
 // Invite is an element of the GET /v1/invites response list.
+// NOTE: GET /v1/invites has no response schema in user.json; these fields are
+// best-effort and UNVERIFIED against a live response — confirm in P2 before relying on them.
 type Invite struct {
 	InviteID    string   `json:"invite_id"`
 	TenantID    string   `json:"tenant_id"`
@@ -28,6 +30,13 @@ type Invite struct {
 	Hostnames   []string `json:"hostnames"`
 	Region      string   `json:"region"`
 	ExpiresAtMs *int64   `json:"expires_at_ms,omitempty"`
+}
+
+// RemoveHostnameResponse is returned by DELETE /v1/invites/{id}/hostnames/{hostname}.
+type RemoveHostnameResponse struct {
+	Status             string   `json:"status"`
+	Hostname           string   `json:"hostname"`
+	RemainingHostnames []string `json:"remaining_hostnames"`
 }
 
 // AddHostnamesRequest is the body of POST /v1/invites/{id}/hostnames.

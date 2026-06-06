@@ -8,8 +8,10 @@ import (
 	"strconv"
 )
 
-// AvailablePorts queries free ports for a protocol ("tcp"/"udp"). count is
-// clamped by the server (1-200). GET /v1/ports/available
+// AvailablePorts queries free ports for a protocol ("tcp"/"udp").
+// count is always sent as a query parameter; the server requires 1–200, so
+// callers must pass a value in that range (0 will be rejected by the server).
+// GET /v1/ports/available
 func (c *Client) AvailablePorts(ctx context.Context, protocol string, count int) (*AvailablePortsResponse, error) {
 	q := url.Values{}
 	q.Set("protocol", protocol)
@@ -33,6 +35,8 @@ func (c *Client) ReservePort(ctx context.Context, tenantID string, req ReservePo
 }
 
 // ListPorts lists a tenant's port reservations. GET /v1/tenants/{id}/ports
+// NOTE: GET /v1/tenants/{id}/ports has no response schema in user.json; the
+// []ReservePortResponse shape is UNVERIFIED — confirm against a live response in P2.
 func (c *Client) ListPorts(ctx context.Context, tenantID string) ([]ReservePortResponse, error) {
 	var out []ReservePortResponse
 	path := fmt.Sprintf("/v1/tenants/%s/ports", url.PathEscape(tenantID))

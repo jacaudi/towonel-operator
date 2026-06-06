@@ -64,13 +64,23 @@ func TestRemoveHostname(t *testing.T) {
 	var gotMethod, gotPath string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotMethod, gotPath = r.Method, r.URL.Path
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","hostname":"a.dev","remaining_hostnames":["b.dev","c.dev"]}`))
 	})
-	if err := c.RemoveHostname(context.Background(), "inv1", "a.dev"); err != nil {
+	resp, err := c.RemoveHostname(context.Background(), "inv1", "a.dev")
+	if err != nil {
 		t.Fatalf("RemoveHostname() error = %v", err)
 	}
 	if gotMethod != http.MethodDelete || gotPath != "/v1/invites/inv1/hostnames/a.dev" {
 		t.Errorf("request = %s %s", gotMethod, gotPath)
+	}
+	if resp.Status != "ok" {
+		t.Errorf("resp.Status = %q, want %q", resp.Status, "ok")
+	}
+	if resp.Hostname != "a.dev" {
+		t.Errorf("resp.Hostname = %q, want %q", resp.Hostname, "a.dev")
+	}
+	if len(resp.RemainingHostnames) != 2 || resp.RemainingHostnames[0] != "b.dev" || resp.RemainingHostnames[1] != "c.dev" {
+		t.Errorf("resp.RemainingHostnames = %v, want [b.dev c.dev]", resp.RemainingHostnames)
 	}
 }
 
@@ -78,9 +88,10 @@ func TestRemoveHostname_EscapedPathParams(t *testing.T) {
 	var gotPath string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.EscapedPath()
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","hostname":"host/name","remaining_hostnames":[]}`))
 	})
-	if err := c.RemoveHostname(context.Background(), "inv/1", "host/name"); err != nil {
+	_, err := c.RemoveHostname(context.Background(), "inv/1", "host/name")
+	if err != nil {
 		t.Fatalf("RemoveHostname() error = %v", err)
 	}
 	if gotPath != "/v1/invites/inv%2F1/hostnames/host%2Fname" {

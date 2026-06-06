@@ -39,9 +39,13 @@ func (c *Client) AddHostnames(ctx context.Context, inviteID string, hostnames []
 
 // RemoveHostname de-authorizes a hostname from an invite.
 // DELETE /v1/invites/{id}/hostnames/{hostname}
-func (c *Client) RemoveHostname(ctx context.Context, inviteID, hostname string) error {
+func (c *Client) RemoveHostname(ctx context.Context, inviteID, hostname string) (*RemoveHostnameResponse, error) {
 	path := fmt.Sprintf("/v1/invites/%s/hostnames/%s", url.PathEscape(inviteID), url.PathEscape(hostname))
-	return c.do(ctx, http.MethodDelete, path, nil, nil)
+	var out RemoveHostnameResponse
+	if err := c.do(ctx, http.MethodDelete, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // DeleteInvite revokes an invite and removes its tenant.

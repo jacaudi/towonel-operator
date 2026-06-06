@@ -21,7 +21,9 @@ type Client struct {
 
 // NewClient returns a Client. baseURL is the hub root (no trailing slash
 // required); apiKey is a Towonel API-key token; hc may be nil (defaults to
-// http.DefaultClient).
+// http.DefaultClient). Note that http.DefaultClient has no timeout; callers
+// should pass their own *http.Client with a timeout set, or always use a
+// context with a deadline.
 func NewClient(baseURL, apiKey string, hc *http.Client) *Client {
 	if hc == nil {
 		hc = http.DefaultClient
