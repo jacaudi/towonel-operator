@@ -89,12 +89,17 @@ func TestDeleteInvite(t *testing.T) {
 }
 
 func TestListInvites(t *testing.T) {
+	var gotMethod, gotPath string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
 		_, _ = w.Write([]byte(`[{"invite_id":"inv1","tenant_id":"ten1","name":"app","hostnames":["a.dev"],"region":"EU"}]`))
 	})
 	got, err := c.ListInvites(context.Background())
 	if err != nil {
 		t.Fatalf("ListInvites() error = %v", err)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/v1/invites" {
+		t.Errorf("request = %s %s, want GET /v1/invites", gotMethod, gotPath)
 	}
 	if len(got) != 1 || got[0].InviteID != "inv1" || got[0].Region != "EU" {
 		t.Errorf("got = %+v", got)
