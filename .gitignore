@@ -12,3 +12,9 @@
 /prompts/
 *-prompt.md
 *.prompt.md
+
+# local research artifacts (API spec snapshots) — not published
+/.claude/research/
+
+# test coverage output (task cover)
+/coverage.out
