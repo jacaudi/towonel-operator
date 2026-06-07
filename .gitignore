@@ -15,6 +15,8 @@
 
 # local research artifacts (API spec snapshots) — not published
 /.claude/research/
+/.claude/rules/
+/.claude/standards/
 
 # test coverage output (task cover)
 /coverage.out
