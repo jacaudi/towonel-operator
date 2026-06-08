@@ -19,7 +19,7 @@ func TestCreateInvite(t *testing.T) {
 	})
 
 	resp, err := c.CreateInvite(context.Background(), CreateInviteRequest{
-		Hostnames: []string{"app.example.com"},
+		Hostnames: []string{"app.towonel.dev"},
 	})
 	if err != nil {
 		t.Fatalf("CreateInvite() error = %v", err)
@@ -27,7 +27,7 @@ func TestCreateInvite(t *testing.T) {
 	if gotMethod != http.MethodPost || gotPath != "/v1/invites" {
 		t.Errorf("request = %s %s, want POST /v1/invites", gotMethod, gotPath)
 	}
-	if len(gotBody.Hostnames) != 1 || gotBody.Hostnames[0] != "app.example.com" {
+	if len(gotBody.Hostnames) != 1 || gotBody.Hostnames[0] != "app.towonel.dev" {
 		t.Errorf("body hostnames = %v", gotBody.Hostnames)
 	}
 	if resp.Token != "tt_inv_2_abc" || resp.InviteID != "inv1" || resp.TenantID != "ten1" || resp.Name != "app" {

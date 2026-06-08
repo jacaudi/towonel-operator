@@ -21,11 +21,11 @@ metadata:
       blockOwnerDeletion: true
 spec:
   endpoints:
-    - dnsName: app.example.com          # HTTPS/SNI → CNAME to the configured regional edge target
+    - dnsName: app.towonel.dev          # HTTPS/SNI → CNAME to the configured regional edge target
       recordType: CNAME
       recordTTL: 300
       targets: ["eu.edge.towonel.dev"]
-    - dnsName: ssh.example.com          # TCP → A to the reservation's edge address
+    - dnsName: ssh.towonel.dev          # TCP → A to the reservation's edge address
       recordType: A
       recordTTL: 300
       targets: ["203.0.113.10"]         # NB: port (20022) is not expressible in DNS; client connects host:port
