@@ -15,6 +15,16 @@ tasks:
     cmds:
       - go mod tidy
 
+  manifests:
+    desc: Generate CRDs (config/crd/bases) and RBAC (config/rbac/role.yaml) from markers
+    cmds:
+      - go tool controller-gen rbac:roleName=towonel-operator crd paths="./api/...;./internal/controller/..." output:crd:artifacts:config=config/crd/bases output:rbac:artifacts:config=config/rbac
+
+  generate:
+    desc: Generate deepcopy methods from kubebuilder object markers
+    cmds:
+      - go tool controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
+
   fmt:
     desc: Fail if any Go file is not gofmt-formatted
     cmds:
