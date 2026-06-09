@@ -70,9 +70,11 @@ tasks:
       - ./hack/sync-helm-crds.sh
 
   helm-lint:
-    desc: Build chart deps and lint
+    desc: Lint the chart using the vendored bjw-s common dependency (chart/charts/)
     cmds:
-      - helm dependency build chart/
+      # The bjw-s common dependency is vendored (chart/charts/common-5.0.1.tgz +
+      # Chart.lock), so lint runs offline/hermetically — no `helm dependency
+      # build`, which would need the upstream repo registered (absent in CI).
       - helm lint chart/
 
   docker-build:
