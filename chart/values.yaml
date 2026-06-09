@@ -1,0 +1,50 @@
+# -- Operator image
+image:
+  repository: ghcr.io/jacaudi/towonel-operator
+  # -- Image tag; defaults to .Chart.AppVersion when empty
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# -- Number of manager replicas
+replicas: 1
+
+# -- Manager log level (debug|info|warn|error)
+logLevel: info
+
+leaderElection:
+  # -- Enable leader election for HA (passive standby)
+  enabled: true
+
+crds:
+  # -- Render the CRD templates
+  install: true
+  # -- Stamp helm.sh/resource-policy: keep so CRDs survive uninstall
+  keep: true
+
+rbac:
+  # -- Render the ClusterRole/Binding
+  enabled: true
+
+serviceAccount:
+  # -- Create a ServiceAccount
+  create: true
+  annotations: {}
+
+# -- Pre-existing Secret holding the Towonel API key (for tunnels that omit apiKeySecretRef)
+credentials:
+  existingSecret: ""
+  tokenKey: token
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+observability:
+  metrics:
+    serviceMonitor:
+      enabled: false
+      interval: 30s

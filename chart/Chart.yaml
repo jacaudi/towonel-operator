@@ -1,0 +1,11 @@
+apiVersion: v2
+name: towonel-operator
+description: Kubernetes operator for Towonel tunnels and agents
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.31.0-0"
+dependencies:
+  - name: common
+    repository: https://bjw-s-labs.github.io/helm-charts/
+    version: 5.0.1
