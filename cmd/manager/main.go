@@ -64,6 +64,10 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         leaderElect,
 		LeaderElectionID:       "towonel-operator.towonel.io",
+		// Pin leader election to the operator's own namespace from the downward
+		// API (POD_NAMESPACE, injected by the chart). Empty falls back to
+		// controller-runtime's in-cluster namespace auto-detection.
+		LeaderElectionNamespace: os.Getenv("POD_NAMESPACE"),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
