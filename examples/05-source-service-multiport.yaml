@@ -14,10 +14,10 @@ metadata:
     towonel.io/tunnel: enable
     towonel.io/tunnel-ref: network/app
     # 'web' port → HTTPS with a hostname:
-    towonel.io/web.hostname: panel.example.com
+    towonel.io/web.hostname: panel.towonel.dev
     # 'game' port → raw TCP, with a public DNS name + pinned public port:
     towonel.io/game.tcp: "true"
-    towonel.io/game.hostname: game.example.com
+    towonel.io/game.hostname: game.towonel.dev
     towonel.io/game.public-port: "27015"
 spec:
   selector: {app.kubernetes.io/name: gameserver}
@@ -25,6 +25,6 @@ spec:
     - {name: web,  port: 8080, targetPort: 8080}
     - {name: game, port: 27015, targetPort: 27015, protocol: TCP}
 # → operator emits the equivalent of:
-#     services: [{hostname: panel.example.com, origin: gameserver.selfhosted.svc:8080}]
+#     services: [{hostname: panel.towonel.dev, origin: gameserver.selfhosted.svc:8080}]
 #     tcp:      [{name: gameserver-game, origin: gameserver.selfhosted.svc:27015,
-#                 preferredPort: 27015, hostname: game.example.com}]
+#                 preferredPort: 27015, hostname: game.towonel.dev}]

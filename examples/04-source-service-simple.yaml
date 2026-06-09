@@ -10,7 +10,7 @@ metadata:
   annotations:
     towonel.io/tunnel: enable
     towonel.io/tunnel-ref: network/app
-    towonel.io/hostname: grafana.example.com
+    towonel.io/hostname: grafana.towonel.dev
     # towonel.io/origin: grafana.monitoring.svc:3000   # optional; defaults to ClusterIP:port below
     # towonel.io/tls-mode: passthrough                 # optional
     # towonel.io/dns-record: "false"                   # optional: skip DNS for this hostname
@@ -22,4 +22,4 @@ spec:
       targetPort: 3000
 # → operator emits the equivalent of:
 #     TowonelAgent(default for tunnel app).spec.services +=
-#       {hostname: grafana.example.com, origin: grafana.monitoring.svc:3000, tlsMode: passthrough}
+#       {hostname: grafana.towonel.dev, origin: grafana.monitoring.svc:3000, tlsMode: passthrough}

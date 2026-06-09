@@ -1,0 +1,56 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  COVERAGE_FILE: coverage.out
+
+tasks:
+  default:
+    desc: Run the full check suite (alias for ci)
+    cmds:
+      - task: ci
+
+  tidy:
+    desc: Sync go.mod / go.sum
+    cmds:
+      - go mod tidy
+
+  fmt:
+    desc: Fail if any Go file is not gofmt-formatted
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "These files are not gofmt-formatted:"
+          echo "$unformatted"
+          exit 1
+        fi
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  build:
+    desc: Compile all packages
+    cmds:
+      - go build ./...
+
+  test:
+    desc: Run tests with the race detector
+    cmds:
+      - go test -race ./...
+
+  cover:
+    desc: Run tests and print per-function coverage
+    cmds:
+      - go test ./... -coverprofile={{.COVERAGE_FILE}}
+      - go tool cover -func={{.COVERAGE_FILE}}
+
+  ci:
+    desc: Checks run in CI (fmt, vet, build, test)
+    cmds:
+      - task: fmt
+      - task: vet
+      - task: build
+      - task: test

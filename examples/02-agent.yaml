@@ -10,7 +10,7 @@ spec:
   tunnelRef: {name: app, namespace: network}
 
   services:                              # → TOWONEL_AGENT_SERVICES (HTTPS / SNI)
-    - hostname: app.example.com
+    - hostname: app.towonel.dev
       origin: app.selfhosted.svc:8080
       tlsMode: passthrough               # passthrough (default) | terminate
       proxyProtocol: false
@@ -19,7 +19,7 @@ spec:
     - name: app-ssh
       origin: 10.0.10.5:22               # internal origin host:port
       preferredPort: 20022               # optional: pin the PUBLIC listen port
-      hostname: ssh.example.com          # optional: public DNS name → A record to edge
+      hostname: ssh.towonel.dev          # optional: public DNS name → A record to edge
 
   udp: []                                # → TOWONEL_AGENT_UDP_SERVICES (none here)
 

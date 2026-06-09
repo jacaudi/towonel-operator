@@ -13,14 +13,14 @@ metadata:
 spec:
   tunnelRef: {name: app, namespace: network}   # SAME tunnel as 02-agent.yaml
   services:
-    - hostname: app.example.com                 # SAME hostname (failover, not a new route)
+    - hostname: app.towonel.dev                 # SAME hostname (failover, not a new route)
       origin: app.dr.svc:8080                   # reachable from THIS placement
       tlsMode: passthrough
   tcp:
     - name: app-ssh
       origin: 10.20.10.5:22                     # DR-site origin for the same service
       preferredPort: 20022                       # same public port (one reservation, shared)
-      hostname: ssh.example.com
+      hostname: ssh.towonel.dev
   workload:
     replicas: 1
     image: codeberg.org/towonel/towonel-agent:latest

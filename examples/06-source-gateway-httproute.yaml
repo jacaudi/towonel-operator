@@ -4,7 +4,7 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: external-example-com
+  name: external-towonel-dev
   namespace: network
   annotations:
     towonel.io/tunnel: enable
@@ -16,8 +16,8 @@ spec:
     - name: https
       protocol: HTTPS
       port: 443
-      hostname: "*.example.com"
-      tls: {mode: Terminate, certificateRefs: [{name: example-com-tls}]}
+      hostname: "*.towonel.dev"
+      tls: {mode: Terminate, certificateRefs: [{name: towonel-dev-tls}]}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -26,9 +26,9 @@ metadata:
   namespace: selfhosted
 spec:
   parentRefs:
-    - {name: external-example-com, namespace: network, sectionName: https}
-  hostnames: ["photos.example.com"]          # → derived hostname for the tunnel
+    - {name: external-towonel-dev, namespace: network, sectionName: https}
+  hostnames: ["photos.towonel.dev"]          # → derived hostname for the tunnel
   rules:
     - backendRefs: [{name: immich, port: 2283}]   # → origin for the agent service map
 # → operator emits the equivalent of:
-#     services: [{hostname: photos.example.com, origin: immich.selfhosted.svc:2283}]
+#     services: [{hostname: photos.towonel.dev, origin: immich.selfhosted.svc:2283}]
