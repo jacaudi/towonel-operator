@@ -1,0 +1,5 @@
+towonel-operator {{ .Chart.AppVersion }} installed.
+
+CRDs installed: {{ .Values.crds.install }}
+Create a TowonelTunnel and one or more TowonelAgents to expose services.
+Provide a Towonel API key via spec.apiKeySecretRef or the chart's credentials.existingSecret.

@@ -1,0 +1,59 @@
+{{/*
+This template builds the full values structure from modular helpers
+and passes it to the bjw-s common library loader
+*/}}
+{{- $bjwsValues := dict "global" (default dict .Values.global) -}}
+
+{{/* Security/Pod Options */}}
+{{- $security := include "towonel-operator.values.security" . | fromYaml -}}
+{{- if $security -}}
+  {{- $_ := set $bjwsValues "defaultPodOptions" $security.defaultPodOptions -}}
+{{- end -}}
+
+{{/* Controllers */}}
+{{- $controllers := include "towonel-operator.values.controllers" . | fromYaml -}}
+{{- if $controllers -}}
+  {{- $_ := set $bjwsValues "controllers" $controllers.controllers -}}
+{{- end -}}
+
+{{/* Service */}}
+{{- $service := include "towonel-operator.values.service" . | fromYaml -}}
+{{- if $service -}}
+  {{- $_ := set $bjwsValues "service" $service.service -}}
+{{- end -}}
+
+{{/* Service Account */}}
+{{- $serviceAccount := include "towonel-operator.values.serviceaccount" . | fromYaml -}}
+{{- if $serviceAccount -}}
+  {{- $_ := set $bjwsValues "serviceAccount" $serviceAccount.serviceAccount -}}
+{{- end -}}
+
+{{/* ServiceMonitor */}}
+{{- $serviceMonitor := include "towonel-operator.values.servicemonitor" . | fromYaml -}}
+{{- if $serviceMonitor -}}
+  {{- $_ := set $bjwsValues "serviceMonitor" $serviceMonitor.serviceMonitor -}}
+{{- end -}}
+
+{{/* Initialize empty sections if not set */}}
+{{- if not (hasKey $bjwsValues "configMaps") -}}
+  {{- $_ := set $bjwsValues "configMaps" dict -}}
+{{- end -}}
+{{- if not (hasKey $bjwsValues "secrets") -}}
+  {{- $_ := set $bjwsValues "secrets" dict -}}
+{{- end -}}
+{{- if not (hasKey $bjwsValues "persistence") -}}
+  {{- $_ := set $bjwsValues "persistence" dict -}}
+{{- end -}}
+{{- if not (hasKey $bjwsValues "ingress") -}}
+  {{- $_ := set $bjwsValues "ingress" dict -}}
+{{- end -}}
+{{- if not (hasKey $bjwsValues "rbac") -}}
+  {{- $_ := set $bjwsValues "rbac" dict -}}
+{{- end -}}
+
+{{/* Create new context with constructed values */}}
+{{- $ctx := deepCopy . -}}
+{{- $_ := set $ctx "Values" $bjwsValues -}}
+
+{{/* Render all resources */}}
+{{ include "bjw-s.common.loader.all" $ctx }}
