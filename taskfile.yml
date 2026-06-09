@@ -69,10 +69,37 @@ tasks:
     cmds:
       - ./hack/sync-helm-crds.sh
 
+  helm-lint:
+    desc: Build chart deps and lint
+    cmds:
+      - helm dependency build chart/
+      - helm lint chart/
+
+  docker-build:
+    desc: Build the operator image (no push)
+    cmds:
+      - docker build -t towonel-operator:dev .
+
+  verify-generated:
+    desc: Fail if generated artifacts are stale (CI drift gate)
+    cmds:
+      - task: generate
+      - task: manifests
+      - task: sync-helm-crds
+      - task: generate-helm-rbac
+      - |
+        if ! git diff --quiet -- api/v1alpha1/zz_generated.deepcopy.go config/ chart/templates/crd-*.yaml chart/templates/_values-rbac.tpl; then
+          echo "Generated artifacts are stale. Run: task generate manifests sync-helm-crds generate-helm-rbac" >&2
+          git --no-pager diff --stat -- api/v1alpha1/zz_generated.deepcopy.go config/ chart/templates/crd-*.yaml chart/templates/_values-rbac.tpl >&2
+          exit 1
+        fi
+
   ci:
-    desc: Checks run in CI (fmt, vet, build, test)
+    desc: Checks run in CI (fmt, vet, build, test, helm-lint, drift)
     cmds:
       - task: fmt
       - task: vet
       - task: build
       - task: test
+      - task: helm-lint
+      - task: verify-generated
