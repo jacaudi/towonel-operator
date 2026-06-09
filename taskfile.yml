@@ -63,6 +63,12 @@ tasks:
     cmds:
       - ./hack/generate-helm-rbac.sh
 
+  sync-helm-crds:
+    desc: Wrap config/crd/bases CRDs into chart templates with install/keep gates
+    deps: [manifests]
+    cmds:
+      - ./hack/sync-helm-crds.sh
+
   ci:
     desc: Checks run in CI (fmt, vet, build, test)
     cmds:
