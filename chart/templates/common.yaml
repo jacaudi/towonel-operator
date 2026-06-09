@@ -34,6 +34,12 @@ and passes it to the bjw-s common library loader
   {{- $_ := set $bjwsValues "serviceMonitor" $serviceMonitor.serviceMonitor -}}
 {{- end -}}
 
+{{/* RBAC */}}
+{{- $rbac := include "towonel-operator.values.rbac" . | fromYaml -}}
+{{- if $rbac -}}
+  {{- $_ := set $bjwsValues "rbac" $rbac.rbac -}}
+{{- end -}}
+
 {{/* Initialize empty sections if not set */}}
 {{- if not (hasKey $bjwsValues "configMaps") -}}
   {{- $_ := set $bjwsValues "configMaps" dict -}}

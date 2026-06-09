@@ -57,6 +57,12 @@ tasks:
       - go test ./... -coverprofile={{.COVERAGE_FILE}}
       - go tool cover -func={{.COVERAGE_FILE}}
 
+  generate-helm-rbac:
+    desc: Regenerate chart RBAC from config/rbac/role.yaml
+    deps: [manifests]
+    cmds:
+      - ./hack/generate-helm-rbac.sh
+
   ci:
     desc: Checks run in CI (fmt, vet, build, test)
     cmds:
