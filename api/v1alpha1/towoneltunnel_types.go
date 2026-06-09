@@ -67,8 +67,8 @@ type EdgeRef struct {
 type PortAllocation struct {
 	Name string `json:"name"`
 	// +kubebuilder:validation:Enum=tcp;udp
-	Protocol   string  `json:"protocol"`
-	ListenPort int32   `json:"listenPort"`
+	Protocol   string `json:"protocol"`
+	ListenPort int32  `json:"listenPort"`
 	// +optional
 	Edge EdgeRef `json:"edge,omitempty"`
 }
