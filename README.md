@@ -3,8 +3,18 @@
 A Kubernetes operator that automates [Towonel](https://towonel.dev) self-hosted
 tunnels — provisioning tunnels, deploying agents, and connecting them, declaratively.
 
-> ⚠️ **Early development.** The Towonel API client (`internal/towonel`) is implemented;
-> the controllers are in progress. APIs (`towonel.io/v1alpha1`) may change.
+> [!WARNING]
+> **Agentically generated.** This codebase was produced through agentic,
+> spec-driven development: each feature began as a written design and
+> implementation spec, then a coding agent executed the plan under human
+> review. Tests, code review, and CI gates apply as they would for any
+> project, but the authorship pattern is not a single human contributor —
+> keep that in mind when evaluating fit for your environment.
+
+## Status
+
+Scaffolding phase: CRD types (`TowonelTunnel`, `TowonelAgent`) and a manager
+with no-op reconcilers; reconcile logic and publishing land in later phases.
 
 ## What it does
 

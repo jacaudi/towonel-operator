@@ -1,0 +1,25 @@
+domain: towonel.io
+layout:
+- go.kubebuilder.io/v4
+projectName: towonel-operator
+repo: github.com/jacaudi/towonel-operator
+version: "3"
+resources:
+- api:
+    crdVersion: v1
+    namespaced: false
+  controller: true
+  domain: towonel.io
+  group: ""
+  kind: TowonelTunnel
+  path: github.com/jacaudi/towonel-operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: towonel.io
+  group: ""
+  kind: TowonelAgent
+  path: github.com/jacaudi/towonel-operator/api/v1alpha1
+  version: v1alpha1
