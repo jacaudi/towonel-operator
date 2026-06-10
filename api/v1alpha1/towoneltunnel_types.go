@@ -113,7 +113,7 @@ type TowonelTunnelStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster,shortName=twt
+// +kubebuilder:resource:shortName=twt
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Region",type=string,JSONPath=`.spec.region`
 // +kubebuilder:printcolumn:name="InviteID",type=string,JSONPath=`.status.inviteId`
