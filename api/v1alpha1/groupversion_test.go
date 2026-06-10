@@ -1,6 +1,8 @@
 package v1alpha1
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,9 +22,19 @@ func TestSchemeRegistersKinds(t *testing.T) {
 	}
 }
 
-func TestAgentStatusHasObservedGeneration(t *testing.T) {
-	st := TowonelAgentStatus{ObservedGeneration: 7}
-	if st.ObservedGeneration != 7 {
-		t.Fatal("ObservedGeneration not settable")
+func TestAgentStatusObservedGenerationJSON(t *testing.T) {
+	b, err := json.Marshal(TowonelAgentStatus{ObservedGeneration: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"observedGeneration":7`) {
+		t.Fatalf("json = %s", b)
+	}
+	empty, err := json.Marshal(TowonelAgentStatus{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(empty), "observedGeneration") {
+		t.Fatalf("omitempty violated: %s", empty)
 	}
 }

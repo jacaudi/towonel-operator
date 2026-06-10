@@ -238,14 +238,14 @@ func TestAgentRotationRollsDeployment(t *testing.T) {
 	if err := c.Update(ctx, &tunnelSec); err != nil {
 		t.Fatal(err)
 	}
-	var tun towonelv1alpha1.TowonelTunnel
-	if err := c.Get(ctx, types.NamespacedName{Name: "rot", Namespace: "default"}, &tun); err != nil {
-		t.Fatal(err)
-	}
-	tun.Status.InviteID = "inv-rotated"
-	if err := c.Status().Update(ctx, &tun); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, 15*time.Second, func() bool { // retry on conflict (tunnel controller also writes status)
+		var tun towonelv1alpha1.TowonelTunnel
+		if c.Get(ctx, types.NamespacedName{Name: "rot", Namespace: "default"}, &tun) != nil {
+			return false
+		}
+		tun.Status.InviteID = "inv-rotated"
+		return c.Status().Update(ctx, &tun) == nil
+	})
 
 	waitFor(t, 45*time.Second, func() bool { // covers the 30s staleness fallback
 		var sec corev1.Secret
