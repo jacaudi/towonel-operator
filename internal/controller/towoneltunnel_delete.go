@@ -3,7 +3,9 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -30,6 +32,13 @@ func (r *TowonelTunnelReconciler) reconcileDelete(ctx context.Context, tt *towon
 		callCtx, cancel := context.WithTimeout(ctx, hubCallTimeout)
 		defer cancel()
 		tc := towonel.NewClient(r.BaseURL, apiKey.Expose(), r.HTTPClient)
+		if tt.Status.TenantID != "" {
+			// Raw ctx, not callCtx: hubCall applies per-call deadlines internally;
+			// sharing one 20s window would starve DeleteInvite on many-port tunnels.
+			if err := r.releasePorts(ctx, tc, tt); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		if err := tc.DeleteInvite(callCtx, tt.Status.InviteID); err != nil {
 			if apiErr, ok := errors.AsType[*towonel.APIError](err); !ok || apiErr.StatusCode != http.StatusNotFound {
 				return ctrl.Result{}, err
@@ -38,6 +47,50 @@ func (r *TowonelTunnelReconciler) reconcileDelete(ctx context.Context, tt *towon
 	}
 	controllerutil.RemoveFinalizer(tt, FinalizerName)
 	return ctrl.Result{}, r.Update(ctx, tt)
+}
+
+// releasePorts releases all of this tunnel's reservations on Delete policy:
+// everything in status, PLUS a best-effort label-prefix sweep over ListPorts
+// for reservations that never reached status (design §4.B deletion).
+func (r *TowonelTunnelReconciler) releasePorts(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel) error {
+	release := func(protocol string, port int32) error {
+		_, err := hubCall(ctx, func(c context.Context) (struct{}, error) {
+			return struct{}{}, tc.ReleasePort(c, tt.Status.TenantID, protocol, port)
+		})
+		if err != nil {
+			if apiErr, ok := errors.AsType[*towonel.APIError](err); ok && apiErr.StatusCode == http.StatusNotFound {
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+	released := map[string]bool{}
+	for _, pa := range tt.Status.PortAllocations {
+		if err := release(pa.Protocol, pa.ListenPort); err != nil {
+			return fmt.Errorf("release port %s/%s: %w", pa.Protocol, pa.Name, err)
+		}
+		released[fmt.Sprintf("%s/%d", pa.Protocol, pa.ListenPort)] = true
+	}
+	// Leak sweep (list shape UNVERIFIED -> tolerate failure, design §7 residual).
+	listed, err := hubCall(ctx, func(c context.Context) ([]towonel.ReservePortResponse, error) {
+		return tc.ListPorts(c, tt.Status.TenantID)
+	})
+	if err != nil {
+		return nil // best-effort only
+	}
+	prefix := portLabelPrefix(tt.Namespace, tt.Name)
+	for i := range listed {
+		if listed[i].Label != nil && strings.HasPrefix(*listed[i].Label, prefix) {
+			if released[fmt.Sprintf("%s/%d", listed[i].Protocol, listed[i].Port)] {
+				continue // already released via status above
+			}
+			if err := release(listed[i].Protocol, listed[i].Port); err != nil {
+				return fmt.Errorf("sweep release %s/%d: %w", listed[i].Protocol, listed[i].Port, err)
+			}
+		}
+	}
+	return nil
 }
 
 // writeStatus persists status via read-modify-write, gated on a semantic diff.

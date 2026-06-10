@@ -213,3 +213,27 @@ func TestConvergePortsFailureIsolation(t *testing.T) {
 		t.Fatal("PortsReserved should be False on partial failure")
 	}
 }
+
+func TestReleasePortsSweepsLeaks(t *testing.T) {
+	r, hub, _, tc, tt := portsFixture(t)
+	// One allocation in status, one hub-side leak (never reached status), one foreign reservation.
+	hub.SeedReservation("ten-1", towonel.ReservePortResponse{
+		Port: 7100, Protocol: "tcp", Label: new(portLabel("net", "app", "ssh")),
+	})
+	hub.SeedReservation("ten-1", towonel.ReservePortResponse{
+		Port: 7200, Protocol: "udp", Label: new(portLabel("net", "app", "leaked")),
+	})
+	hub.SeedReservation("ten-1", towonel.ReservePortResponse{
+		Port: 7300, Protocol: "tcp", Label: new("other/tunnel/svc"),
+	})
+	tt.Status.PortAllocations = []towonelv1alpha1.PortAllocation{{Name: "ssh", Protocol: "tcp", ListenPort: 7100}}
+	if err := r.releasePorts(t.Context(), tc, tt); err != nil {
+		t.Fatalf("releasePorts: %v", err)
+	}
+	if hub.HasReservation("ten-1", "tcp", 7100) || hub.HasReservation("ten-1", "udp", 7200) {
+		t.Fatal("owned reservations should be released (incl. the status-less leak)")
+	}
+	if !hub.HasReservation("ten-1", "tcp", 7300) {
+		t.Fatal("foreign reservation must NOT be released")
+	}
+}
