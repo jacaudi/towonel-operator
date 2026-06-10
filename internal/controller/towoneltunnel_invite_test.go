@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -141,7 +142,7 @@ func TestConvergeHostnames(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Spec.ExtraHostnames = []string{"a.example", "c.example"} // drop b, add c
-	if err := r.convergeHostnames(t.Context(), tc, tt); err != nil {
+	if err := r.convergeHostnames(t.Context(), tc, tt, desiredHostnames(tt, nil)); err != nil {
 		t.Fatalf("converge: %v", err)
 	}
 	got := map[string]bool{}
@@ -150,5 +151,39 @@ func TestConvergeHostnames(t *testing.T) {
 	}
 	if !got["a.example"] || !got["c.example"] || got["b.example"] {
 		t.Errorf("authorized = %v, want {a,c}", tt.Status.AuthorizedHostnames)
+	}
+}
+
+func agentWithRoutes(ns, name string, hostnames []string, tcpHostname string) towonelv1alpha1.TowonelAgent {
+	ta := towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+	}
+	for _, h := range hostnames {
+		ta.Spec.Services = append(ta.Spec.Services, towonelv1alpha1.AgentService{Hostname: h, Origin: "svc:80"})
+	}
+	if tcpHostname != "" {
+		ta.Spec.TCP = append(ta.Spec.TCP, towonelv1alpha1.AgentL4Service{Name: "raw", Origin: "svc:22", Hostname: tcpHostname})
+	}
+	return ta
+}
+
+func TestDesiredHostnames(t *testing.T) {
+	tt := &towonelv1alpha1.TowonelTunnel{
+		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"extra.example"}},
+	}
+	agents := []towonelv1alpha1.TowonelAgent{
+		agentWithRoutes("a", "one", []string{"app.example", "shared.example"}, "ssh.example"),
+		agentWithRoutes("b", "two", []string{"shared.example"}, ""),
+	}
+	got := desiredHostnames(tt, agents)
+	want := []string{"app.example", "extra.example", "shared.example"} // sorted, deduped, NO tcp hostname
+	if !slices.Equal(got, want) {
+		t.Errorf("desiredHostnames = %v, want %v", got, want)
+	}
+
+	// nil agents → only extraHostnames
+	got0 := desiredHostnames(tt, nil)
+	if !slices.Equal(got0, []string{"extra.example"}) {
+		t.Errorf("nil agents: got %v", got0)
 	}
 }

@@ -2,6 +2,7 @@ package envtest_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,9 @@ func startManager(t *testing.T) (client.Client, *towoneltest.Hub, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := controller.RegisterIndexes(context.Background(), mgr); err != nil {
+		t.Fatal(err)
+	}
 	r := &controller.TowonelTunnelReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
@@ -48,6 +52,14 @@ func startManager(t *testing.T) (client.Client, *towoneltest.Hub, func()) {
 		HTTPClient: srv.Client(),
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
+		t.Fatal(err)
+	}
+	ar := &controller.TowonelAgentReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("towonelagent-" + t.Name()),
+	}
+	if err := ar.SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -120,4 +132,54 @@ func TestReconcileDeletePolicy(t *testing.T) {
 			t.Errorf("Retain policy: invite %s should remain", inviteID)
 		}
 	}
+}
+
+func TestTunnelAggregatesAgents(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, hub, stop := startManager(t)
+	defer stop()
+	ctx := t.Context()
+	tt := &towonelv1alpha1.TowonelTunnel{
+		ObjectMeta: metav1.ObjectMeta{Name: "agg", Namespace: "default"},
+		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"extra.example"}},
+	}
+	if err := c.Create(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	ta := &towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "edge-a", Namespace: "default"},
+		Spec: towonelv1alpha1.TowonelAgentSpec{
+			TunnelRef: towonelv1alpha1.TunnelReference{Name: "agg"},
+			Services:  []towonelv1alpha1.AgentService{{Hostname: "app.example", Origin: "app:8080"}},
+			TCP:       []towonelv1alpha1.AgentL4Service{{Name: "ssh", Origin: "app:22", PreferredPort: 2222}},
+		},
+	}
+	if err := c.Create(ctx, ta); err != nil {
+		t.Fatal(err)
+	}
+	var tenant string
+	waitFor(t, 15*time.Second, func() bool {
+		var got towonelv1alpha1.TowonelTunnel
+		if c.Get(ctx, types.NamespacedName{Name: "agg", Namespace: "default"}, &got) != nil {
+			return false
+		}
+		tenant = got.Status.TenantID
+		return slices.Contains(got.Status.AuthorizedHostnames, "app.example") &&
+			slices.Contains(got.Status.AuthorizedHostnames, "extra.example") &&
+			len(got.Status.PortAllocations) == 1 &&
+			got.Status.PortAllocations[0].ListenPort == 2222 &&
+			meta.IsStatusConditionTrue(got.Status.Conditions, controller.CondPortsReserved)
+	})
+	// Agent deleted -> hostname deauthorized + port released (no agent finalizer needed).
+	if err := c.Delete(ctx, ta); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 15*time.Second, func() bool {
+		var got towonelv1alpha1.TowonelTunnel
+		if c.Get(ctx, types.NamespacedName{Name: "agg", Namespace: "default"}, &got) != nil {
+			return false
+		}
+		return !slices.Contains(got.Status.AuthorizedHostnames, "app.example") &&
+			len(got.Status.PortAllocations) == 0 && hub.ReservationCount(tenant) == 0
+	})
 }

@@ -116,6 +116,9 @@ spec:
                   - origin
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               tunnelRef:
                 description: TunnelReference points at the TowonelTunnel this agent
                   connects to.
@@ -149,6 +152,9 @@ spec:
                   - origin
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               workload:
                 description: WorkloadSpec are the agent connector knobs.
                 properties:
@@ -329,6 +335,11 @@ spec:
                 x-kubernetes-list-type: map
               observedConfigHash:
                 type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation most recently reconciled
+                  into status.
+                format: int64
+                type: integer
               phase:
                 enum:
                 - Pending

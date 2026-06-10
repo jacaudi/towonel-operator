@@ -2,19 +2,25 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	record "k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	handler "sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 	"github.com/jacaudi/towonel-operator/internal/towonel"
@@ -69,11 +75,11 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
 	tc := towonel.NewClient(r.BaseURL, apiKey.Expose(), r.HTTPClient)
 
-	token, err := r.ensureInvite(callCtx, tc, &tt)
+	inviteCtx, cancelInvite := context.WithTimeout(ctx, hubCallTimeout)
+	token, err := r.ensureInvite(inviteCtx, tc, &tt)
+	cancelInvite()
 	if err != nil {
 		return r.fail(ctx, &tt, orig, err)
 	}
@@ -88,11 +94,22 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		return r.fail(ctx, &tt, orig, err)
 	}
-	if err := r.convergeHostnames(callCtx, tc, &tt); err != nil {
+
+	agents, err := r.listReferencingAgents(ctx, &tt)
+	if err != nil {
+		return r.fail(ctx, &tt, orig, err)
+	}
+	hostCtx, cancelHost := context.WithTimeout(ctx, hubCallTimeout)
+	err = r.convergeHostnames(hostCtx, tc, &tt, desiredHostnames(&tt, agents))
+	cancelHost()
+	if err != nil {
 		setCond(&tt, CondHostnamesSynced, metav1.ConditionFalse, ReasonAPIError, err.Error())
 		return r.fail(ctx, &tt, orig, err)
 	}
 	setCond(&tt, CondHostnamesSynced, metav1.ConditionTrue, ReasonSynced, "authorized hostnames converged")
+	if err := r.convergePorts(ctx, tc, &tt, agents); err != nil { // sets PortsReserved itself
+		return r.fail(ctx, &tt, orig, err)
+	}
 	rollupStatus(&tt, time.Now())
 	if err := r.writeStatus(ctx, &tt, orig); err != nil {
 		return ctrl.Result{}, err // conflict surfaces here -> prompt requeue
@@ -101,11 +118,33 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{RequeueAfter: 30 * time.Minute}, nil
 }
 
+// listReferencingAgents returns agents whose resolved tunnelRef is this tunnel,
+// sorted by ns/name (deterministic aggregation, design §4.B).
+func (r *TowonelTunnelReconciler) listReferencingAgents(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel) ([]towonelv1alpha1.TowonelAgent, error) {
+	var list towonelv1alpha1.TowonelAgentList
+	key := types.NamespacedName{Namespace: tt.Namespace, Name: tt.Name}.String()
+	if err := r.List(ctx, &list, client.MatchingFields{agentTunnelRefIndex: key}); err != nil {
+		return nil, fmt.Errorf("list referencing agents: %w", err)
+	}
+	slices.SortFunc(list.Items, func(a, b towonelv1alpha1.TowonelAgent) int {
+		return cmp.Compare(a.Namespace+"/"+a.Name, b.Namespace+"/"+b.Name)
+	})
+	return list.Items, nil
+}
+
 // SetupWithManager wires the reconciler to the manager.
 func (r *TowonelTunnelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&towonelv1alpha1.TowonelTunnel{}).
 		Owns(&corev1.Secret{}).
+		Watches(&towonelv1alpha1.TowonelAgent{}, handler.EnqueueRequestsFromMapFunc(
+			func(_ context.Context, obj client.Object) []reconcile.Request {
+				ta := obj.(*towonelv1alpha1.TowonelAgent)
+				if ta.Spec.TunnelRef.Name == "" {
+					return nil
+				}
+				return []reconcile.Request{{NamespacedName: resolvedTunnelRef(ta)}}
+			})).
 		Named("towoneltunnel").
 		Complete(r)
 }
