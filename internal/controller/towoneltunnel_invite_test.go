@@ -24,6 +24,14 @@ func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 	return fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).Build()
 }
 
+func testScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	_ = towonelv1alpha1.AddToScheme(s)
+	_ = corev1.AddToScheme(s)
+	return s
+}
+
 func TestResolveAPIKey(t *testing.T) {
 	tt := &towonelv1alpha1.TowonelTunnel{
 		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"},
