@@ -74,7 +74,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.TowonelTunnelReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.TowonelTunnelReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("towoneltunnel"),
+		BaseURL:  os.Getenv("TOWONEL_BASE_URL"),
+	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TowonelTunnel")
 		os.Exit(1)
 	}

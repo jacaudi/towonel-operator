@@ -10,7 +10,11 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
@@ -42,4 +46,19 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	_ = testEnv.Stop()
 	os.Exit(code)
+}
+
+// managerOptions returns ctrl.Options suitable for per-test managers.
+// Metrics are disabled (BindAddress "0") to avoid port collisions.
+// SkipNameValidation suppresses duplicate-controller-name errors when multiple
+// managers sharing the same Named("towoneltunnel") controller are started in
+// parallel tests.
+func managerOptions() ctrl.Options {
+	return ctrl.Options{
+		Scheme:  testScheme,
+		Metrics: metricsserver.Options{BindAddress: "0"},
+		Controller: crconfig.Controller{
+			SkipNameValidation: ptr.To(true),
+		},
+	}
 }
