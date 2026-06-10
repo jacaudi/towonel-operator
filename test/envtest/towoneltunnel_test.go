@@ -54,6 +54,14 @@ func startManager(t *testing.T) (client.Client, *towoneltest.Hub, func()) {
 	if err := r.SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
 	}
+	ar := &controller.TowonelAgentReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("towonelagent-" + t.Name()),
+	}
+	if err := ar.SetupWithManager(mgr); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = mgr.Start(ctx) }()
 	if !mgr.GetCache().WaitForCacheSync(ctx) {
