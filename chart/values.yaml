@@ -30,6 +30,10 @@ serviceAccount:
   create: true
   annotations: {}
 
+# -- Towonel hub base URL passed to the manager
+towonel:
+  apiURL: https://console.towonel.dev
+
 # -- Pre-existing Secret holding the Towonel API key (for tunnels that omit apiKeySecretRef)
 credentials:
   existingSecret: ""

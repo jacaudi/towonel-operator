@@ -17,11 +17,19 @@ controllers:
           - --health-probe-bind-address=:8081
           - --leader-elect={{ .Values.leaderElection.enabled }}
           - --zap-log-level={{ .Values.logLevel }}
+          - --towonel-api-url={{ .Values.towonel.apiURL }}
         env:
           POD_NAMESPACE:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+          {{- if .Values.credentials.existingSecret }}
+          TOWONEL_API_KEY:
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.credentials.existingSecret }}
+                key: {{ .Values.credentials.tokenKey }}
+          {{- end }}
         probes:
           liveness:
             enabled: true
