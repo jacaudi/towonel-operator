@@ -88,7 +88,8 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		return r.fail(ctx, &tt, orig, err)
 	}
-	if err := r.convergeHostnames(callCtx, tc, &tt); err != nil {
+	// TODO(Task 8): pass the real referencing-agent list once the tunnelRef index is wired.
+	if err := r.convergeHostnames(callCtx, tc, &tt, desiredHostnames(&tt, nil)); err != nil {
 		setCond(&tt, CondHostnamesSynced, metav1.ConditionFalse, ReasonAPIError, err.Error())
 		return r.fail(ctx, &tt, orig, err)
 	}

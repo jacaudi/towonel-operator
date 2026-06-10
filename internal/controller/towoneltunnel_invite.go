@@ -93,10 +93,23 @@ func (r *TowonelTunnelReconciler) ensureInvite(ctx context.Context, tc *towonel.
 	return secret(resp.Token), nil
 }
 
-// convergeHostnames reconciles authorized hostnames to spec.extraHostnames.
+// desiredHostnames unions spec.extraHostnames with the HTTPS hostnames of all
+// referencing agents. tcp/udp hostnames are EXCLUDED — they are DNS intent
+// only, never SNI authorization (design §4.A; parent §5.2).
+func desiredHostnames(tt *towonelv1alpha1.TowonelTunnel, agents []towonelv1alpha1.TowonelAgent) []string {
+	hs := slices.Clone(tt.Spec.ExtraHostnames)
+	for i := range agents {
+		for _, svc := range agents[i].Spec.Services {
+			hs = append(hs, svc.Hostname)
+		}
+	}
+	return dedupe(hs)
+}
+
+// convergeHostnames reconciles authorized hostnames to the precomputed desired set.
+// desired must be pre-normalized (sorted, deduped) — use desiredHostnames to compute it.
 // status.authorizedHostnames is published from the API response bodies.
-func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel) error {
-	desired := dedupe(tt.Spec.ExtraHostnames)
+func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel, desired []string) error {
 	observed := dedupe(tt.Status.AuthorizedHostnames)
 	cur := observed
 
