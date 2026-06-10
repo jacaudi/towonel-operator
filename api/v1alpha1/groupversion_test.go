@@ -19,3 +19,10 @@ func TestSchemeRegistersKinds(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentStatusHasObservedGeneration(t *testing.T) {
+	st := TowonelAgentStatus{ObservedGeneration: 7}
+	if st.ObservedGeneration != 7 {
+		t.Fatal("ObservedGeneration not settable")
+	}
+}

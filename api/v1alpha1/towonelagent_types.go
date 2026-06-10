@@ -75,8 +75,12 @@ type TowonelAgentSpec struct {
 	TunnelRef TunnelReference `json:"tunnelRef"`
 	// +optional
 	Services []AgentService `json:"services,omitempty"`
+	// +listType=map
+	// +listMapKey=name
 	// +optional
 	TCP []AgentL4Service `json:"tcp,omitempty"`
+	// +listType=map
+	// +listMapKey=name
 	// +optional
 	UDP []AgentL4Service `json:"udp,omitempty"`
 	// +optional
@@ -100,6 +104,9 @@ type TowonelAgentStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// ObservedGeneration is the generation most recently reconciled into status.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
