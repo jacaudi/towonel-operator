@@ -14,6 +14,13 @@ rbac:
         - apiGroups:
             - ""
           resources:
+            - events
+          verbs:
+            - create
+            - patch
+        - apiGroups:
+            - ""
+          resources:
             - secrets
             - services
           verbs:

@@ -5,7 +5,9 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -38,15 +40,17 @@ func init() {
 
 func main() {
 	var (
-		metricsAddr string
-		probeAddr   string
-		leaderElect bool
-		showVersion bool
+		metricsAddr   string
+		probeAddr     string
+		leaderElect   bool
+		showVersion   bool
+		towonelAPIURL string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "metrics endpoint bind address")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "health probe bind address")
 	flag.BoolVar(&leaderElect, "leader-elect", true, "enable leader election for HA")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
+	flag.StringVar(&towonelAPIURL, "towonel-api-url", "https://console.towonel.dev", "Towonel hub base URL")
 	zapOpts := zap.Options{Development: false}
 	zapOpts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -74,7 +78,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.TowonelTunnelReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.TowonelTunnelReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Recorder:   mgr.GetEventRecorderFor("towoneltunnel"),
+		BaseURL:    towonelAPIURL,
+		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TowonelTunnel")
 		os.Exit(1)
 	}

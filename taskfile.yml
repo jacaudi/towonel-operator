@@ -47,9 +47,13 @@ tasks:
       - go build ./...
 
   test:
-    desc: Run tests with the race detector
+    desc: Run tests with the race detector (envtest assets via setup-envtest)
+    vars:
+      ENVTEST_K8S_VERSION: '1.33.0'
     cmds:
-      - go test -race ./...
+      - |
+        export KUBEBUILDER_ASSETS="$(go tool setup-envtest use {{.ENVTEST_K8S_VERSION}} -p path)"
+        go test -race ./...
 
   cover:
     desc: Run tests and print per-function coverage
