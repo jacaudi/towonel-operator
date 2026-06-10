@@ -89,6 +89,39 @@ func (r *TowonelTunnelReconciler) ensureInvite(ctx context.Context, tc *towonel.
 	return secret(resp.Token), nil
 }
 
+// convergeHostnames reconciles authorized hostnames to spec.extraHostnames.
+// status.authorizedHostnames is published from the API response bodies.
+func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel) error {
+	desired := dedupe(tt.Spec.ExtraHostnames)
+	observed := dedupe(tt.Status.AuthorizedHostnames)
+	cur := observed
+
+	var toAdd []string
+	for _, h := range desired {
+		if !slices.Contains(observed, h) {
+			toAdd = append(toAdd, h)
+		}
+	}
+	if len(toAdd) > 0 {
+		resp, err := tc.AddHostnames(ctx, tt.Status.InviteID, toAdd)
+		if err != nil {
+			return fmt.Errorf("add hostnames: %w", err)
+		}
+		cur = resp.Hostnames
+	}
+	for _, h := range observed {
+		if !slices.Contains(desired, h) {
+			resp, err := tc.RemoveHostname(ctx, tt.Status.InviteID, h)
+			if err != nil {
+				return fmt.Errorf("remove hostname %q: %w", h, err)
+			}
+			cur = resp.RemainingHostnames
+		}
+	}
+	tt.Status.AuthorizedHostnames = dedupe(cur)
+	return nil
+}
+
 func dedupe(in []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(in))

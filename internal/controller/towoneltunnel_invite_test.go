@@ -116,3 +116,28 @@ func TestEnsureInviteAdopts(t *testing.T) {
 		t.Errorf("adopt should seed hostnames: %v", tt.Status.AuthorizedHostnames)
 	}
 }
+
+func TestConvergeHostnames(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	r := &TowonelTunnelReconciler{}
+	tt := &towonelv1alpha1.TowonelTunnel{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"},
+		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example", "b.example"}},
+	}
+	if _, err := r.ensureInvite(t.Context(), tc, tt); err != nil { // creates with a,b; seeds observed
+		t.Fatal(err)
+	}
+	tt.Spec.ExtraHostnames = []string{"a.example", "c.example"} // drop b, add c
+	if err := r.convergeHostnames(t.Context(), tc, tt); err != nil {
+		t.Fatalf("converge: %v", err)
+	}
+	got := map[string]bool{}
+	for _, h := range tt.Status.AuthorizedHostnames {
+		got[h] = true
+	}
+	if !got["a.example"] || !got["c.example"] || got["b.example"] {
+		t.Errorf("authorized = %v, want {a,c}", tt.Status.AuthorizedHostnames)
+	}
+}
