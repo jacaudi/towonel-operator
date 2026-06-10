@@ -49,7 +49,7 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if err := r.Update(ctx, &tt); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	orig := tt.Status.DeepCopy()
@@ -89,6 +89,7 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.fail(ctx, &tt, orig, err)
 	}
 	if err := r.convergeHostnames(callCtx, tc, &tt); err != nil {
+		setCond(&tt, CondHostnamesSynced, metav1.ConditionFalse, ReasonAPIError, err.Error())
 		return r.fail(ctx, &tt, orig, err)
 	}
 	setCond(&tt, CondHostnamesSynced, metav1.ConditionTrue, ReasonSynced, "authorized hostnames converged")

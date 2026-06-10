@@ -62,6 +62,17 @@ func TestResolveAPIKey(t *testing.T) {
 	if err3 != nil || !halt3 {
 		t.Fatalf("no-creds: halt=%v err=%v (want halt,no err)", halt3, err3)
 	}
+
+	// Missing secret ref → halt (Ready=False/InvalidConfig), NOT a transient error.
+	ttMissing := &towonelv1alpha1.TowonelTunnel{
+		ObjectMeta: metav1.ObjectMeta{Name: "app2", Namespace: "net"},
+		Spec:       towonelv1alpha1.TowonelTunnelSpec{APIKeySecretRef: &towonelv1alpha1.SecretKeyRef{Name: "missing", Key: "token"}},
+	}
+	rMissing := &TowonelTunnelReconciler{Client: newFakeClient(t)} // no Secret registered
+	_, haltMissing, errMissing := rMissing.resolveAPIKey(t.Context(), ttMissing)
+	if errMissing != nil || !haltMissing {
+		t.Fatalf("missing-secret: halt=%v err=%v (want halt=true, err=nil)", haltMissing, errMissing)
+	}
 }
 
 func TestEnsureInviteCreates(t *testing.T) {
