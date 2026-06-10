@@ -218,6 +218,19 @@ spec:
                 type: string
               inviteId:
                 type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation most recently reconciled
+                  into status.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is a coarse, human-readable rollup of the Ready
+                  condition.
+                enum:
+                - Pending
+                - Ready
+                - Error
+                type: string
               portAllocations:
                 items:
                   description: PortAllocation is a reserved public TCP/UDP port for

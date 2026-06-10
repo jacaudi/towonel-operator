@@ -110,6 +110,13 @@ type TowonelTunnelStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// Phase is a coarse, human-readable rollup of the Ready condition.
+	// +kubebuilder:validation:Enum=Pending;Ready;Error
+	// +optional
+	Phase string `json:"phase,omitempty"`
+	// ObservedGeneration is the generation most recently reconciled into status.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
