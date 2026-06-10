@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -78,6 +79,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := controller.RegisterIndexes(context.Background(), mgr); err != nil {
+		setupLog.Error(err, "unable to register field indexes")
+		os.Exit(1)
+	}
+
 	if err := (&controller.TowonelTunnelReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
@@ -88,7 +94,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "TowonelTunnel")
 		os.Exit(1)
 	}
-	if err := (&controller.TowonelAgentReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.TowonelAgentReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("towonelagent"),
+	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TowonelAgent")
 		os.Exit(1)
 	}
