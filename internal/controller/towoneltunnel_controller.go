@@ -69,7 +69,7 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	callCtx, cancel := context.WithTimeout(ctx, hubCallTimeout)
 	defer cancel()
 	tc := towonel.NewClient(r.BaseURL, apiKey.Expose(), r.HTTPClient)
 

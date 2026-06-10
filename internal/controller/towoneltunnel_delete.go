@@ -27,7 +27,7 @@ func (r *TowonelTunnelReconciler) reconcileDelete(ctx context.Context, tt *towon
 		if halt {
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil // can't auth; keep finalizer
 		}
-		callCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		callCtx, cancel := context.WithTimeout(ctx, hubCallTimeout)
 		defer cancel()
 		tc := towonel.NewClient(r.BaseURL, apiKey.Expose(), r.HTTPClient)
 		if err := tc.DeleteInvite(callCtx, tt.Status.InviteID); err != nil {
