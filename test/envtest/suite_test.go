@@ -1,11 +1,14 @@
 package envtest_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -13,6 +16,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -23,6 +27,7 @@ var (
 	testEnv    *envtest.Environment
 	sharedCfg  *rest.Config
 	testScheme = runtime.NewScheme()
+	k8sClient  client.Client // initialized in TestMain after the env starts
 )
 
 func TestMain(m *testing.M) {
@@ -43,9 +48,26 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	sharedCfg = cfg
+	k8sClient, err = client.New(sharedCfg, client.Options{Scheme: testScheme})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "k8sClient init: %v\n", err)
+		os.Exit(1)
+	}
 	code := m.Run()
 	_ = testEnv.Stop()
 	os.Exit(code)
+}
+
+// mustNamespace creates a fresh namespace with a generated name and returns it.
+// The namespace is not cleaned up — envtest tears down the whole env after the
+// suite, so per-test isolation is achieved by using a distinct namespace per test.
+func mustNamespace(t *testing.T) string {
+	t.Helper()
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "src-test-"}}
+	if err := k8sClient.Create(context.Background(), ns); err != nil {
+		t.Fatal(err)
+	}
+	return ns.Name
 }
 
 // managerOptions returns ctrl.Options suitable for per-test managers.
