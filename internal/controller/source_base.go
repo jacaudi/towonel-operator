@@ -21,6 +21,11 @@ import (
 // (or carried) the towonel.io/tunnel annotation. This prevents the initial
 // LIST of all Services (including kube-system) from flooding the reconcile
 // queue and starving test-created Services under the race detector.
+//
+// Trade-off: if a source's towonel.io/tunnel annotation is removed while the
+// operator is DOWN, the restart cache-list excludes that object, so its stale
+// field-manager ownership on the agent is not released until the object is next
+// touched (e.g. any edit). Impact is low — a single edit repairs it.
 func sourcePredicate() predicate.Predicate {
 	hasAnnotation := func(obj client.Object) bool {
 		_, ok := obj.GetAnnotations()[AnnotationTunnel]
@@ -75,7 +80,7 @@ func (b *sourceBase) applyContribution(
 	case modeSkip:
 		return reconcile.Result{}, releaseFromOtherAgents(ctx, c, fieldMgr, nil)
 	case modeObserve:
-		b.observeUserAgent(emit, src, target, tunnel, rt)
+		b.observeUserAgent(emit, target, tunnel, rt)
 		return reconcile.Result{}, releaseFromOtherAgents(ctx, c, fieldMgr, nil)
 	}
 
@@ -149,7 +154,7 @@ func (b *sourceBase) releaseEverywhere(ctx context.Context, apiReader client.Rea
 
 // observeUserAgent validates a user-owned agent-ref target WITHOUT mutating it
 // (design §3.2): wrong tunnel, or hostnames the user agent does not serve.
-func (b *sourceBase) observeUserAgent(emit func(reason, msg string), src client.Object, target *towonelv1alpha1.TowonelAgent, tunnel types.NamespacedName, rt routing) {
+func (b *sourceBase) observeUserAgent(emit func(reason, msg string), target *towonelv1alpha1.TowonelAgent, tunnel types.NamespacedName, rt routing) {
 	if resolvedTunnelRef(target) != tunnel {
 		emit(ReasonObserveOnly, fmt.Sprintf("agent-ref %q references tunnel %s, not %s; operator is observe-only and will not modify it", target.Name, resolvedTunnelRef(target), tunnel))
 		return

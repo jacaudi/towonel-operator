@@ -24,7 +24,7 @@ func TestObserveUserAgentWarnsOnUnservedHostname(t *testing.T) {
 	src := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "svc"}}
 	rt := routing{services: []map[string]any{{"hostname": "x.example", "origin": "x:1"}}}
 	b.observeUserAgent(func(r, m string) { b.dedupe.emit(b.recorder, src, corev1.EventTypeWarning, r, m) },
-		src, user, types.NamespacedName{Namespace: "net", Name: "app"}, rt)
+		user, types.NamespacedName{Namespace: "net", Name: "app"}, rt)
 	select {
 	case ev := <-rec.Events:
 		if ev == "" {

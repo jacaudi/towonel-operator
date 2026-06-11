@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gwv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
@@ -21,6 +22,7 @@ func srcScheme(t *testing.T) *runtime.Scheme {
 	}
 	_ = corev1.AddToScheme(s)
 	_ = gwv1.Install(s)
+	_ = gwv1beta1.Install(s)
 	return s
 }
 

@@ -35,30 +35,30 @@ type HTTPRouteSourceReconciler struct {
 
 func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.ensure(r.Recorder)
-	var rt_obj gwv1.HTTPRoute
-	if err := r.Get(ctx, req.NamespacedName, &rt_obj); err != nil {
+	var rtObj gwv1.HTTPRoute
+	if err := r.Get(ctx, req.NamespacedName, &rtObj); err != nil {
 		if apierrors.IsNotFound(err) {
 			return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "HTTPRoute", req.Namespace, req.Name))
 		}
 		return ctrl.Result{}, err
 	}
-	if enabled, _ := ParseTruthy(rt_obj.Annotations[AnnotationTunnel]); !enabled {
-		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "HTTPRoute", rt_obj.Namespace, rt_obj.Name))
+	if enabled, _ := ParseTruthy(rtObj.Annotations[AnnotationTunnel]); !enabled {
+		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "HTTPRoute", rtObj.Namespace, rtObj.Name))
 	}
-	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &rt_obj, corev1.EventTypeWarning, reason, msg) }
-	tunnel, err := parseTunnelRef(rt_obj.Annotations[AnnotationTunnelRef], rt_obj.Namespace)
+	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &rtObj, corev1.EventTypeWarning, reason, msg) }
+	tunnel, err := parseTunnelRef(rtObj.Annotations[AnnotationTunnelRef], rtObj.Namespace)
 	if err != nil {
 		emit(ReasonTunnelRefMissing, err.Error())
 		return ctrl.Result{}, nil
 	}
-	rt, ok, derr := r.deriveHTTPRouteRouting(ctx, &rt_obj, emit)
+	rt, ok, derr := r.deriveHTTPRouteRouting(ctx, &rtObj, emit)
 	if derr != nil {
 		return ctrl.Result{}, derr // transient (e.g. ReferenceGrant list failed) — requeue
 	}
 	if !ok {
 		return ctrl.Result{}, nil
 	}
-	return r.applyContribution(ctx, r.Client, r.AgentNamespace, "HTTPRoute", &rt_obj, tunnel, rt_obj.Annotations[AnnotationAgentRef], rt)
+	return r.applyContribution(ctx, r.Client, r.AgentNamespace, "HTTPRoute", &rtObj, tunnel, rtObj.Annotations[AnnotationAgentRef], rt)
 }
 
 type backendRef struct {
@@ -69,15 +69,15 @@ type backendRef struct {
 // deriveHTTPRouteRouting returns (routing, ok, error). A non-nil error is
 // transient (a List/Get failure) and is threaded up so Reconcile requeues; ok
 // is false WITH a nil error when an Event was emitted (not retryable).
-func (r *HTTPRouteSourceReconciler) deriveHTTPRouteRouting(ctx context.Context, rt_obj *gwv1.HTTPRoute, emit func(string, string)) (routing, bool, error) {
+func (r *HTTPRouteSourceReconciler) deriveHTTPRouteRouting(ctx context.Context, rtObj *gwv1.HTTPRoute, emit func(string, string)) (routing, bool, error) {
 	seen := map[backendRef]struct{}{}
-	for _, rule := range rt_obj.Spec.Rules {
+	for _, rule := range rtObj.Spec.Rules {
 		for _, b := range rule.BackendRefs {
 			if b.Kind != nil && *b.Kind != "Service" {
 				emit(ReasonInvalidAnnotation, fmt.Sprintf("backendRef kind %q is not Service; skipped", *b.Kind))
 				continue
 			}
-			ns := rt_obj.Namespace
+			ns := rtObj.Namespace
 			if b.Namespace != nil {
 				ns = string(*b.Namespace)
 			}
@@ -100,8 +100,8 @@ func (r *HTTPRouteSourceReconciler) deriveHTTPRouteRouting(ctx context.Context, 
 	for b := range seen {
 		only = b
 	}
-	if only.ns != rt_obj.Namespace {
-		allowed, err := referenceGrantAllows(ctx, r.Client, only.ns, rt_obj.Namespace, only.name)
+	if only.ns != rtObj.Namespace {
+		allowed, err := referenceGrantAllows(ctx, r.Client, only.ns, rtObj.Namespace, only.name)
 		if err != nil {
 			return routing{}, false, err // transient — requeue
 		}
@@ -128,7 +128,7 @@ func (r *HTTPRouteSourceReconciler) deriveHTTPRouteRouting(ctx context.Context, 
 	}
 	origin := originOf(svc.Spec.ClusterIP, port)
 	var out routing
-	for _, h := range rt_obj.Spec.Hostnames {
+	for _, h := range rtObj.Spec.Hostnames {
 		out.services = append(out.services, map[string]any{"hostname": string(h), "origin": origin})
 	}
 	if out.empty() {
