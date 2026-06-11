@@ -73,6 +73,8 @@ type WorkloadSpec struct {
 // TowonelAgentSpec defines the desired agent (routing + workload).
 type TowonelAgentSpec struct {
 	TunnelRef TunnelReference `json:"tunnelRef"`
+	// +listType=map
+	// +listMapKey=hostname
 	// +optional
 	Services []AgentService `json:"services,omitempty"`
 	// +listType=map

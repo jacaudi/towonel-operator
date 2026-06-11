@@ -94,6 +94,9 @@ spec:
                   - origin
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - hostname
+                x-kubernetes-list-type: map
               tcp:
                 items:
                   description: AgentL4Service is a raw TCP/UDP service (origin host:port).
