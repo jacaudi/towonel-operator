@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
@@ -19,6 +20,7 @@ import (
 // backend Service (design §4.1, direct-to-backend).
 type HTTPRouteSourceReconciler struct {
 	client.Client
+	APIReader      client.Reader // uncached; used for authoritative GC-decision reads
 	Scheme         *runtime.Scheme
 	Recorder       record.EventRecorder
 	AgentNamespace string
@@ -36,12 +38,12 @@ func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	var rt_obj gwv1.HTTPRoute
 	if err := r.Get(ctx, req.NamespacedName, &rt_obj); err != nil {
 		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, r.releaseEverywhere(ctx, r.Client, "HTTPRoute", req.Namespace, req.Name)
+			return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "HTTPRoute", req.Namespace, req.Name))
 		}
 		return ctrl.Result{}, err
 	}
 	if enabled, _ := ParseTruthy(rt_obj.Annotations[AnnotationTunnel]); !enabled {
-		return ctrl.Result{}, r.releaseEverywhere(ctx, r.Client, "HTTPRoute", rt_obj.Namespace, rt_obj.Name)
+		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "HTTPRoute", rt_obj.Namespace, rt_obj.Name))
 	}
 	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &rt_obj, corev1.EventTypeWarning, reason, msg) }
 	tunnel, err := parseTunnelRef(rt_obj.Annotations[AnnotationTunnelRef], rt_obj.Namespace)
@@ -169,7 +171,7 @@ func referenceGrantAllows(ctx context.Context, c client.Client, backendNS, route
 
 func (r *HTTPRouteSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&gwv1.HTTPRoute{}).
+		For(&gwv1.HTTPRoute{}, builder.WithPredicates(sourcePredicate())).
 		Named("httproute-source").
 		Complete(r)
 }

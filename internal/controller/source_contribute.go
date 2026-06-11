@@ -142,10 +142,13 @@ func hasSourceManager(obj managedObject) bool {
 }
 
 // orphanGCIfEmpty deletes an auto-created agent with no routing AND no source
-// manager. Re-Gets to avoid a stale-read delete-then-recreate race (design §5).
-func orphanGCIfEmpty(ctx context.Context, c client.Client, nn types.NamespacedName) error {
+// manager. The GC-decision Get uses r (an uncached API reader) so the decision
+// is authoritative — the cached client lags SSA writes by some milliseconds and
+// can return a stale, pre-release view that skips the delete. The actual Delete
+// stays on c (the normal cached client writer).
+func orphanGCIfEmpty(ctx context.Context, r client.Reader, c client.Client, nn types.NamespacedName) error {
 	var ta towonelv1alpha1.TowonelAgent
-	if err := c.Get(ctx, nn, &ta); err != nil {
+	if err := r.Get(ctx, nn, &ta); err != nil {
 		return client.IgnoreNotFound(err)
 	}
 	if ta.Annotations[AnnotationAutoCreated] != "true" {

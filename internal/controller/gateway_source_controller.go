@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -20,6 +21,7 @@ import (
 // Service (design §4.1, forward-to-proxy).
 type GatewaySourceReconciler struct {
 	client.Client
+	APIReader      client.Reader // uncached; used for authoritative GC-decision reads
 	Scheme         *runtime.Scheme
 	Recorder       record.EventRecorder
 	AgentNamespace string
@@ -36,12 +38,12 @@ func (r *GatewaySourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	var gw gwv1.Gateway
 	if err := r.Get(ctx, req.NamespacedName, &gw); err != nil {
 		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, r.releaseEverywhere(ctx, r.Client, "Gateway", req.Namespace, req.Name)
+			return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "Gateway", req.Namespace, req.Name))
 		}
 		return ctrl.Result{}, err
 	}
 	if enabled, _ := ParseTruthy(gw.Annotations[AnnotationTunnel]); !enabled {
-		return ctrl.Result{}, r.releaseEverywhere(ctx, r.Client, "Gateway", gw.Namespace, gw.Name)
+		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "Gateway", gw.Namespace, gw.Name))
 	}
 	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &gw, corev1.EventTypeWarning, reason, msg) }
 	tunnel, err := parseTunnelRef(gw.Annotations[AnnotationTunnelRef], gw.Namespace)
@@ -118,7 +120,7 @@ func deriveGatewayRouting(ctx context.Context, c client.Client, gw *gwv1.Gateway
 
 func (r *GatewaySourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&gwv1.Gateway{}).
+		For(&gwv1.Gateway{}, builder.WithPredicates(sourcePredicate())).
 		Named("gateway-source").
 		Complete(r)
 }

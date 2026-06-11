@@ -11,12 +11,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ServiceSourceReconciler emits routing from annotated Services (design §4.1).
 type ServiceSourceReconciler struct {
 	client.Client
+	APIReader      client.Reader // uncached; used for authoritative GC-decision reads
 	Scheme         *runtime.Scheme
 	Recorder       record.EventRecorder
 	AgentNamespace string // "" => tunnel's namespace
@@ -32,12 +34,12 @@ func (r *ServiceSourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	var svc corev1.Service
 	if err := r.Get(ctx, req.NamespacedName, &svc); err != nil {
 		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, r.releaseEverywhere(ctx, r.Client, "Service", req.Namespace, req.Name)
+			return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "Service", req.Namespace, req.Name))
 		}
 		return ctrl.Result{}, err
 	}
 	if enabled, _ := ParseTruthy(svc.Annotations[AnnotationTunnel]); !enabled {
-		return ctrl.Result{}, r.releaseEverywhere(ctx, r.Client, "Service", svc.Namespace, svc.Name)
+		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "Service", svc.Namespace, svc.Name))
 	}
 	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &svc, corev1.EventTypeWarning, reason, msg) }
 	tunnel, err := parseTunnelRef(svc.Annotations[AnnotationTunnelRef], svc.Namespace)
@@ -50,7 +52,7 @@ func (r *ServiceSourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil // derive emitted an Event; never prune on this path
 	}
 	if rt.empty() {
-		return ctrl.Result{}, r.releaseEverywhere(ctx, r.Client, "Service", svc.Namespace, svc.Name)
+		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "Service", svc.Namespace, svc.Name))
 	}
 	return r.applyContribution(ctx, r.Client, r.AgentNamespace, "Service", &svc, tunnel, svc.Annotations[AnnotationAgentRef], rt)
 }
@@ -177,7 +179,7 @@ func (r *ServiceSourceReconciler) applyPublicPorts(ann map[string]string, rt *ro
 
 func (r *ServiceSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.Service{}).
+		For(&corev1.Service{}, builder.WithPredicates(sourcePredicate())).
 		Named("service-source").
 		Complete(r)
 }

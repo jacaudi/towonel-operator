@@ -10,10 +10,29 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
+
+// sourcePredicate returns a predicate that filters events to objects that carry
+// (or carried) the towonel.io/tunnel annotation. This prevents the initial
+// LIST of all Services (including kube-system) from flooding the reconcile
+// queue and starving test-created Services under the race detector.
+func sourcePredicate() predicate.Predicate {
+	hasAnnotation := func(obj client.Object) bool {
+		_, ok := obj.GetAnnotations()[AnnotationTunnel]
+		return ok
+	}
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return hasAnnotation(e.Object) },
+		UpdateFunc:  func(e event.UpdateEvent) bool { return hasAnnotation(e.ObjectOld) || hasAnnotation(e.ObjectNew) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return hasAnnotation(e.Object) },
+		GenericFunc: func(e event.GenericEvent) bool { return hasAnnotation(e.Object) },
+	}
+}
 
 // sourceBase carries the shared recorder/dedupe + the contribute orchestration
 // used by all three source controllers. Embedded by value; lazy-init via once.
@@ -74,18 +93,35 @@ func (b *sourceBase) applyContribution(
 		return reconcile.Result{}, err
 	}
 	b.adviseIfMultipleAgents(ctx, c, emit, tunnel, targetNN)
-	if err := orphanGCIfEmpty(ctx, c, targetNN); err != nil {
-		if errors.Is(err, errOrphanInFlight) {
-			return reconcile.Result{RequeueAfter: waitingRequeue}, nil
-		}
-		return reconcile.Result{}, err
-	}
+	// No orphan-GC on this path. The contribute just made the agent non-empty,
+	// so it can never legitimately be empty here — and re-reading the manager's
+	// CACHED client immediately after the SSA write can return a stale,
+	// pre-write view (empty services, source field-manager not yet visible),
+	// which would wrongly DELETE the freshly-contributed agent. Orphan-GC of an
+	// emptied auto-created agent runs only on the opt-out/delete path
+	// (releaseEverywhere), where the agent genuinely becomes empty.
 	return reconcile.Result{}, nil
+}
+
+// releaseResult converts a releaseEverywhere error into the appropriate
+// reconcile result: requeue after waitingRequeue when GC is in-flight,
+// otherwise propagate the error (or nil).
+func releaseResult(err error) (reconcile.Result, error) {
+	if errors.Is(err, errOrphanInFlight) {
+		return reconcile.Result{RequeueAfter: waitingRequeue}, nil
+	}
+	return reconcile.Result{}, err
 }
 
 // releaseEverywhere drops this source's ownership cluster-wide and GCs any
 // now-empty auto-created agent. Used on opt-out / object deletion.
-func (b *sourceBase) releaseEverywhere(ctx context.Context, c client.Client, kind, srcNS, srcName string) error {
+// apiReader is an uncached API reader (mgr.GetAPIReader()) used exclusively for
+// the GC-decision Get inside orphanGCIfEmpty — the cached client lags SSA
+// writes and would skip the delete on a stale view.
+// Returns errOrphanInFlight when a GC candidate exists but a source-manager
+// apply is still in flight (cache hasn't reflected the release yet); callers
+// should requeue so the GC can be retried on the next reconcile.
+func (b *sourceBase) releaseEverywhere(ctx context.Context, apiReader client.Reader, c client.Client, kind, srcNS, srcName string) error {
 	fieldMgr := srcFieldManager(kind, srcNS, srcName)
 	if err := releaseFromOtherAgents(ctx, c, fieldMgr, nil); err != nil {
 		return err
@@ -94,11 +130,19 @@ func (b *sourceBase) releaseEverywhere(ctx context.Context, c client.Client, kin
 	if err := c.List(ctx, &list, client.MatchingLabels{LabelManagedBy: ManagedByValue}); err != nil {
 		return err
 	}
+	inFlight := false
 	for i := range list.Items {
 		nn := types.NamespacedName{Namespace: list.Items[i].Namespace, Name: list.Items[i].Name}
-		if err := orphanGCIfEmpty(ctx, c, nn); err != nil && !errors.Is(err, errOrphanInFlight) {
+		if err := orphanGCIfEmpty(ctx, apiReader, c, nn); err != nil {
+			if errors.Is(err, errOrphanInFlight) {
+				inFlight = true // retry on next reconcile
+				continue
+			}
 			return err
 		}
+	}
+	if inFlight {
+		return errOrphanInFlight
 	}
 	return nil
 }
