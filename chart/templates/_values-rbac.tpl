@@ -21,7 +21,16 @@ rbac:
         - apiGroups:
             - ""
           resources:
+            - nodes
+          verbs:
+            - get
+            - list
+            - watch
+        - apiGroups:
+            - ""
+          resources:
             - secrets
+            - serviceaccounts
             - services
           verbs:
             - create
@@ -52,6 +61,37 @@ rbac:
           verbs:
             - get
             - list
+            - watch
+        - apiGroups:
+            - rbac.authorization.k8s.io
+          resources:
+            - clusterrolebindings
+          verbs:
+            - get
+            - list
+            - patch
+            - update
+            - watch
+        - apiGroups:
+            - rbac.authorization.k8s.io
+          resources:
+            - clusterroles
+          verbs:
+            - get
+            - list
+            - watch
+        - apiGroups:
+            - rbac.authorization.k8s.io
+          resources:
+            - rolebindings
+            - roles
+          verbs:
+            - create
+            - delete
+            - get
+            - list
+            - patch
+            - update
             - watch
         - apiGroups:
             - towonel.io

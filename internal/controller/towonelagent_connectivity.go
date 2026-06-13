@@ -232,3 +232,45 @@ func subjectsEqual(a, b []rbacv1.Subject) bool {
 	}
 	return true
 }
+
+// ensureConnectivity applies the agent's direct-path objects (design §5/§9):
+//   - the agent ServiceAccount ALWAYS (so the pod never runs as default);
+//   - when autodiscover is valid: the UDP NodePort Service + services Role/RoleBinding;
+//   - otherwise: prune any previously-created Service/Role/RoleBinding;
+//   - always: recompute the shared node-reader binding subjects.
+//
+// Returns shellMissing for the IrohConnectivityReady projection. An invalid
+// (skipped) plan is NOT an error.
+func (r *TowonelAgentReconciler) ensureConnectivity(ctx context.Context, ta *towonelv1alpha1.TowonelAgent, p connectivityPlan) (shellMissing bool, err error) {
+	if err := r.applyOwned(ctx, ta, buildServiceAccount(ta)); err != nil {
+		return false, err
+	}
+
+	svcNN := types.NamespacedName{Namespace: ta.Namespace, Name: nodePortServiceName(ta)}
+	roleNN := types.NamespacedName{Namespace: ta.Namespace, Name: servicesReaderName(ta.Name)}
+	if p.autodiscover {
+		if err := r.applyOwned(ctx, ta, buildNodePortService(ta, p)); err != nil {
+			return false, err
+		}
+		role, rb := buildServicesRBAC(ta)
+		if err := r.applyOwned(ctx, ta, role); err != nil {
+			return false, err
+		}
+		if err := r.applyOwned(ctx, ta, rb); err != nil {
+			return false, err
+		}
+	} else {
+		// prune-after (design §5.5): only delete what we may have created.
+		if err := r.deleteOwnedIfExists(ctx, &corev1.Service{}, svcNN); err != nil {
+			return false, err
+		}
+		if err := r.deleteOwnedIfExists(ctx, &rbacv1.RoleBinding{}, roleNN); err != nil {
+			return false, err
+		}
+		if err := r.deleteOwnedIfExists(ctx, &rbacv1.Role{}, roleNN); err != nil {
+			return false, err
+		}
+	}
+
+	return r.reconcileNodeReaderSubjects(ctx)
+}
