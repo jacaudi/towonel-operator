@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -155,11 +156,21 @@ func (r *TowonelAgentReconciler) applyOwned(ctx context.Context, ta *towonelv1al
 	return nil
 }
 
-// deleteOwnedIfExists deletes an owned object by name, tolerating NotFound (prune-after).
-func (r *TowonelAgentReconciler) deleteOwnedIfExists(ctx context.Context, obj client.Object, nn types.NamespacedName) error {
-	obj.SetName(nn.Name)
-	obj.SetNamespace(nn.Namespace)
-	if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+// deleteOwnedIfExists prunes an agent-owned object by name (design §5.5): it
+// deletes only when the live object is controller-owned by this agent, with an
+// RV precondition, tolerating NotFound and Conflict (a concurrent change just
+// re-reconciles). Never deletes a foreign object that happens to share the name.
+func (r *TowonelAgentReconciler) deleteOwnedIfExists(ctx context.Context, ta *towonelv1alpha1.TowonelAgent, obj client.Object, nn types.NamespacedName) error {
+	if err := r.Get(ctx, nn, obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get %T %s for prune: %w", obj, nn, err)
+	}
+	if !metav1.IsControlledBy(obj, ta) {
+		return nil // not ours — never steal/delete a foreign object
+	}
+	if err := r.Delete(ctx, obj, client.Preconditions{ResourceVersion: ptr.To(obj.GetResourceVersion())}); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
 		return fmt.Errorf("delete %T %s: %w", obj, nn, err)
 	}
 	return nil
@@ -261,13 +272,23 @@ func (r *TowonelAgentReconciler) ensureConnectivity(ctx context.Context, ta *tow
 		}
 	} else {
 		// prune-after (design §5.5): only delete what we may have created.
-		if err := r.deleteOwnedIfExists(ctx, &corev1.Service{}, svcNN); err != nil {
+		//
+		// Edge: svcNN is derived from nodePortServiceName(ta), which reads
+		// ta.Spec.Connectivity.NodePort.Name (defaulting to "<agent>-iroh").
+		// If the agent was previously created with a custom NodePort.Name and
+		// the entire connectivity block is then cleared, svcNN resolves to the
+		// default name and the custom-named Service is missed here — it lingers
+		// until the agent is deleted, at which point ownerRef GC reclaims it.
+		// This is intentional: the GC backstop is an acceptable safety net and
+		// a label-sweep would add complexity without meaningfully shortening the
+		// window (KISS).
+		if err := r.deleteOwnedIfExists(ctx, ta, &corev1.Service{}, svcNN); err != nil {
 			return false, err
 		}
-		if err := r.deleteOwnedIfExists(ctx, &rbacv1.RoleBinding{}, roleNN); err != nil {
+		if err := r.deleteOwnedIfExists(ctx, ta, &rbacv1.RoleBinding{}, roleNN); err != nil {
 			return false, err
 		}
-		if err := r.deleteOwnedIfExists(ctx, &rbacv1.Role{}, roleNN); err != nil {
+		if err := r.deleteOwnedIfExists(ctx, ta, &rbacv1.Role{}, roleNN); err != nil {
 			return false, err
 		}
 	}
