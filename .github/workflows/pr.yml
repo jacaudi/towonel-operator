@@ -14,8 +14,9 @@ permissions:
   contents: read
 
 jobs:
-  validate:
-    name: task ci (build/vet/fmt/-race envtest/helm-lint/drift)
+  # Job id is 'ci' so the produced status context stays 'ci', matching the
+  # existing branch-protection required check (no protection change needed).
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
