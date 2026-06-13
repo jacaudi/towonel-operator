@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.1](https://github.com/jacaudi/towonel-operator/compare/v1.0.0...v1.0.1) (2026-06-13)
+### Bug Fixes
+
+* **controller:** pin default agent image to a tag + Renovate auto-update ([#9](https://github.com/jacaudi/towonel-operator/issues/9)) ([fde816e](https://github.com/jacaudi/towonel-operator/commit/fde816ec03a8ff014da1309b92c7c5ed1c8dfee5))
+
 ## 1.0.0 (2026-06-13)
 ### Features
 
