@@ -62,7 +62,10 @@ const (
 	// hubCallTimeout bounds each Towonel hub call/step (design §3.1).
 	hubCallTimeout = 20 * time.Second
 
-	defaultAgentImage = "codeberg.org/towonel/towonel-agent:latest"
+	// defaultAgentImage is used when a TowonelAgent leaves spec.workload.image unset.
+	// Pinned to a tag (never :latest) for reproducible rollouts; Renovate bumps it as
+	// upstream tags new releases (see .github/renovate.json customManagers).
+	defaultAgentImage = "codeberg.org/towonel/towonel-agent:0.1.32"
 	agentHealthAddr   = "0.0.0.0:9090"
 	agentHealthPort   = 9090
 
