@@ -11,19 +11,24 @@ metadata:
   name: app-dr            # disaster-recovery / secondary site
   namespace: selfhosted
 spec:
-  tunnelRef: {name: app, namespace: network}   # SAME tunnel as 02-agent.yaml
+  tunnelRef:                                    # SAME tunnel as 02-agent.yaml
+    name: app
+    namespace: network
   services:
-    - hostname: app.towonel.dev                 # SAME hostname (failover, not a new route)
+    - hostname: app.domain.dev                 # SAME hostname (failover, not a new route)
       origin: app.dr.svc:8080                   # reachable from THIS placement
       tlsMode: passthrough
   tcp:
     - name: app-ssh
       origin: 10.20.10.5:22                     # DR-site origin for the same service
       preferredPort: 20022                       # same public port (one reservation, shared)
-      hostname: ssh.towonel.dev
+      hostname: ssh.domain.dev
   workload:
     replicas: 1
-    image: codeberg.org/towonel/towonel-agent:latest
+    image: codeberg.org/towonel/towonel-agent:0.1.32
     resources:
-      requests: {cpu: 25m, memory: 64Mi}
-      limits:   {memory: 128Mi}
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
