@@ -87,6 +87,24 @@ func (r *TowonelAgentReconciler) writeStatus(ctx context.Context, ta *towonelv1a
 	return r.Status().Update(ctx, ta)
 }
 
+// setConnectivityCond sets IrohConnectivityReady (design §8). It is deliberately
+// NOT part of the rollupAgentStatus allTrue set — connectivity is optional and
+// must never gate phase Ready. Absent when connectivity is unrequested and there
+// is nothing to report.
+func setConnectivityCond(ta *towonelv1alpha1.TowonelAgent, p connectivityPlan, requested, shellMissing bool) {
+	switch {
+	case p.skipped:
+		setAgentCond(ta, CondIrohConnectivityReady, metav1.ConditionFalse, ReasonConnectivitySkipped, p.skipReason)
+	case shellMissing:
+		setAgentCond(ta, CondIrohConnectivityReady, metav1.ConditionFalse, ReasonNodeRBACShellMissing,
+			"chart node-RBAC shell missing; enable agentNodeRBAC.create in the chart")
+	case !requested:
+		meta.RemoveStatusCondition(&ta.Status.Conditions, CondIrohConnectivityReady)
+	default:
+		setAgentCond(ta, CondIrohConnectivityReady, metav1.ConditionTrue, ReasonConnectivityReady, "direct-path connectivity applied")
+	}
+}
+
 // fail sets ConfigRendered=False and persists status defensively.
 // ReasonReconciling, not APIError: this controller makes zero hub calls —
 // errors here are kube-API/render failures.

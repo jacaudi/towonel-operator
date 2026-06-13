@@ -96,3 +96,26 @@ func TestAgentPhaseWaitingForTunnel(t *testing.T) {
 		t.Errorf("phase = %s", ta.Status.Phase)
 	}
 }
+
+func TestConnectivityCondDoesNotGateReady(t *testing.T) {
+	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "n"}}
+	setAgentCond(ta, CondTunnelReady, metav1.ConditionTrue, ReasonReady, "")
+	setAgentCond(ta, CondConfigRendered, metav1.ConditionTrue, ReasonRendered, "")
+	dep := &appsv1.Deployment{Status: appsv1.DeploymentStatus{Conditions: []appsv1.DeploymentCondition{{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue}}}}
+	rollupAgentStatus(ta, agentConfig{}, dep)
+	setConnectivityCond(ta, connectivityPlan{skipped: true, skipReason: "bad"}, false, false)
+	if ta.Status.Phase != "Ready" {
+		t.Errorf("phase = %q; IrohConnectivityReady must not gate Ready", ta.Status.Phase)
+	}
+	if !meta.IsStatusConditionPresentAndEqual(ta.Status.Conditions, CondIrohConnectivityReady, metav1.ConditionFalse) {
+		t.Error("IrohConnectivityReady should be False (skipped)")
+	}
+}
+
+func TestConnectivityCondAbsentWhenUnrequested(t *testing.T) {
+	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "n"}}
+	setConnectivityCond(ta, connectivityPlan{}, false, false) // nothing requested
+	if meta.FindStatusCondition(ta.Status.Conditions, CondIrohConnectivityReady) != nil {
+		t.Error("condition must be absent when connectivity is unrequested")
+	}
+}
