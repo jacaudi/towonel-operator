@@ -39,10 +39,12 @@ kubectl create namespace towonel-system
 kubectl create secret generic towonel-api -n towonel-system --from-literal=token='twk_xxx'
 
 helm install towonel-operator \
-  oci://ghcr.io/jacaudi/charts/towonel-operator --version 1.0.0 \
+  oci://ghcr.io/jacaudi/charts/towonel-operator --version <version> \
   --namespace towonel-system \
   --set credentials.existingSecret=towonel-api
 ```
+
+Replace `<version>` with the chart version you want — use the [latest release](https://github.com/jacaudi/towonel-operator/releases) (currently `v1.0.1`).
 
 **2. Create a tunnel** (the control plane — provisions the Towonel invite + token):
 
