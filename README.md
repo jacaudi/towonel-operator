@@ -101,7 +101,7 @@ Full docs live in [`docs/`](docs/):
   [bjw-s `app-template`](https://github.com/bjw-s-labs/helm-charts) common library, which does the
   heavy lifting of rendering the controller Deployment, RBAC, service account, and service. Thank you
   for an excellent, reusable chart foundation.
-- **[Emmanuel Leboucher (eleboucher)](https://github.com/eleboucher)** — the creator of
+- **[Erwan Leboucher (eleboucher)](https://github.com/eleboucher)** — the creator of
   [Towonel](https://towonel.dev) itself ([codeberg](https://codeberg.org/towonel/towonel) ·
   [github](https://github.com/eleboucher/towonel)). This operator only automates the client side;
   Towonel — the hub, edges, and agent — is his work. Thank you for building it.
