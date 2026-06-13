@@ -37,17 +37,29 @@ type AgentL4Service struct {
 
 // NodePortSpec controls an optional UDP NodePort Service for iroh direct-path.
 type NodePortSpec struct {
+	// Create makes the operator create+own a UDP NodePort Service for the agent.
 	// +optional
 	Create bool `json:"create,omitempty"`
+	// Name overrides the created Service's name (default: "<agent>-iroh").
 	// +optional
 	Name string `json:"name,omitempty"`
+	// Port pins the external node port for stable firewall/NAT-forward rules.
+	// Omitted (0) -> Kubernetes auto-assigns; the agent reads whatever port exists.
+	// Ignored when Create is false.
+	// +optional
+	// +kubebuilder:validation:Minimum=30000
+	// +kubebuilder:validation:Maximum=32767
+	Port int32 `json:"port,omitempty"`
 }
 
 // ConnectivitySpec is the optional direct-path (NAT-traversal) optimization.
 type ConnectivitySpec struct {
 	// +optional
 	Autodiscover bool `json:"autodiscover,omitempty"`
+	// IrohPort pins the agent's bound UDP port (TOWONEL_AGENT_IROH_PORT).
+	// Required when nodePort.create is true.
 	// +optional
+	// +kubebuilder:validation:Maximum=65535
 	IrohPort int32 `json:"irohPort,omitempty"`
 	// +optional
 	ExtraLocalAddrs []string `json:"extraLocalAddrs,omitempty"`

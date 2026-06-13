@@ -62,16 +62,33 @@ spec:
                       type: string
                     type: array
                   irohPort:
+                    description: |-
+                      IrohPort pins the agent's bound UDP port (TOWONEL_AGENT_IROH_PORT).
+                      Required when nodePort.create is true.
                     format: int32
+                    maximum: 65535
                     type: integer
                   nodePort:
                     description: NodePortSpec controls an optional UDP NodePort Service
                       for iroh direct-path.
                     properties:
                       create:
+                        description: Create makes the operator create+own a UDP NodePort
+                          Service for the agent.
                         type: boolean
                       name:
+                        description: 'Name overrides the created Service''s name (default:
+                          "<agent>-iroh").'
                         type: string
+                      port:
+                        description: |-
+                          Port pins the external node port for stable firewall/NAT-forward rules.
+                          Omitted (0) -> Kubernetes auto-assigns; the agent reads whatever port exists.
+                          Ignored when Create is false.
+                        format: int32
+                        maximum: 32767
+                        minimum: 30000
+                        type: integer
                     type: object
                 type: object
               relayUrl:
