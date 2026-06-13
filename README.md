@@ -29,7 +29,7 @@ You can author those resources directly, or annotate a `Service`, `Gateway`, or
 
 ## Quickstart
 
-**Prerequisites:** a Towonel account + a personal API key (`twk_…`), and a Kubernetes
+**Prerequisites:** a Towonel account + a personal API key, and a Kubernetes
 cluster. (Full prerequisites and chart values: [`docs/installation.md`](docs/installation.md).)
 
 **1. Install the operator** (Helm, OCI chart on GHCR):
@@ -54,7 +54,9 @@ metadata:
   namespace: towonel-system
 spec:
   region: EU
-  apiKeySecretRef: { name: towonel-api, key: token }
+  apiKeySecretRef:
+    name: towonel-api
+    key: token
   deletionPolicy: Retain
 ```
 
@@ -71,8 +73,12 @@ metadata:
     towonel.io/tunnel-ref: towonel-system/app
     towonel.io/hostname: grafana.example.com
 spec:
-  selector: { app.kubernetes.io/name: grafana }
-  ports: [{ name: http, port: 3000, targetPort: 3000 }]
+  selector:
+    app.kubernetes.io/name: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
 ```
 
 …or author a `TowonelAgent` directly for full control (HTTPS + raw TCP/UDP, failover,
@@ -100,11 +106,12 @@ Full docs live in [`docs/`](docs/):
 - **[Bernd Schorgers (bjw-s)](https://github.com/bjw-s)** — this operator's Helm chart is built on
   the [bjw-s `app-template`](https://github.com/bjw-s-labs/helm-charts) common library, which does the
   heavy lifting of rendering the controller Deployment, RBAC, service account, and service. Thank you
-  for an excellent, reusable chart foundation.
+  for an excellent, reusable chart!
 - **[Erwan Leboucher (eleboucher)](https://github.com/eleboucher)** — the creator of
   [Towonel](https://towonel.dev) itself ([codeberg](https://codeberg.org/towonel/towonel) ·
   [github](https://github.com/eleboucher/towonel)). This operator only automates the client side;
-  Towonel — the hub, edges, and agent — is his work. Thank you for building it.
+  Towonel — the hub, edges, and agent — is his work. Thank you for creating a self-hosted
+  Cloudflare Tunnel replacement!
 
 ## License
 

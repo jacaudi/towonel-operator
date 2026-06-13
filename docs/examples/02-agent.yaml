@@ -7,7 +7,9 @@ metadata:
   name: app-primary
   namespace: selfhosted
 spec:
-  tunnelRef: {name: app, namespace: network}
+  tunnelRef:
+    name: app
+    namespace: network
 
   services:                              # → TOWONEL_AGENT_SERVICES (HTTPS / SNI)
     - hostname: app.towonel.dev
@@ -19,7 +21,7 @@ spec:
     - name: app-ssh
       origin: 10.0.10.5:22               # internal origin host:port
       preferredPort: 20022               # optional: pin the PUBLIC listen port
-      hostname: ssh.towonel.dev          # optional: public DNS name → A record to edge
+      hostname: ssh.towonel.dev          # optional: public DNS name (informational; see docs/dns.md)
 
   udp: []                                # → TOWONEL_AGENT_UDP_SERVICES (none here)
 
@@ -29,14 +31,19 @@ spec:
     autodiscover: false
     irohPort: 0
     extraLocalAddrs: []
-    nodePort: {create: false, name: ""}
+    nodePort:
+      create: false
+      name: ""
 
   workload:                              # connector knobs (CloudflareTunnel.spec.connector analog)
     replicas: 1
-    image: codeberg.org/towonel/towonel-agent:latest
+    image: codeberg.org/towonel/towonel-agent:0.1.32
     resources:
-      requests: {cpu: 25m, memory: 64Mi}
-      limits:   {memory: 128Mi}
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
     nodeSelector: {}
     tolerations: []
 # ─────────────────────────────────────────────────────────────────────────────
@@ -44,9 +51,14 @@ spec:
 # status:
 #   phase: Ready                         # Pending → WaitingForTunnel → Ready
 #   observedConfigHash: "sha256:9f1c…"
-#   renderedSecretRef: {name: app-primary-token}
+#   renderedSecretRef:
+#     name: app-primary-token
 #   conditions:
-#     - {type: TunnelReady,       status: "True"}
-#     - {type: ConfigRendered,    status: "True"}
-#     - {type: WorkloadAvailable, status: "True"}
-#     - {type: PortsAllocated,    status: "True"}
+#     - type: TunnelReady
+#       status: "True"
+#     - type: ConfigRendered
+#       status: "True"
+#     - type: WorkloadAvailable
+#       status: "True"
+#     - type: PortsAllocated
+#       status: "True"

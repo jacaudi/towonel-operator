@@ -20,10 +20,16 @@ metadata:
     towonel.io/game.hostname: game.towonel.dev
     towonel.io/game.public-port: "27015"
 spec:
-  selector: {app.kubernetes.io/name: gameserver}
+  selector:
+    app.kubernetes.io/name: gameserver
   ports:
-    - {name: web,  port: 8080, targetPort: 8080}
-    - {name: game, port: 27015, targetPort: 27015, protocol: TCP}
+    - name: web
+      port: 8080
+      targetPort: 8080
+    - name: game
+      port: 27015
+      targetPort: 27015
+      protocol: TCP
 # → operator emits the equivalent of:
 #     services: [{hostname: panel.towonel.dev, origin: gameserver.selfhosted.svc:8080}]
 #     tcp:      [{name: gameserver-game, origin: gameserver.selfhosted.svc:27015,

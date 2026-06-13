@@ -15,7 +15,8 @@ metadata:
     # towonel.io/tls-mode: passthrough                 # optional
     # towonel.io/dns-record: "false"                   # optional: skip DNS for this hostname
 spec:
-  selector: {app.kubernetes.io/name: grafana}
+  selector:
+    app.kubernetes.io/name: grafana
   ports:
     - name: http
       port: 3000
