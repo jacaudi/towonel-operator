@@ -1,14 +1,21 @@
-name: CI
+---
+# Pull Request Validation
+# Fast feedback on PRs: the full `task ci` gate (build, vet, gofmt, -race
+# envtest, helm-lint, and the generated-artifact drift gate) plus a no-push
+# multi-arch image build to catch Dockerfile breakage before it reaches main.
+# Releases (image + chart publish) are owned exclusively by ci-cd.yml.
+name: PR Validation
 
-on:
-  push:
-    branches: [main]
+"on":
   pull_request:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 jobs:
+  # Job id is 'ci' so the produced status context stays 'ci', matching the
+  # existing branch-protection required check (no protection change needed).
   ci:
     runs-on: ubuntu-latest
     steps:
@@ -30,6 +37,7 @@ jobs:
         run: task ci
 
   docker-build:
+    name: Build image (no push)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,0 +1,119 @@
+---
+# CI/CD Pipeline for Towonel Operator
+# On every push to main: run the full validation gate, then (via
+# conventional-commit semantic-release) cut a version, publish the multi-arch
+# container image, and publish the Helm chart to the OCI registry.
+# Mirrors jacaudi/cloudflare-operator's release pipeline; validation uses
+# towonel's `task ci` (which adds the CRD/RBAC drift gate).
+name: CI/CD
+
+"on":
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only allow one release at a time - queue subsequent runs.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  # Full validation gate: build, vet, gofmt, -race envtest, helm-lint, and the
+  # generated-artifact (CRD/RBAC) drift gate.
+  validate:
+    name: task ci (build/vet/fmt/-race envtest/helm-lint/drift)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+      - name: Install yq
+        run: sudo snap install yq
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run checks
+        run: task ci
+
+  # Build metadata for version stamping (short commit + ISO build date).
+  meta:
+    name: Build Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.m.outputs.commit }}
+      date: ${{ steps.m.outputs.date }}
+    steps:
+      - id: m
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          echo "commit=${SHA:0:7}" >> "${GITHUB_OUTPUT}"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_OUTPUT}"
+
+  # Create semantic version and GitHub release (main branch only).
+  # REQUIRES repo secrets APP_ID + APP_PRIVATE_KEY (semantic-release GitHub App).
+  release:
+    needs: [validate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: jacaudi/github-actions/.github/workflows/component-semantic-release.yml@v0.20.3
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      use-github-app: true
+      extra-plugins: '@semantic-release/changelog @semantic-release/git @semantic-release/exec conventional-changelog-conventionalcommits'
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+  # Build + push the multi-arch container image (only when a new version was cut).
+  container:
+    needs: [release, meta]
+    if: needs.release.outputs.new-release-published == 'true'
+    uses: jacaudi/github-actions/.github/workflows/component-container-build.yml@v0.20.3
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image-name: ${{ github.repository }}
+      platforms: 'linux/amd64,linux/arm64'
+      version: ${{ needs.release.outputs.new-release-version }}
+      build-args: |
+        VERSION=${{ needs.release.outputs.new-release-version-v }}
+        COMMIT=${{ needs.meta.outputs.commit }}
+        DATE=${{ needs.meta.outputs.date }}
+      tags: |
+        ghcr.io/${{ github.repository }}:${{ needs.release.outputs.new-release-version-v }}
+        ghcr.io/${{ github.repository }}:latest
+
+  # Publish the Helm chart to the OCI registry after the image exists, so the
+  # chart's appVersion always references an image tag that is already published.
+  helm:
+    needs: [release, container]
+    if: needs.release.outputs.new-release-published == 'true'
+    uses: jacaudi/github-actions/.github/workflows/component-helm-publish.yml@v0.20.3
+    permissions:
+      contents: read
+      packages: write
+    with:
+      chart-name: towonel-operator
+      chart-path: chart
+      repository: ${{ github.repository_owner }}/charts
+      version: ${{ needs.release.outputs.new-release-version-v }}
+      registry: ghcr.io
+      registry-username: ${{ github.repository_owner }}

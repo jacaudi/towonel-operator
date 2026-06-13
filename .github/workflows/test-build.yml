@@ -1,0 +1,94 @@
+---
+# On-demand Test Build
+# Manually-triggered build of a TEST (alpha) operator image + Helm chart
+# from any branch EXCEPT main. Nothing runs automatically — use the
+# "Run workflow" button. Releases are still owned exclusively by ci-cd.yml
+# on pushes to main.
+name: Test Build
+
+"on":
+  workflow_dispatch:
+
+# A newer manual run on the same ref supersedes an in-flight one.
+concurrency:
+  group: test-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # Refuse to run on main, and compute the test version identifiers.
+  guard:
+    name: Guard + Versioning
+    runs-on: ubuntu-latest
+    outputs:
+      slug: ${{ steps.vars.outputs.slug }}
+      sha7: ${{ steps.vars.outputs.sha7 }}
+      date: ${{ steps.vars.outputs.date }}
+    steps:
+      - name: Refuse main
+        if: github.ref_name == 'main'
+        run: |
+          echo "::error::Test Build must not be run on 'main'. \
+          Releases are produced by ci-cd.yml. Re-run this from a feature branch."
+          exit 1
+
+      - name: Compute test version
+        id: vars
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          # Sanitize the branch name into a single token that is valid as
+          # both a Docker tag fragment and a SemVer prerelease identifier:
+          # anything outside [a-z0-9-] becomes '-', repeats collapse, ends trim.
+          slug="$(echo "${REF_NAME}" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -e 's/[^a-z0-9-]/-/g' -e 's/-\{2,\}/-/g' -e 's/^-//' -e 's/-$//')"
+          sha7="${SHA:0:7}"
+          date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "slug=${slug}" >> "${GITHUB_OUTPUT}"
+          echo "sha7=${sha7}" >> "${GITHUB_OUTPUT}"
+          echo "date=${date}" >> "${GITHUB_OUTPUT}"
+          echo "Test build: slug='${slug}' sha7='${sha7}' date='${date}'" >> "${GITHUB_STEP_SUMMARY}"
+
+  # Multi-arch TEST image pushed to GHCR (parity with the release pipeline).
+  container:
+    needs: [guard]
+    uses: jacaudi/github-actions/.github/workflows/component-container-build.yml@v0.20.3
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image-name: ${{ github.repository }}
+      platforms: 'linux/amd64,linux/arm64'
+      version: test-${{ needs.guard.outputs.slug }}-${{ needs.guard.outputs.sha7 }}
+      build-args: |
+        VERSION=test-${{ needs.guard.outputs.slug }}-${{ needs.guard.outputs.sha7 }}
+        COMMIT=${{ needs.guard.outputs.sha7 }}
+        DATE=${{ needs.guard.outputs.date }}
+      tags: |
+        ghcr.io/${{ github.repository }}:test-${{ needs.guard.outputs.slug }}-${{ needs.guard.outputs.sha7 }}
+        ghcr.io/${{ github.repository }}:test-${{ needs.guard.outputs.slug }}
+
+  # TEST chart published to the same OCI path as releases, but the
+  # 0.0.0-alpha.<slug>.<sha7> prerelease version and test-* appVersion make
+  # it unmistakably a non-release artifact. Its appVersion drives the
+  # chart's image tag (values.yaml image.tag is empty -> .Chart.AppVersion),
+  # so it always references the test image built just above.
+  helm:
+    needs: [guard, container]
+    uses: jacaudi/github-actions/.github/workflows/component-helm-publish.yml@v0.20.3
+    permissions:
+      contents: read
+      packages: write
+    with:
+      chart-name: towonel-operator
+      chart-path: chart
+      repository: ${{ github.repository_owner }}/charts
+      registry: ghcr.io
+      registry-username: ${{ github.repository_owner }}
+      version: 0.0.0-alpha.${{ needs.guard.outputs.slug }}.${{ needs.guard.outputs.sha7 }}
+      app-version: test-${{ needs.guard.outputs.slug }}-${{ needs.guard.outputs.sha7 }}

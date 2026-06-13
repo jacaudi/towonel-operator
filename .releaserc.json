@@ -1,0 +1,55 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "releaseRules": [
+          { "breaking": true, "release": "minor" },
+          { "type": "refactor", "release": "patch" },
+          { "type": "chore", "scope": "towonel-agent", "release": "patch" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat", "section": "Features" },
+            { "type": "fix", "section": "Bug Fixes" },
+            { "type": "refactor", "section": "Refactors" },
+            { "type": "chore", "scope": "deps", "section": "Dependencies" },
+            { "type": "chore", "scope": "towonel-agent", "section": "Dependencies" }
+          ]
+        },
+        "writerOpts": {
+          "headerPartial": "## {{#if @root.linkCompare~}}[{{version}}]({{@root.host}}/{{@root.owner}}/{{@root.repository}}/compare/{{previousTag}}...{{currentTag}}){{~else}}{{~version}}{{~/if}} ({{date}})"
+        }
+      }
+    ],
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogFile": "CHANGELOG.md",
+        "changelogTitle": "# Changelog"
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "if [ -f chart/Chart.yaml ]; then sed -i 's/^version:.*/version: ${nextRelease.version}/' chart/Chart.yaml && sed -i 's/^appVersion:.*/appVersion: \"${nextRelease.version}\"/' chart/Chart.yaml; fi"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["CHANGELOG.md", "chart/Chart.yaml"],
+        "message": "release: v${nextRelease.version} [skip ci]"
+      }
+    ],
+    "@semantic-release/github"
+  ]
+}
