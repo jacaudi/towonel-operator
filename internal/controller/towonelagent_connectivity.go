@@ -2,6 +2,10 @@ package controller
 
 import (
 	"cmp"
+	"strconv"
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
@@ -46,4 +50,35 @@ func planConnectivity(ta *towonelv1alpha1.TowonelAgent) connectivityPlan {
 func connectivityRequested(ta *towonelv1alpha1.TowonelAgent) bool {
 	c := ta.Spec.Connectivity
 	return c.Autodiscover || c.IrohPort != 0 || len(c.ExtraLocalAddrs) > 0 || c.NodePort.Create
+}
+
+// connectivityEnv renders the connectivity env vars from the plan (design §4).
+// Order is fixed for a stable hash + stable pod spec.
+func connectivityEnv(ta *towonelv1alpha1.TowonelAgent, p connectivityPlan) []corev1.EnvVar {
+	var env []corev1.EnvVar
+	if p.irohPort != 0 {
+		env = append(env, corev1.EnvVar{Name: "TOWONEL_AGENT_IROH_PORT", Value: strconv.Itoa(int(p.irohPort))})
+	}
+	if len(p.extraLocalAddrs) > 0 {
+		env = append(env, corev1.EnvVar{Name: "TOWONEL_AGENT_EXTRA_LOCAL_ADDRS", Value: strings.Join(p.extraLocalAddrs, ",")})
+	}
+	if p.autodiscover {
+		env = append(env,
+			corev1.EnvVar{Name: "TOWONEL_AGENT_K8S_AUTODISCOVER", Value: "true"},
+			corev1.EnvVar{Name: "TOWONEL_AGENT_K8S_SERVICE", Value: p.nodePortName},
+			corev1.EnvVar{Name: "TOWONEL_AGENT_K8S_NAMESPACE", Value: ta.Namespace},
+			corev1.EnvVar{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+			}},
+		)
+	}
+	return env
+}
+
+// agentContainerPorts declares the UDP iroh port when pinned (design §4/§7).
+func agentContainerPorts(irohPort int32) []corev1.ContainerPort {
+	if irohPort == 0 {
+		return nil
+	}
+	return []corev1.ContainerPort{{Name: "iroh", ContainerPort: irohPort, Protocol: corev1.ProtocolUDP}}
 }
