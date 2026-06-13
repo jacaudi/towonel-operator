@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -161,4 +163,72 @@ func (r *TowonelAgentReconciler) deleteOwnedIfExists(ctx context.Context, obj cl
 		return fmt.Errorf("delete %T %s: %w", obj, nn, err)
 	}
 	return nil
+}
+
+// computeNodeReaderSubjects lists all agents and maps the valid-autodiscover
+// ones to their SA subjects, sorted deterministically (design §5.3).
+func (r *TowonelAgentReconciler) computeNodeReaderSubjects(ctx context.Context) ([]rbacv1.Subject, error) {
+	var list towonelv1alpha1.TowonelAgentList
+	if err := r.List(ctx, &list); err != nil {
+		return nil, fmt.Errorf("list agents for node-reader subjects: %w", err)
+	}
+	var subs []rbacv1.Subject
+	for i := range list.Items {
+		a := &list.Items[i]
+		if !a.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if planConnectivity(a).autodiscover {
+			subs = append(subs, rbacv1.Subject{Kind: "ServiceAccount", Name: agentSAName(a.Name), Namespace: a.Namespace})
+		}
+	}
+	sort.Slice(subs, func(i, j int) bool {
+		if subs[i].Namespace != subs[j].Namespace {
+			return subs[i].Namespace < subs[j].Namespace
+		}
+		return subs[i].Name < subs[j].Name
+	})
+	return subs, nil
+}
+
+// reconcileNodeReaderSubjects RMW-patches the chart-owned shared ClusterRoleBinding's
+// subjects to exactly the live autodiscover-agent SA set. Returns shellMissing=true
+// (without error) when the chart shell is absent (design §5.3). No SSA: RMW avoids the
+// Helm-3-way-merge field-manager tangle (the chart owns roleRef/labels; we own subjects).
+func (r *TowonelAgentReconciler) reconcileNodeReaderSubjects(ctx context.Context) (shellMissing bool, err error) {
+	desired, err := r.computeNodeReaderSubjects(ctx)
+	if err != nil {
+		return false, err
+	}
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var crb rbacv1.ClusterRoleBinding
+		if getErr := r.Get(ctx, types.NamespacedName{Name: nodeReaderName}, &crb); getErr != nil {
+			if apierrors.IsNotFound(getErr) {
+				shellMissing = true
+				return nil
+			}
+			return getErr
+		}
+		if subjectsEqual(crb.Subjects, desired) {
+			return nil
+		}
+		crb.Subjects = desired
+		return r.Update(ctx, &crb)
+	})
+	if retryErr != nil {
+		return false, fmt.Errorf("patch node-reader subjects: %w", retryErr)
+	}
+	return shellMissing, nil
+}
+
+func subjectsEqual(a, b []rbacv1.Subject) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

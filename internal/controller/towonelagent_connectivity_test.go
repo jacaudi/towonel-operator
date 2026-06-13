@@ -1,11 +1,15 @@
 package controller
 
 import (
+	"context"
 	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
@@ -163,5 +167,62 @@ func TestBuildServicesRBAC(t *testing.T) {
 	}
 	if rb.RoleRef.Name != role.Name || rb.Subjects[0].Name != agentSAName(ta.Name) || rb.Subjects[0].Namespace != ta.Namespace {
 		t.Errorf("rolebinding = %+v", rb)
+	}
+}
+
+func TestComputeNodeReaderSubjects(t *testing.T) {
+	auto := func(name, ns string) *towonelv1alpha1.TowonelAgent {
+		a := agentWithConn(towonelv1alpha1.ConnectivitySpec{Autodiscover: true, IrohPort: 5000, NodePort: towonelv1alpha1.NodePortSpec{Create: true}})
+		a.Name, a.Namespace = name, ns
+		return a
+	}
+	off := agentWithConn(towonelv1alpha1.ConnectivitySpec{}) // no autodiscover
+	off.Name, off.Namespace = "off", "ns2"
+	cl := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithObjects(auto("a", "ns1"), auto("b", "ns2"), off).Build()
+	r := &TowonelAgentReconciler{Client: cl}
+	subs, err := r.computeNodeReaderSubjects(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 2 {
+		t.Fatalf("want 2 subjects (only autodiscover agents), got %d: %+v", len(subs), subs)
+	}
+	if subs[0].Namespace != "ns1" || subs[0].Name != "a" || subs[1].Namespace != "ns2" || subs[1].Name != "b" {
+		t.Errorf("subjects not sorted deterministically: %+v", subs)
+	}
+}
+
+func TestReconcileNodeReaderShellMissing(t *testing.T) {
+	a := agentWithConn(towonelv1alpha1.ConnectivitySpec{Autodiscover: true, IrohPort: 5000, NodePort: towonelv1alpha1.NodePortSpec{Create: true}})
+	a.Name, a.Namespace = "a", "ns1"
+	cl := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithObjects(a).Build() // no ClusterRoleBinding shell
+	r := &TowonelAgentReconciler{Client: cl}
+	missing, err := r.reconcileNodeReaderSubjects(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !missing {
+		t.Error("expected shellMissing=true when the chart-owned binding is absent")
+	}
+}
+
+func TestReconcileNodeReaderPatchesSubjects(t *testing.T) {
+	a := agentWithConn(towonelv1alpha1.ConnectivitySpec{Autodiscover: true, IrohPort: 5000, NodePort: towonelv1alpha1.NodePortSpec{Create: true}})
+	a.Name, a.Namespace = "a", "ns1"
+	shell := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeReaderName},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: nodeReaderName},
+	}
+	cl := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithObjects(a, shell).Build()
+	r := &TowonelAgentReconciler{Client: cl}
+	if _, err := r.reconcileNodeReaderSubjects(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var got rbacv1.ClusterRoleBinding
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: nodeReaderName}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Subjects) != 1 || got.Subjects[0].Name != "a" || got.Subjects[0].Namespace != "ns1" {
+		t.Errorf("subjects not patched: %+v", got.Subjects)
 	}
 }
