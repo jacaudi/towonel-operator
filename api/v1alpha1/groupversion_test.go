@@ -38,3 +38,13 @@ func TestAgentStatusObservedGenerationJSON(t *testing.T) {
 		t.Fatalf("omitempty violated: %s", empty)
 	}
 }
+
+func TestAgentServicesListMapKeyIsHostname(t *testing.T) {
+	// Two entries with the same hostname must be representable in Go (the
+	// CRD-level listMapKey rejection is exercised in envtest); this guards
+	// the field is still named `Services` keyed by Hostname.
+	s := TowonelAgentSpec{Services: []AgentService{{Hostname: "a.example", Origin: "x:1"}}}
+	if s.Services[0].Hostname != "a.example" {
+		t.Fatal("Services[].Hostname missing")
+	}
+}

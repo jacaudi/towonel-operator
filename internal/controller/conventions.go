@@ -74,3 +74,40 @@ func portLabel(tunnelNS, tunnelName, svc string) string {
 func portLabelPrefix(tunnelNS, tunnelName string) string {
 	return tunnelNS + "/" + tunnelName + "/"
 }
+
+const (
+	// Source annotation vocabulary (design §4; mirrors cloudflare-operator).
+	AnnotationTunnel         = "towonel.io/tunnel"
+	AnnotationTunnelRef      = "towonel.io/tunnel-ref"
+	AnnotationAgentRef       = "towonel.io/agent-ref"
+	AnnotationSrcHostname    = "towonel.io/hostname"
+	AnnotationSrcOrigin      = "towonel.io/origin"
+	AnnotationSrcTLSMode     = "towonel.io/tls-mode"
+	AnnotationSrcProtocol    = "towonel.io/protocol"
+	AnnotationGatewayService = "towonel.io/gateway-service"
+	AnnotationDNSRecord      = "towonel.io/dns-record" // reserved (DNS phase); inert in P5
+
+	// Operator-managed agent markers (design §5/§6).
+	LabelManagedBy        = "app.kubernetes.io/managed-by"
+	ManagedByValue        = "towonel-operator"
+	AnnotationAutoCreated = "towonel.io/auto-created"
+
+	// Source Event reasons (design §4/§5; Events-only validation).
+	ReasonInvalidAnnotation   = "InvalidAnnotationValue"
+	ReasonTunnelRefMissing    = "TunnelRefMissing"
+	ReasonGatewayServiceUnset = "GatewayServiceUnspecified"
+	ReasonHostnameConflict    = "HostnameConflict"
+	ReasonAmbiguousBackend    = "AmbiguousBackend"
+	ReasonBackendRefDenied    = "BackendRefNotPermitted"
+	ReasonAgentRefNotFound    = "AgentRefNotFound"
+	ReasonAgentRefConflict    = "AgentRefConflict"
+	ReasonDefaultAgentClash   = "DefaultAgentNameConflict"
+	ReasonMultipleAgents      = "MultipleAgentsOnTunnel"
+	ReasonObserveOnly         = "ObserveOnlyAgent"
+)
+
+// srcFieldManager is the per-source SSA field manager owning that source's
+// routing entries in the shared agent (design §5).
+func srcFieldManager(kind, namespace, name string) string {
+	return "towonel-src:" + kind + ":" + namespace + ":" + name
+}

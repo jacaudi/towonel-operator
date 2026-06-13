@@ -52,3 +52,10 @@ observability:
     serviceMonitor:
       enabled: false
       interval: 30s
+
+# Source layer (P5).
+gatewayAPI:
+  # auto: probe for gateway-api CRDs; true/false: force.
+  enabled: auto
+# agentNamespace: namespace for auto-created default agents ("" = tunnel's ns).
+agentNamespace: ""

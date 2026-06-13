@@ -18,6 +18,10 @@ controllers:
           - --leader-elect={{ .Values.leaderElection.enabled }}
           - --zap-log-level={{ .Values.logLevel }}
           - --towonel-api-url={{ .Values.towonel.apiURL }}
+          - --enable-gateway-api={{ .Values.gatewayAPI.enabled }}
+          {{- if .Values.agentNamespace }}
+          - --agent-namespace={{ .Values.agentNamespace }}
+          {{- end }}
         env:
           POD_NAMESPACE:
             valueFrom:

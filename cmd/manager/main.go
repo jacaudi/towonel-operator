@@ -20,6 +20,8 @@ import (
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 	"github.com/jacaudi/towonel-operator/internal/controller"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gwv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 )
 
 // Build metadata, injected via -ldflags.
@@ -37,6 +39,8 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(towonelv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(gwv1.Install(scheme))
+	utilruntime.Must(gwv1beta1.Install(scheme))
 }
 
 func main() {
@@ -52,6 +56,9 @@ func main() {
 	flag.BoolVar(&leaderElect, "leader-elect", true, "enable leader election for HA")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.StringVar(&towonelAPIURL, "towonel-api-url", "https://console.towonel.dev", "Towonel hub base URL")
+	var agentNamespace, enableGatewayAPI string
+	flag.StringVar(&agentNamespace, "agent-namespace", "", "namespace for auto-created default agents (empty = the tunnel's namespace)")
+	flag.StringVar(&enableGatewayAPI, "enable-gateway-api", "auto", "auto|true|false — register Gateway/HTTPRoute source controllers")
 	zapOpts := zap.Options{Development: false}
 	zapOpts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -100,6 +107,14 @@ func main() {
 		Recorder: mgr.GetEventRecorderFor("towonelagent"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TowonelAgent")
+		os.Exit(1)
+	}
+
+	if err := controller.SetupSourceControllers(mgr, controller.SourceConfig{
+		AgentNamespace:   agentNamespace,
+		EnableGatewayAPI: enableGatewayAPI,
+	}); err != nil {
+		setupLog.Error(err, "unable to set up source controllers")
 		os.Exit(1)
 	}
 

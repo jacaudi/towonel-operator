@@ -44,6 +44,16 @@ rbac:
             - update
             - watch
         - apiGroups:
+            - gateway.networking.k8s.io
+          resources:
+            - gateways
+            - httproutes
+            - referencegrants
+          verbs:
+            - get
+            - list
+            - watch
+        - apiGroups:
             - towonel.io
           resources:
             - towonelagents
