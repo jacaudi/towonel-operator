@@ -21,9 +21,12 @@ The chart is published to GHCR as an OCI artifact.
 ```sh
 helm install towonel-operator \
   oci://ghcr.io/jacaudi/charts/towonel-operator \
-  --version 1.0.0 \
+  --version <version> \
   --namespace towonel-system --create-namespace
 ```
+
+Replace `<version>` with the chart version you want to install — use the
+[latest release](https://github.com/jacaudi/towonel-operator/releases) (currently `v1.0.1`).
 
 The image is `ghcr.io/jacaudi/towonel-operator` (multi-arch `linux/amd64` + `linux/arm64`);
 the chart's `appVersion` selects a matching image tag, so you normally don't set `image.tag`.
@@ -39,7 +42,7 @@ kubectl create secret generic towonel-api \
   --from-literal=token='twk_xxx'
 
 helm upgrade --install towonel-operator \
-  oci://ghcr.io/jacaudi/charts/towonel-operator --version 1.0.0 \
+  oci://ghcr.io/jacaudi/charts/towonel-operator --version <version> \
   --namespace towonel-system --create-namespace \
   --set credentials.existingSecret=towonel-api \
   --set credentials.tokenKey=token
