@@ -24,7 +24,7 @@ See [`examples/02-agent.yaml`](examples/02-agent.yaml) and
 
 **`AgentL4Service`** (tcp/udp): `name` (unique within the list), `origin` (internal host:port), `preferredPort` (optional — pin the *public* listen port; honored if free), `hostname` (optional — intended for the future DNS handoff; currently informational).
 
-**`workload`**: `replicas` (default `1`), `image` (default: the operator's pinned agent image — override to choose your own `codeberg.org/towonel/towonel-agent` tag), `resources` (OOM-safe memory floor/ceiling applied if unset), `nodeSelector`, `tolerations`.
+**`workload`**: `replicas` (default `1`), `image` (default: the operator's built-in `codeberg.org/towonel/towonel-agent` tag — override to pick your own), `resources` (OOM-safe memory floor/ceiling applied if unset), `nodeSelector`, `tolerations`.
 
 ## Status (operator-written)
 

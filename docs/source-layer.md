@@ -44,12 +44,24 @@ unreferenced ports are not exposed. For anything more complex, author the `Towon
 
 - **`Service`** — the shim. `hostname` (HTTPS) or `protocol` (raw), origin defaults to the
   Service's `ClusterIP:port`. Multi-port via the scoped keys above.
-- **`Gateway`** — opt in on the `Gateway`; hostnames are derived from its listener hostnames.
-  `towonel.io/gateway-service` is **required** (the proxy Service to forward to). Mirrors the
-  cloudflare-operator Gateway-source pattern.
-- **`HTTPRoute`** — hostnames come from the route; the backend becomes the origin. A route must
-  resolve to a single backend (multiple → an `AmbiguousBackend` Event, no silent first-wins);
-  cross-namespace backends need a `ReferenceGrant`.
+- **`Gateway`** — opt in on the `Gateway`; hostnames are derived from its **listener hostnames**.
+  `towonel.io/gateway-service: [<ns>/]<name>[:<port>]` is **required** (the in-cluster proxy
+  Service to forward to — not derivable from the Gateway). Each listener hostname is emitted as a
+  service pointing at that proxy. Mirrors the cloudflare-operator Gateway-source pattern.
+- **`HTTPRoute`** — hostnames come from `spec.hostnames`; the route's single backend Service
+  becomes the origin (multiple distinct backends → an `AmbiguousBackend` Event, no silent
+  first-wins); cross-namespace backends need a `ReferenceGrant`.
+
+> **Origins and TLS (important).** The emitted `origin` is the target Service's **`ClusterIP:port`**
+> — *not* its cluster-DNS name (it updates if the Service's ClusterIP changes). Source-emitted
+> services carry the default `tlsMode: passthrough`, so the **target must terminate TLS** (e.g. a
+> Gateway proxy with a `Terminate` listener). For a plaintext HTTP backend you want
+> `tlsMode: terminate`, which the source layer can't set — author a `TowonelAgent` directly for that.
+
+> **SNI / DNS.** Towonel routes by the SNI the client sends, and a CNAME chain does **not** rewrite
+> it. Every hostname clients actually use must be authorized — i.e. appear as a Gateway listener
+> hostname or an HTTPRoute hostname. A wildcard listener (`*.example.com`) covers a whole zone *if*
+> Towonel's hub accepts wildcard hostnames (verify upstream); otherwise enumerate each hostname.
 
 ## Agent targeting
 

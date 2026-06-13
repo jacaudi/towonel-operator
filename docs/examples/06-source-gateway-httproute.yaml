@@ -1,42 +1,66 @@
-# Source layer — Gateway API. Opt in on the Gateway; hostnames are derived from the
-# HTTPRoute(s) attached to it (and/or the listener hostnames), not hand-listed.
-# Mirrors the cloudflare-operator Gateway-source pattern.
+# Source layer — Gateway API. There are TWO independent source controllers; this file
+# shows both. Origins are the target Service's ClusterIP:port (not its DNS name), and
+# entries are emitted with the default tlsMode (passthrough) — the agent forwards the
+# raw TLS stream, so the target must terminate TLS.
+#
+# IMPORTANT (SNI): Towonel routes by the SNI the client sends; a CNAME chain does NOT
+# rewrite SNI. Every hostname clients actually use must be authorized on the tunnel —
+# i.e. listed as a Gateway listener hostname or an HTTPRoute hostname. A wildcard
+# "*.domain.dev" listener authorizes the whole zone IF Towonel's hub accepts a wildcard
+# hostname (verify this upstream); otherwise enumerate each appN.domain.dev.
+
+# ── 1) Gateway source (forward-to-proxy) ────────────────────────────────────────────
+# Opt in on the Gateway. towonel.io/gateway-service is REQUIRED (the in-cluster proxy
+# Service is not derivable from the Gateway). The operator emits one routing entry per
+# listener hostname, all pointing at that proxy. Your gateway terminates TLS and does the
+# in-cluster host routing via its own (un-annotated) HTTPRoutes.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: external-towonel-dev
+  name: external-domain-dev
   namespace: network
   annotations:
     towonel.io/tunnel: enable
     towonel.io/tunnel-ref: network/app
-    # towonel.io/agent-ref: app-primary     # optional: pin a specific agent
+    # the gateway's data-plane Service ([<ns>/]<name>[:<port>]); port 0/omitted = first port:
+    towonel.io/gateway-service: network/envoy-external-domain-dev:443
+    # towonel.io/agent-ref: app-primary       # optional: pin a specific TowonelAgent
 spec:
-  gatewayClassName: envoy                    # operator requires no GatewayClass of its own
+  gatewayClassName: envoy                       # your class; the operator needs none of its own
   listeners:
     - name: https
       protocol: HTTPS
       port: 443
-      hostname: "*.towonel.dev"
+      hostname: "*.domain.dev"                  # ← authorized on the tunnel (see the SNI note above)
       tls:
         mode: Terminate
         certificateRefs:
-          - name: towonel-dev-tls
+          - name: domain-dev-tls
+# → operator emits: spec.services += {hostname: *.domain.dev, origin: <envoy-external-domain-dev ClusterIP>:443}
+#   Your normal, UN-annotated HTTPRoutes attach to this Gateway and route by host to backends.
 ---
+# ── 2) HTTPRoute source (direct-to-backend) ─────────────────────────────────────────
+# Opt in on the HTTPRoute itself (no in-cluster proxy needed). The route must resolve to
+# a SINGLE Service backend (multiple → an AmbiguousBackend Event); cross-namespace
+# backends need a ReferenceGrant. The agent forwards the route's hostname(s) straight to
+# that backend's ClusterIP:port.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: immich
   namespace: selfhosted
+  annotations:
+    towonel.io/tunnel: enable
+    towonel.io/tunnel-ref: network/app
 spec:
-  parentRefs:
-    - name: external-towonel-dev
-      namespace: network
-      sectionName: https
+  # parentRefs are optional for the tunnel path; include them if you also serve in-cluster.
   hostnames:
-    - photos.towonel.dev                     # → derived hostname for the tunnel
+    - photos.domain.dev
   rules:
     - backendRefs:
-        - name: immich                       # → origin for the agent service map
+        - name: immich
           port: 2283
-# → operator emits the equivalent of:
-#     services: [{hostname: photos.towonel.dev, origin: immich.selfhosted.svc:2283}]
+# → operator emits: spec.services += {hostname: photos.domain.dev, origin: <immich ClusterIP>:2283}
+#   tlsMode defaults to passthrough → the backend must terminate TLS. For a plaintext HTTP
+#   backend, author a TowonelAgent CR with tlsMode: terminate instead (the source layer
+#   can't set tlsMode).

@@ -30,8 +30,8 @@ spec:
 #     namespace: network
 #   expiresAt: 0
 #   authorizedHostnames:               # aggregated from agents
-#     - app.towonel.dev
-#     - ssh.towonel.dev
+#     - app.domain.dev
+#     - ssh.domain.dev
 #   portAllocations:
 #     - name: app-ssh
 #       protocol: tcp

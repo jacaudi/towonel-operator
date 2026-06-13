@@ -1,10 +1,15 @@
 # Source layer — annotated Service exposing HTTP **and** raw TCP on one workload.
 # A flat single `protocol` annotation can't express two heterogeneous exposures, so use
-# PORT-NAME-SCOPED keys: towonel.io/<portName>.<verb>. The operator folds both into one
-# emitted TowonelAgent (services[] + tcp[]). Unreferenced ports are not exposed.
+# PORT-NAME-SCOPED keys: towonel.io/<portName>.<suffix>, where <suffix> is one of
+# hostname | tcp | udp | public-port. The operator folds them into one emitted
+# TowonelAgent (services[] + tcp[]/udp[]). Unreferenced ports are not exposed.
 #
-# (For heterogeneous exposure you can always author the TowonelAgent CR directly instead —
-#  see 02-agent.yaml. The annotation form is the convenience path.)
+# Notes:
+#   - <port>.hostname ALWAYS means "expose this port as HTTPS with this hostname".
+#     There is no port-scoped way to attach a DNS name to a raw tcp/udp service
+#     (and DNS handoff isn't implemented anyway — see ../dns.md). For a raw service
+#     that needs a public DNS record, author a TowonelAgent CR directly (02-agent.yaml).
+#   - For heterogeneous exposure you can always author the TowonelAgent CR directly.
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,10 +19,9 @@ metadata:
     towonel.io/tunnel: enable
     towonel.io/tunnel-ref: network/app
     # 'web' port → HTTPS with a hostname:
-    towonel.io/web.hostname: panel.towonel.dev
-    # 'game' port → raw TCP, with a public DNS name + pinned public port:
+    towonel.io/web.hostname: panel.domain.dev
+    # 'game' port → raw TCP, with a pinned public listen port:
     towonel.io/game.tcp: "true"
-    towonel.io/game.hostname: game.towonel.dev
     towonel.io/game.public-port: "27015"
 spec:
   selector:
@@ -30,7 +34,6 @@ spec:
       port: 27015
       targetPort: 27015
       protocol: TCP
-# → operator emits the equivalent of:
-#     services: [{hostname: panel.towonel.dev, origin: gameserver.selfhosted.svc:8080}]
-#     tcp:      [{name: gameserver-game, origin: gameserver.selfhosted.svc:27015,
-#                 preferredPort: 27015, hostname: game.towonel.dev}]
+# → operator emits (the raw-TCP entry is named after the PORT; origin is the Service ClusterIP):
+#     spec.services += {hostname: panel.domain.dev, origin: <gameserver ClusterIP>:8080}
+#     spec.tcp      += {name: game, origin: <gameserver ClusterIP>:27015, preferredPort: 27015}
