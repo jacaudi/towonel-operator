@@ -1,0 +1,70 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":disableRateLimiting",
+    ":timezone(America/Los_Angeles)",
+    ":semanticCommits"
+  ],
+  "dependencyDashboardTitle": "Renovate Dashboard",
+  "assignees": ["jacaudi"],
+  "labels": ["renovate"],
+  "suppressNotifications": ["prEditedNotification", "prIgnoreNotification"],
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "commitMessagePrefix": "chore(deps):",
+  "branchPrefix": "renovate/",
+  "postUpdateOptions": ["gomodTidy"],
+  "packageRules": [
+    {
+      "description": "Group all GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "Group Kubernetes client libraries (must be updated together)",
+      "matchPackageNames": ["/^k8s\\.io//", "sigs.k8s.io/controller-runtime"],
+      "groupName": "kubernetes-client-libraries",
+      "recreateWhen": "always"
+    },
+    {
+      "description": "Group Ginkgo and Gomega test framework bumps together",
+      "matchPackageNames": ["github.com/onsi/ginkgo/v2", "github.com/onsi/gomega"],
+      "groupName": "test-libraries",
+      "recreateWhen": "always"
+    },
+    {
+      "description": "Group Go toolchain bumps (go.mod directive, golang Docker image, setup-go version)",
+      "matchPackageNames": ["go", "golang"],
+      "groupName": "go-toolchain",
+      "recreateWhen": "always"
+    },
+    {
+      "description": "Default towonel-agent image bumps -> chore(towonel-agent) so the operator gets a patch release. Track tagged semver only (latest + sha-* are ignored by docker versioning).",
+      "matchDepNames": ["codeberg.org/towonel/towonel-agent"],
+      "commitMessagePrefix": "chore(towonel-agent):",
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "towonel-agent",
+      "recreateWhen": "always"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Match go-version inputs to reusable workflows (native github-actions manager only matches direct setup-go usage)",
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": ["go-version:\\s*['\"]?(?<currentValue>[0-9.]+)['\"]?"],
+      "depNameTemplate": "go",
+      "datasourceTemplate": "golang-version"
+    },
+    {
+      "customType": "regex",
+      "description": "Default agent image pinned in the operator (used when a TowonelAgent omits spec.workload.image)",
+      "managerFilePatterns": ["/^internal/controller/conventions\\.go$/"],
+      "matchStrings": ["defaultAgentImage = \"codeberg\\.org/towonel/towonel-agent:(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "codeberg.org/towonel/towonel-agent",
+      "datasourceTemplate": "docker"
+    }
+  ]
+}
