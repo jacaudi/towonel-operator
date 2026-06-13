@@ -97,8 +97,8 @@ Full docs live in [`docs/`](docs/):
 
 ## Acknowledgements
 
-- **[bjw-s](https://github.com/bjw-s)** — this operator's Helm chart is built on the
-  [bjw-s `app-template`](https://github.com/bjw-s-labs/helm-charts) common library, which does the
+- **[Bernd Schorgers (bjw-s)](https://github.com/bjw-s)** — this operator's Helm chart is built on
+  the [bjw-s `app-template`](https://github.com/bjw-s-labs/helm-charts) common library, which does the
   heavy lifting of rendering the controller Deployment, RBAC, service account, and service. Thank you
   for an excellent, reusable chart foundation.
 - **[Erwan Leboucher (eleboucher)](https://github.com/eleboucher)** — the creator of
