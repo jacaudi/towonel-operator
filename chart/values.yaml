@@ -59,3 +59,11 @@ gatewayAPI:
   enabled: auto
 # agentNamespace: namespace for auto-created default agents ("" = tunnel's ns).
 agentNamespace: ""
+
+# Agent direct-path (spec.connectivity autodiscover) node-read RBAC.
+# Creates a shared ClusterRole + (empty-subjects) ClusterRoleBinding that the
+# operator patches with autodiscover agents' ServiceAccounts. Inert until the
+# operator adds subjects. Disable on strict-RBAC clusters (autodiscover then
+# surfaces a NodeRBACShellMissing event and degrades to relay).
+agentNodeRBAC:
+  create: true

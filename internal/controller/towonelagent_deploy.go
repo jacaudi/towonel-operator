@@ -46,13 +46,18 @@ type agentConfig struct {
 	InviteID     string // token identity stand-in: rotation rolls the hash (§4.F)
 	Image        string
 	Pending      []string // "proto/name" entries awaiting allocation (§4.E)
+	// connectivity (P6, design §7)
+	SAName      string          // pod serviceAccountName (always set)
+	IrohPort    int32           // UDP containerPort when >0
+	ConnEnv     []corev1.EnvVar // connectivity env vars, appended to the container
+	ConnEnvHash string          // deterministic digest of ConnEnv for hash()
 }
 
 // hash is the single rollout trigger (design §4.F). The token VALUE is never
 // hashed — InviteID stands in for it.
 func (c agentConfig) hash() string {
 	h := sha256.New()
-	for _, s := range []string{c.Image, c.InviteID, c.ServicesJSON, c.TCPJSON, c.UDPJSON, c.RelayURL} {
+	for _, s := range []string{c.Image, c.InviteID, c.ServicesJSON, c.TCPJSON, c.UDPJSON, c.RelayURL, c.SAName, c.ConnEnvHash} {
 		h.Write([]byte(s))
 		h.Write([]byte{0})
 	}
@@ -108,6 +113,18 @@ func renderConfig(ta *towonelv1alpha1.TowonelAgent, allocations []towonelv1alpha
 	if cfg.UDPJSON, err = marshalL4(ta.Spec.UDP, "udp", ports, &cfg.Pending); err != nil {
 		return cfg, err
 	}
+	// connectivity (P6) — orthogonal to routing; folded into the rollout hash.
+	cfg.SAName = agentSAName(ta.Name)
+	p := planConnectivity(ta)
+	cfg.IrohPort = p.irohPort
+	cfg.ConnEnv = connectivityEnv(ta, p)
+	if len(cfg.ConnEnv) > 0 {
+		b, err := json.Marshal(cfg.ConnEnv) // deterministic: fixed field + slice order
+		if err != nil {
+			return cfg, fmt.Errorf("marshal connectivity env: %w", err)
+		}
+		cfg.ConnEnvHash = string(b)
+	}
 	return cfg, nil
 }
 
@@ -128,6 +145,7 @@ func agentEnv(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) []corev1.EnvVar
 	add("TOWONEL_AGENT_TCP_SERVICES", cfg.TCPJSON)
 	add("TOWONEL_AGENT_UDP_SERVICES", cfg.UDPJSON)
 	add("TOWONEL_AGENT_RELAY_URL", cfg.RelayURL)
+	env = append(env, cfg.ConnEnv...)
 	env = append(env, corev1.EnvVar{Name: "TOWONEL_AGENT_HEALTH_LISTEN_ADDR", Value: agentHealthAddr})
 	return env
 }
@@ -174,12 +192,14 @@ func buildDeployment(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) *appsv1.
 					Annotations: map[string]string{AnnotationConfigHash: cfg.hash()},
 				},
 				Spec: corev1.PodSpec{
-					NodeSelector: ta.Spec.Workload.NodeSelector,
-					Tolerations:  ta.Spec.Workload.Tolerations,
+					ServiceAccountName: cfg.SAName,
+					NodeSelector:       ta.Spec.Workload.NodeSelector,
+					Tolerations:        ta.Spec.Workload.Tolerations,
 					Containers: []corev1.Container{{
 						Name:           AgentAppName,
 						Image:          cfg.Image,
 						Env:            agentEnv(ta, cfg),
+						Ports:          agentContainerPorts(cfg.IrohPort),
 						Resources:      res,
 						LivenessProbe:  probe.DeepCopy(),
 						ReadinessProbe: probe.DeepCopy(),

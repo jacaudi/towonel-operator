@@ -1,6 +1,10 @@
 package controller
 
-import "time"
+import (
+	"time"
+
+	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
+)
 
 const (
 	FinalizerName = "towonel-operator.towonel.io/finalizer"
@@ -61,6 +65,17 @@ const (
 	defaultAgentImage = "codeberg.org/towonel/towonel-agent:latest"
 	agentHealthAddr   = "0.0.0.0:9090"
 	agentHealthPort   = 9090
+
+	// Connectivity (P6, design §4/§5/§8).
+	CondIrohConnectivityReady  = "IrohConnectivityReady"
+	ReasonConnectivityReady    = "ConnectivityReady"
+	ReasonConnectivitySkipped  = "ConnectivitySkipped"  // invalid combo, non-wedging (design §4)
+	ReasonNodeRBACShellMissing = "NodeRBACShellMissing" // chart shell absent (design §5.3)
+	ReasonPortIgnored          = "NodePortPortIgnored"  // port set without create (design §4)
+
+	// nodeReaderName is the fixed name of the chart-owned shared node-reader
+	// ClusterRole + ClusterRoleBinding (design §5.3/§5.4).
+	nodeReaderName = "towonel-operator-agent-node-reader"
 )
 
 func tokenSecretName(tunnelName string) string { return tunnelName + "-token" }
@@ -111,3 +126,17 @@ const (
 func srcFieldManager(kind, namespace, name string) string {
 	return "towonel-src:" + kind + ":" + namespace + ":" + name
 }
+
+// agentSAName is the per-agent ServiceAccount name (matches the Deployment).
+func agentSAName(agentName string) string { return agentName }
+
+// nodePortServiceName resolves the per-agent UDP NodePort Service name.
+func nodePortServiceName(ta *towonelv1alpha1.TowonelAgent) string {
+	if n := ta.Spec.Connectivity.NodePort.Name; n != "" {
+		return n
+	}
+	return ta.Name + "-iroh"
+}
+
+// servicesReaderName is the per-agent services-reader Role/RoleBinding name.
+func servicesReaderName(agentName string) string { return agentName + "-iroh-svc-reader" }

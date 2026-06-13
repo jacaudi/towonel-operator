@@ -6,6 +6,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	record "k8s.io/client-go/tools/record"
@@ -32,6 +34,11 @@ type TowonelAgentReconciler struct {
 //+kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;list;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile drives a TowonelAgent toward its desired state. No finalizer:
@@ -40,7 +47,15 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log := logf.FromContext(ctx)
 	var ta towonelv1alpha1.TowonelAgent
 	if err := r.Get(ctx, req.NamespacedName, &ta); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if apierrors.IsNotFound(err) {
+			// Agent deleted: recompute the shared node-reader subjects so its SA
+			// subject is dropped (no finalizer — design §5.3).
+			if _, rerr := r.reconcileNodeReaderSubjects(ctx); rerr != nil {
+				return ctrl.Result{}, rerr
+			}
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
 	}
 	if !ta.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
@@ -77,6 +92,26 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{RequeueAfter: waitingRequeue}, nil
 		}
 		return r.fail(ctx, &ta, orig, err)
+	}
+
+	// Connectivity (P6) — optional, never wedges. Apply BEFORE the Deployment so
+	// the pod's serviceAccountName resolves.
+	plan := planConnectivity(&ta)
+	shellMissing, cErr := r.ensureConnectivity(ctx, &ta, plan)
+	if cErr != nil {
+		return r.fail(ctx, &ta, orig, cErr)
+	}
+	setConnectivityCond(&ta, plan, connectivityRequested(&ta), shellMissing)
+	if r.Recorder != nil {
+		if plan.skipped {
+			r.Recorder.Event(&ta, corev1.EventTypeWarning, ReasonConnectivitySkipped, plan.skipReason)
+		}
+		if plan.portIgnored {
+			r.Recorder.Event(&ta, corev1.EventTypeNormal, ReasonPortIgnored, "nodePort.port ignored: nodePort.create is false")
+		}
+		if shellMissing && plan.autodiscover {
+			r.Recorder.Event(&ta, corev1.EventTypeWarning, ReasonNodeRBACShellMissing, "chart node-RBAC shell missing; enable agentNodeRBAC.create")
+		}
 	}
 
 	cfg, err := renderConfig(&ta, tunnel.Status.PortAllocations, tunnel.Status.InviteID)
@@ -117,6 +152,10 @@ func (r *TowonelAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&towonelv1alpha1.TowonelAgent{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.ServiceAccount{}).
+		Owns(&corev1.Service{}).
+		Owns(&rbacv1.Role{}).
+		Owns(&rbacv1.RoleBinding{}).
 		Watches(&towonelv1alpha1.TowonelTunnel{}, handler.EnqueueRequestsFromMapFunc(r.agentsForTunnel)).
 		Named("towonelagent").
 		Complete(r)
