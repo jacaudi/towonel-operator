@@ -17,7 +17,7 @@ func renderAgent() *towonelv1alpha1.TowonelAgent {
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "network"},
 			Services: []towonelv1alpha1.AgentService{
-				{Hostname: "app.example", Origin: "app:8080", TLSMode: "passthrough"},
+				{Hostname: "app.example", Origin: "app:8080", EdgeTLSMode: "passthrough"},
 			},
 			TCP: []towonelv1alpha1.AgentL4Service{
 				{Name: "ssh", Origin: "app:22"},

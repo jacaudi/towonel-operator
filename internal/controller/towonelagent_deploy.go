@@ -94,7 +94,7 @@ func renderConfig(ta *towonelv1alpha1.TowonelAgent, allocations []towonelv1alpha
 	if len(ta.Spec.Services) > 0 {
 		svcs := make([]agentHTTPSService, 0, len(ta.Spec.Services))
 		for _, s := range ta.Spec.Services {
-			svcs = append(svcs, agentHTTPSService{Hostname: s.Hostname, Origin: s.Origin, TLSMode: s.TLSMode, ProxyProtocol: s.ProxyProtocol})
+			svcs = append(svcs, agentHTTPSService{Hostname: s.Hostname, Origin: s.Origin, TLSMode: s.EdgeTLSMode, ProxyProtocol: s.ProxyProtocol})
 		}
 		b, err := json.Marshal(svcs)
 		if err != nil {

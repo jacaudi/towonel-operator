@@ -100,7 +100,7 @@ const (
 	AnnotationAgentRef       = "towonel.io/agent-ref"
 	AnnotationSrcHostname    = "towonel.io/hostname"
 	AnnotationSrcOrigin      = "towonel.io/origin"
-	AnnotationSrcTLSMode     = "towonel.io/tls-mode"
+	AnnotationSrcEdgeTLSMode = "towonel.io/edge-tls-mode"
 	AnnotationSrcProtocol    = "towonel.io/protocol"
 	AnnotationGatewayService = "towonel.io/gateway-service"
 	AnnotationDNSRecord      = "towonel.io/dns-record" // reserved (DNS phase); inert in P5

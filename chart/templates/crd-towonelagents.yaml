@@ -101,15 +101,19 @@ spec:
                 items:
                   description: AgentService is an HTTPS/SNI route (hostname -> origin).
                   properties:
+                    edgeTLSMode:
+                      default: passthrough
+                      description: |-
+                        EdgeTLSMode selects edge TLS behavior: `passthrough` (default; edge peeks SNI,
+                        forwards raw TLS, origin terminates) | `terminate` (edge issues on-demand cert,
+                        forwards plaintext). The agent never terminates TLS.
+                      type: string
                     hostname:
                       type: string
                     origin:
                       type: string
                     proxyProtocol:
                       type: boolean
-                    tlsMode:
-                      default: passthrough
-                      type: string
                   required:
                   - hostname
                   - origin

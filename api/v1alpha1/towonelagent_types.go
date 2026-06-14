@@ -16,9 +16,12 @@ type TunnelReference struct {
 type AgentService struct {
 	Hostname string `json:"hostname"`
 	Origin   string `json:"origin"`
+	// EdgeTLSMode selects edge TLS behavior: `passthrough` (default; edge peeks SNI,
+	// forwards raw TLS, origin terminates) | `terminate` (edge issues on-demand cert,
+	// forwards plaintext). The agent never terminates TLS.
 	// +kubebuilder:default=passthrough
 	// +optional
-	TLSMode string `json:"tlsMode,omitempty"`
+	EdgeTLSMode string `json:"edgeTLSMode,omitempty"`
 	// +optional
 	ProxyProtocol bool `json:"proxyProtocol,omitempty"`
 }

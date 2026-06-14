@@ -143,8 +143,8 @@ func (r *ServiceSourceReconciler) deriveServiceRouting(svc *corev1.Service, emit
 			return routing{}, false
 		}
 		entry := map[string]any{"hostname": host, "origin": origin}
-		if m := svc.Annotations[AnnotationSrcTLSMode]; m != "" {
-			entry["tlsMode"] = m // CRD JSON tag is camelCase `tlsMode` — `tls_mode` would be pruned silently
+		if m := svc.Annotations[AnnotationSrcEdgeTLSMode]; m != "" {
+			entry["edgeTLSMode"] = m // CRD JSON tag is camelCase `edgeTLSMode` — a wrong key is pruned silently
 		}
 		rt.services = []map[string]any{entry}
 	default:
