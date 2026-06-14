@@ -114,6 +114,11 @@ func desiredHostnames(tt *towonelv1alpha1.TowonelTunnel, agents []towonelv1alpha
 // status.authorizedHostnames is published from the API response bodies.
 func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel, desired []string) error {
 	observed := dedupe(tt.Status.AuthorizedHostnames)
+	// cur intentionally aliases observed's backing array. The 409-absorb path below
+	// appends to cur, which may write past observed's length into shared backing
+	// storage — that is safe: observed is never re-grown and is only ever read over
+	// [:len(observed)], so the appended tail is invisible to it. Do not "simplify"
+	// this to a shared-slice mutation that reads observed after a cur append.
 	cur := observed
 
 	for _, h := range desired {
