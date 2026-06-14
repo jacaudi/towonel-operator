@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.0](https://github.com/jacaudi/towonel-operator/compare/v1.0.1...v1.1.0) (2026-06-14)
+### Features
+
+* HTTPRoute source forwards through parent gateway; edgeTLSMode rename ([#16](https://github.com/jacaudi/towonel-operator/issues/16)) ([5fdce17](https://github.com/jacaudi/towonel-operator/commit/5fdce170df37a465435d5cc7d75a7463c5e41191)), closes [#15](https://github.com/jacaudi/towonel-operator/issues/15)
+
 ## [1.0.1](https://github.com/jacaudi/towonel-operator/compare/v1.0.0...v1.0.1) (2026-06-13)
 ### Bug Fixes
 
