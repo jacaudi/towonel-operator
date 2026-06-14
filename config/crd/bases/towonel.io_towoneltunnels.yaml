@@ -102,10 +102,16 @@ spec:
                 type: array
               failoverRegions:
                 items:
+                  enum:
+                  - EU
+                  - NA
                   type: string
                 type: array
               region:
                 default: EU
+                enum:
+                - EU
+                - NA
                 type: string
               tokenExpiry:
                 default: 0

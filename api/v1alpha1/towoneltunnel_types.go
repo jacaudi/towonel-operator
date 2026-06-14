@@ -35,8 +35,10 @@ type TunnelDNSSpec struct {
 // TowonelTunnelSpec defines the desired tunnel (invite + authorization).
 type TowonelTunnelSpec struct {
 	// +kubebuilder:default=EU
+	// +kubebuilder:validation:Enum=EU;NA
 	// +optional
 	Region string `json:"region,omitempty"`
+	// +kubebuilder:validation:items:Enum=EU;NA
 	// +optional
 	FailoverRegions []string `json:"failoverRegions,omitempty"`
 	// +optional
