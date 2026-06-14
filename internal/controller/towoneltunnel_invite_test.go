@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"slices"
 	"testing"
 
@@ -85,7 +86,7 @@ func TestEnsureInviteCreates(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"},
 		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example"}},
 	}
-	token, err := r.ensureInvite(t.Context(), tc, tt)
+	token, err := r.ensureInvite(t.Context(), tc, tt, desiredHostnames(tt, nil))
 	if err != nil {
 		t.Fatalf("ensureInvite: %v", err)
 	}
@@ -98,7 +99,7 @@ func TestEnsureInviteCreates(t *testing.T) {
 	if len(tt.Status.AuthorizedHostnames) != 1 || tt.Status.AuthorizedHostnames[0] != "a.example" {
 		t.Errorf("authorizedHostnames not seeded: %v", tt.Status.AuthorizedHostnames)
 	}
-	token2, err := r.ensureInvite(t.Context(), tc, tt) // status.inviteId set -> no-op
+	token2, err := r.ensureInvite(t.Context(), tc, tt, desiredHostnames(tt, nil)) // status.inviteId set -> no-op
 	if err != nil || token2 != "" {
 		t.Fatalf("second call: token=%q err=%v (want empty,nil)", token2, err)
 	}
@@ -114,7 +115,7 @@ func TestEnsureInviteAdopts(t *testing.T) {
 	t.Cleanup(srv.Close)
 	r := &TowonelTunnelReconciler{}
 	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"}}
-	token, err := r.ensureInvite(t.Context(), tc, tt)
+	token, err := r.ensureInvite(t.Context(), tc, tt, desiredHostnames(tt, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +130,37 @@ func TestEnsureInviteAdopts(t *testing.T) {
 	}
 }
 
+func TestEnsureInviteCreatesWithFullDesired(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+
+	r := &TowonelTunnelReconciler{}
+	tt := &towonelv1alpha1.TowonelTunnel{
+		ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"},
+		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"extra.example"}},
+	}
+	desired := []string{"agent.example", "extra.example"}
+
+	token, err := r.ensureInvite(context.Background(), tc, tt, desired)
+	if err != nil {
+		t.Fatalf("ensureInvite: %v", err)
+	}
+	if token == "" {
+		t.Fatal("expected a non-empty token on create")
+	}
+	if tt.Status.InviteID == "" {
+		t.Fatal("expected status.InviteID to be set")
+	}
+	got := tt.Status.AuthorizedHostnames
+	if len(got) != 2 || got[0] != "agent.example" || got[1] != "extra.example" {
+		t.Fatalf("AuthorizedHostnames = %v, want [agent.example extra.example]", got)
+	}
+	if !hub.HasHostname(tt.Status.InviteID, "agent.example") {
+		t.Fatal("invite must be created with the agent-derived hostname, not just extraHostnames")
+	}
+}
+
 func TestConvergeHostnames(t *testing.T) {
 	hub := towoneltest.NewHub()
 	srv, tc := hub.Server()
@@ -138,7 +170,7 @@ func TestConvergeHostnames(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"},
 		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example", "b.example"}},
 	}
-	if _, err := r.ensureInvite(t.Context(), tc, tt); err != nil { // creates with a,b; seeds observed
+	if _, err := r.ensureInvite(t.Context(), tc, tt, desiredHostnames(tt, nil)); err != nil { // creates with a,b; seeds observed
 		t.Fatal(err)
 	}
 	tt.Spec.ExtraHostnames = []string{"a.example", "c.example"} // drop b, add c

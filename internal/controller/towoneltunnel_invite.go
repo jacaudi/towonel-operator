@@ -49,7 +49,7 @@ func inviteName(namespace, name string) string { return namespace + "/" + name }
 // ensureInvite makes status.inviteId authoritative. It returns the invite token,
 // which is non-empty ONLY on a fresh create (CreateInvite returns the token;
 // ListInvites/adoption does not).
-func (r *TowonelTunnelReconciler) ensureInvite(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel) (secret, error) {
+func (r *TowonelTunnelReconciler) ensureInvite(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel, desired []string) (secret, error) {
 	if tt.Status.InviteID != "" {
 		return "", nil // authority; nothing to do
 	}
@@ -72,7 +72,7 @@ func (r *TowonelTunnelReconciler) ensureInvite(ctx context.Context, tc *towonel.
 		}
 	}
 
-	req := towonel.CreateInviteRequest{Hostnames: dedupe(tt.Spec.ExtraHostnames), Name: &want}
+	req := towonel.CreateInviteRequest{Hostnames: dedupe(desired), Name: &want}
 	if tt.Spec.Region != "" {
 		req.Region = &tt.Spec.Region
 	}

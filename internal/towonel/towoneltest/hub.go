@@ -58,6 +58,30 @@ func (h *Hub) Has(id string) bool {
 	return ok
 }
 
+// CreatedCount returns the number of invites created, guarded by the mutex
+// (safe to call while a reconcile goroutine may be writing concurrently).
+func (h *Hub) CreatedCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.Created
+}
+
+// HasHostname reports whether an invite currently authorizes a hostname.
+func (h *Hub) HasHostname(inviteID, host string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	inv := h.invites[inviteID]
+	if inv == nil {
+		return false
+	}
+	for _, hn := range inv.Hostnames {
+		if hn == host {
+			return true
+		}
+	}
+	return false
+}
+
 // SeedTakenPort marks a port as taken hub-wide (conflicts any preferred reserve).
 func (h *Hub) SeedTakenPort(protocol string, port int32) {
 	h.mu.Lock()
