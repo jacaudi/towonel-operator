@@ -33,10 +33,10 @@ type managedObject interface {
 }
 
 // routing is one source's desired contribution to an agent's spec. Map keys are
-// CRD JSON field names (camelCase: tlsMode/proxyProtocol/preferredPort) — NOT the
+// CRD JSON field names (camelCase: edgeTLSMode/proxyProtocol/preferredPort) — NOT the
 // agent's env snake_case. A wrong key is pruned silently by the apiserver.
 type routing struct {
-	services []map[string]any // {hostname, origin, tlsMode?, proxyProtocol?}
+	services []map[string]any // {hostname, origin, edgeTLSMode?, proxyProtocol?}
 	tcp      []map[string]any // {name, origin, preferredPort?}
 	udp      []map[string]any
 }

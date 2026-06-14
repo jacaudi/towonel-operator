@@ -5,8 +5,9 @@ the agent Deployment + per-agent token Secret. This is where the `hostname → o
 (Towonel routing is agent-local). **Namespaced** (`shortName: twa`). N agents may reference one
 tunnel for failover.
 
-See [`examples/02-agent.yaml`](examples/02-agent.yaml) and
-[`examples/03-agent-failover.yaml`](examples/03-agent-failover.yaml).
+See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
+[`examples/03-explicit-gateway-wildcard.yaml`](examples/03-explicit-gateway-wildcard.yaml), and
+[`examples/04-explicit-httproute.yaml`](examples/04-explicit-httproute.yaml).
 
 ## Spec
 
@@ -20,7 +21,7 @@ See [`examples/02-agent.yaml`](examples/02-agent.yaml) and
 | `connectivity` | object | off | Optional iroh direct-path — see [connectivity.md](connectivity.md). |
 | `workload` | object | — | Connector knobs (below). |
 
-**`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `tlsMode` (`passthrough` default | `terminate`), `proxyProtocol` (bool).
+**`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `edgeTLSMode` (edge TLS behavior: `passthrough` default | `terminate`), `proxyProtocol` (string passed to the agent; e.g. `none` to disable the PROXY-protocol header; empty = agent default).
 
 **`AgentL4Service`** (tcp/udp): `name` (unique within the list), `origin` (internal host:port), `preferredPort` (optional — pin the *public* listen port; honored if free), `hostname` (optional — intended for the future DNS handoff; currently informational).
 

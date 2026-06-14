@@ -57,7 +57,6 @@ rbac:
           resources:
             - gateways
             - httproutes
-            - referencegrants
           verbs:
             - get
             - list

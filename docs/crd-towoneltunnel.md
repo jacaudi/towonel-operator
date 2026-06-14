@@ -11,8 +11,8 @@ See [`examples/01-tunnel.yaml`](examples/01-tunnel.yaml).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `region` | string | `EU` | Primary region (`POST /v1/invites .region`). |
-| `failoverRegions` | []string | — | Extra regions whose edges agents also dial. |
+| `region` | string | `EU` | Primary region (`POST /v1/invites .region`). Supported: `EU`, `CA`. |
+| `failoverRegions` | []string | — | Extra regions whose edges agents also dial (`EU`, `CA`). |
 | `apiKeySecretRef` | `{name, key}` | — | Secret holding the Towonel API key. Omitted → the operator's `TOWONEL_API_KEY` default (chart `credentials.existingSecret`). A personal `twk_` key suffices. |
 | `tokenExpiry` | int64 | `0` | Invite `expires_in_secs`; `0` = never (the hub caps finite values at 30d). |
 | `deletionPolicy` | `Delete`\|`Retain` | `Delete` | On CR delete: `Delete` releases the invite + ports; `Retain` leaves the invite alive (prod tunnels). |

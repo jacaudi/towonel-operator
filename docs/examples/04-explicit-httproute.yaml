@@ -1,0 +1,59 @@
+# EXPLICIT × HTTPROUTE — you hand-author the TowonelAgent; SPECIFIC hostnames → the gateway
+# proxy Service's in-cluster DNS name:443 (SELECTIVE through the gateway).
+# This is the explicit equivalent of annotating an HTTPRoute (see 07-implicit-httproute.yaml):
+# you authorize only the named hostnames (not the whole zone), but they still ride through the
+# gateway proxy, which terminates TLS and applies its HTTPRoutes to reach the backends.
+#
+# Contrast with 03-explicit-gateway-wildcard.yaml: same origin (the gateway proxy), but here you
+# enumerate exactly the hostnames you want exposed instead of opening "*.example.com". Same
+# origin as 03 — the difference is selective vs. broad authorization on the tunnel.
+#
+# IMPORTANT (SNI): only the hostnames listed below are authorized on the tunnel. Clients whose
+# SNI is anything else are rejected at the edge — that selectivity is the point of this pattern.
+#
+# Data flow:  client → Towonel edge (peeks SNI) → agent → envoy-external-example-com.network.svc:443
+#             (passthrough; gateway terminates TLS) → gateway's HTTPRoutes → backends
+apiVersion: towonel.io/v1alpha1
+kind: TowonelAgent
+metadata:
+  name: app-selective
+  namespace: selfhosted
+spec:
+  tunnelRef:
+    name: app
+    namespace: network
+
+  services:                              # → TOWONEL_AGENT_SERVICES (HTTPS / SNI)
+    - hostname: photos.example.com       # SPECIFIC hostname (selective) → the gateway proxy
+      origin: envoy-external-example-com.network.svc:443   # the gateway data-plane proxy Service (DNS:port)
+      edgeTLSMode: passthrough           # raw TLS forwarded to the gateway; the GATEWAY terminates
+      # proxyProtocol: none            # optional string passed to the agent; omit = agent default
+    - hostname: notes.example.com        # a second SPECIFIC hostname, same gateway proxy origin
+      origin: envoy-external-example-com.network.svc:443
+      edgeTLSMode: passthrough
+      # proxyProtocol: none            # optional string passed to the agent; omit = agent default
+
+  tcp: []                                # → TOWONEL_AGENT_TCP_SERVICES (none here)
+  udp: []                                # → TOWONEL_AGENT_UDP_SERVICES (none here)
+
+  relayUrl: ""
+
+  connectivity:
+    autodiscover: false
+    irohPort: 0
+    extraLocalAddrs: []
+    nodePort:
+      create: false
+      name: ""
+
+  workload:
+    replicas: 1
+    image: codeberg.org/towonel/towonel-agent:0.1.32
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+    nodeSelector: {}
+    tolerations: []

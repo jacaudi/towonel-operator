@@ -5,9 +5,9 @@ Instead of hand-authoring a [`TowonelAgent`](crd-towonelagent.md), annotate a `S
 on a per-tunnel agent — exactly as if you had written them yourself. This is the optional
 dogfooding path; the CRs remain the source of truth.
 
-Examples: [`04-source-service-simple.yaml`](examples/04-source-service-simple.yaml),
-[`05-source-service-multiport.yaml`](examples/05-source-service-multiport.yaml),
-[`06-source-gateway-httproute.yaml`](examples/06-source-gateway-httproute.yaml).
+Examples: [`05-implicit-service.yaml`](examples/05-implicit-service.yaml),
+[`06-implicit-gateway-wildcard.yaml`](examples/06-implicit-gateway-wildcard.yaml),
+[`07-implicit-httproute.yaml`](examples/07-implicit-httproute.yaml).
 
 ## Annotation vocabulary
 
@@ -20,7 +20,7 @@ All keys are under `towonel.io/`. Opt in with `tunnel`, point at a tunnel with `
 | `towonel.io/agent-ref` | all | Optional. Target a specific agent by name. See "agent targeting" below. |
 | `towonel.io/hostname` | Service | HTTPS hostname to expose (Service shim). |
 | `towonel.io/origin` | Service | Override origin `host:port` (defaults to the Service's `ClusterIP:port`). |
-| `towonel.io/tls-mode` | Service | `passthrough` (default) or `terminate`. |
+| `towonel.io/edge-tls-mode` | Service | `passthrough` (default) or `terminate`. |
 | `towonel.io/protocol` | Service | `tcp` or `udp` — emit a raw L4 service instead of HTTPS. |
 | `towonel.io/gateway-service` | Gateway | **Required** on an opted-in Gateway — the proxy Service the agent forwards to (not derivable from the Gateway object). |
 | `towonel.io/dns-record` | all | **Reserved / inert** — intended to opt a hostname out of the (unimplemented) DNS handoff. See [dns.md](dns.md). |
@@ -48,15 +48,21 @@ unreferenced ports are not exposed. For anything more complex, author the `Towon
   `towonel.io/gateway-service: [<ns>/]<name>[:<port>]` is **required** (the in-cluster proxy
   Service to forward to — not derivable from the Gateway). Each listener hostname is emitted as a
   service pointing at that proxy. Mirrors the cloudflare-operator Gateway-source pattern.
-- **`HTTPRoute`** — hostnames come from `spec.hostnames`; the route's single backend Service
-  becomes the origin (multiple distinct backends → an `AmbiguousBackend` Event, no silent
-  first-wins); cross-namespace backends need a `ReferenceGrant`.
+- **`HTTPRoute`** — hostnames come from `spec.hostnames`; the route forwards through its **parent
+  Gateway** (origin = that Gateway's `towonel.io/gateway-service` proxy). Only the route's
+  `spec.hostnames` are authorized — this is the **selective** option. The parent Gateway carries
+  `gateway-service` as data and does **not** need `towonel.io/tunnel`. If a route's `parentRefs`
+  resolve to more than one distinct proxy, the operator emits an `AmbiguousGateway` Event and skips
+  (no silent first-wins).
 
 > **Origins and TLS (important).** The emitted `origin` is the target Service's **`ClusterIP:port`**
 > — *not* its cluster-DNS name (it updates if the Service's ClusterIP changes). Source-emitted
-> services carry the default `tlsMode: passthrough`, so the **target must terminate TLS** (e.g. a
-> Gateway proxy with a `Terminate` listener). For a plaintext HTTP backend you want
-> `tlsMode: terminate`, which the source layer can't set — author a `TowonelAgent` directly for that.
+> services carry the default `edgeTLSMode: passthrough`: the Towonel edge peeks the SNI and forwards
+> raw TLS, so the **origin must terminate TLS**. For an annotated **Service** the origin is the
+> Service itself, so that Service must terminate TLS. For an **HTTPRoute** the origin is its parent
+> Gateway's proxy, which terminates TLS for the route's hostnames. For a plaintext HTTP origin you
+> want `edgeTLSMode: terminate` (the edge terminates with an on-demand cert and forwards plaintext),
+> which the Service source can't set — author a `TowonelAgent` directly for that.
 
 > **SNI / DNS.** Towonel routes by the SNI the client sends, and a CNAME chain does **not** rewrite
 > it. Every hostname clients actually use must be authorized — i.e. appear as a Gateway listener

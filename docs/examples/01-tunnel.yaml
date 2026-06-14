@@ -7,9 +7,9 @@ metadata:
   name: app
   namespace: network
 spec:
-  region: EU                       # POST /v1/invites .region (default EU)
-  failoverRegions:                 # extra regions whose edges agents also dial
-    - US
+  region: EU                       # POST /v1/invites .region — EU | CA (default EU)
+  failoverRegions:                 # extra regions whose edges agents also dial (EU | CA)
+    - CA
   apiKeySecretRef:                 # a personal API key is sufficient (core path; least privilege)
     name: towonel-api
     key: token

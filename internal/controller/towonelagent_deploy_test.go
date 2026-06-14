@@ -17,7 +17,7 @@ func renderAgent() *towonelv1alpha1.TowonelAgent {
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "network"},
 			Services: []towonelv1alpha1.AgentService{
-				{Hostname: "app.example", Origin: "app:8080", TLSMode: "passthrough"},
+				{Hostname: "app.example", Origin: "app:8080", EdgeTLSMode: "passthrough"},
 			},
 			TCP: []towonelv1alpha1.AgentL4Service{
 				{Name: "ssh", Origin: "app:22"},
@@ -36,7 +36,7 @@ func TestRenderConfigPartialRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(cfg.ServicesJSON, `"hostname":"app.example"`) || !strings.Contains(cfg.ServicesJSON, `"tls_mode":"passthrough"`) {
+	if !strings.Contains(cfg.ServicesJSON, `"hostname":"app.example"`) || !strings.Contains(cfg.ServicesJSON, `"tls_mode":{"mode":"passthrough"}`) {
 		t.Errorf("services json = %s", cfg.ServicesJSON)
 	}
 	if !strings.Contains(cfg.TCPJSON, `"listen_port":2222`) {

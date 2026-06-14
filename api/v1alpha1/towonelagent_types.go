@@ -16,11 +16,17 @@ type TunnelReference struct {
 type AgentService struct {
 	Hostname string `json:"hostname"`
 	Origin   string `json:"origin"`
+	// EdgeTLSMode selects edge TLS behavior: `passthrough` (default; edge peeks SNI,
+	// forwards raw TLS, origin terminates) | `terminate` (edge issues on-demand cert,
+	// forwards plaintext). The agent never terminates TLS.
 	// +kubebuilder:default=passthrough
 	// +optional
-	TLSMode string `json:"tlsMode,omitempty"`
+	EdgeTLSMode string `json:"edgeTLSMode,omitempty"`
+	// ProxyProtocol is passed through to the agent's proxy_protocol (e.g. "none" to
+	// disable the PROXY-protocol header). Empty = the agent default. Free-form string:
+	// the supported set is the agent's, not enumerated here.
 	// +optional
-	ProxyProtocol bool `json:"proxyProtocol,omitempty"`
+	ProxyProtocol string `json:"proxyProtocol,omitempty"`
 }
 
 // AgentL4Service is a raw TCP/UDP service (origin host:port).

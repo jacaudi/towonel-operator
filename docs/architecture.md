@@ -63,7 +63,10 @@ referencing the same tunnel.
 
 Instead of hand-writing a `TowonelAgent`, you can annotate a `Service`, `Gateway`, or `HTTPRoute`;
 the operator materializes and owns the equivalent routing entries on a per-tunnel default agent (or a
-named one). See [source-layer.md](source-layer.md). This mirrors the
+named one). The three sources form an exposure gradient: a **Service** is direct (origin is the
+Service's own `ClusterIP:port`); an **HTTPRoute** forwards through its parent Gateway and is selective
+(only the route's own hostnames are authorized); a **Gateway** forwards through that gateway and is
+broad (all of its listener hostnames). See [source-layer.md](source-layer.md). This mirrors the
 [`cloudflare-operator`](https://github.com/jacaudi/cloudflare-operator) source→primitive pattern.
 
 ## Relationship to cloudflare-operator
