@@ -27,11 +27,11 @@ spec:
     - hostname: photos.example.com       # SPECIFIC hostname (selective) → the gateway proxy
       origin: envoy-external-example-com.network.svc:443   # the gateway data-plane proxy Service (DNS:port)
       edgeTLSMode: passthrough           # raw TLS forwarded to the gateway; the GATEWAY terminates
-      proxyProtocol: false
+      # proxyProtocol: none            # optional string passed to the agent; omit = agent default
     - hostname: notes.example.com        # a second SPECIFIC hostname, same gateway proxy origin
       origin: envoy-external-example-com.network.svc:443
       edgeTLSMode: passthrough
-      proxyProtocol: false
+      # proxyProtocol: none            # optional string passed to the agent; omit = agent default
 
   tcp: []                                # → TOWONEL_AGENT_TCP_SERVICES (none here)
   udp: []                                # → TOWONEL_AGENT_UDP_SERVICES (none here)

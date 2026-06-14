@@ -22,8 +22,11 @@ type AgentService struct {
 	// +kubebuilder:default=passthrough
 	// +optional
 	EdgeTLSMode string `json:"edgeTLSMode,omitempty"`
+	// ProxyProtocol is passed through to the agent's proxy_protocol (e.g. "none" to
+	// disable the PROXY-protocol header). Empty = the agent default. Free-form string:
+	// the supported set is the agent's, not enumerated here.
 	// +optional
-	ProxyProtocol bool `json:"proxyProtocol,omitempty"`
+	ProxyProtocol string `json:"proxyProtocol,omitempty"`
 }
 
 // AgentL4Service is a raw TCP/UDP service (origin host:port).

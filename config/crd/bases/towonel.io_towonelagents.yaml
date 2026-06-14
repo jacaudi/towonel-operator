@@ -109,7 +109,11 @@ spec:
                     origin:
                       type: string
                     proxyProtocol:
-                      type: boolean
+                      description: |-
+                        ProxyProtocol is passed through to the agent's proxy_protocol (e.g. "none" to
+                        disable the PROXY-protocol header). Empty = the agent default. Free-form string:
+                        the supported set is the agent's, not enumerated here.
+                      type: string
                   required:
                   - hostname
                   - origin

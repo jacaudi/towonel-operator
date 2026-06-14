@@ -35,7 +35,7 @@ type agentHTTPSService struct {
 	Hostname      string        `json:"hostname"`
 	Origin        string        `json:"origin"`
 	TLSMode       *agentTLSMode `json:"tls_mode,omitempty"`
-	ProxyProtocol bool          `json:"proxy_protocol,omitempty"`
+	ProxyProtocol string        `json:"proxy_protocol,omitempty"`
 }
 
 type agentL4JSON struct {

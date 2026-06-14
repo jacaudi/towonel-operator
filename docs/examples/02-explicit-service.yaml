@@ -20,7 +20,7 @@ spec:
       origin: app.selfhosted.svc:8080    # the app Service's in-cluster DNS name:port (direct)
       edgeTLSMode: passthrough           # passthrough (default) = edge peeks SNI, forwards raw TLS; origin terminates
                                          #   terminate = edge terminates with an on-demand cert, forwards plaintext
-      proxyProtocol: false
+      # proxyProtocol: none            # optional string passed to the agent; omit = agent default
 
   tcp: []                                # → TOWONEL_AGENT_TCP_SERVICES (none here)
   udp: []                                # → TOWONEL_AGENT_UDP_SERVICES (none here)

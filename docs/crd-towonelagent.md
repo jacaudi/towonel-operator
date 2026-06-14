@@ -21,7 +21,7 @@ See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
 | `connectivity` | object | off | Optional iroh direct-path — see [connectivity.md](connectivity.md). |
 | `workload` | object | — | Connector knobs (below). |
 
-**`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `edgeTLSMode` (edge TLS behavior: `passthrough` default | `terminate`), `proxyProtocol` (bool).
+**`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `edgeTLSMode` (edge TLS behavior: `passthrough` default | `terminate`), `proxyProtocol` (string passed to the agent; e.g. `none` to disable the PROXY-protocol header; empty = agent default).
 
 **`AgentL4Service`** (tcp/udp): `name` (unique within the list), `origin` (internal host:port), `preferredPort` (optional — pin the *public* listen port; honored if free), `hostname` (optional — intended for the future DNS handoff; currently informational).
 

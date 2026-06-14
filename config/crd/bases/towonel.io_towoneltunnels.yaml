@@ -104,14 +104,14 @@ spec:
                 items:
                   enum:
                   - EU
-                  - NA
+                  - CA
                   type: string
                 type: array
               region:
                 default: EU
                 enum:
                 - EU
-                - NA
+                - CA
                 type: string
               tokenExpiry:
                 default: 0
