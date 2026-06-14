@@ -12,6 +12,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -160,9 +163,47 @@ func (r *HTTPRouteSourceReconciler) deriveHTTPRouteRouting(ctx context.Context, 
 	return out, true, nil
 }
 
+// routesForGateway enqueues every tunnel-annotated HTTPRoute whose parentRef
+// targets the changed Gateway, so a change to that Gateway's gateway-service
+// annotation (or proxy Service) re-flows to dependent routes. The presence of
+// AnnotationTunnel is a cheap first-cut filter; Reconcile re-checks truthiness.
+func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj client.Object) []reconcile.Request {
+	gw, ok := obj.(*gwv1.Gateway)
+	if !ok {
+		return nil
+	}
+	var routes gwv1.HTTPRouteList
+	if err := r.List(ctx, &routes); err != nil {
+		logf.FromContext(ctx).Error(err, "routesForGateway: list failed", "gateway", client.ObjectKeyFromObject(gw))
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range routes.Items {
+		rt := &routes.Items[i]
+		if _, opted := rt.Annotations[AnnotationTunnel]; !opted {
+			continue
+		}
+		for _, p := range rt.Spec.ParentRefs {
+			if !isGatewayParent(p) {
+				continue
+			}
+			ns := rt.Namespace // parentRef nil namespace defaults to the ROUTE's namespace
+			if p.Namespace != nil {
+				ns = string(*p.Namespace)
+			}
+			if ns == gw.Namespace && string(p.Name) == gw.Name {
+				reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+				break
+			}
+		}
+	}
+	return reqs
+}
+
 func (r *HTTPRouteSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gwv1.HTTPRoute{}, builder.WithPredicates(sourcePredicate())).
+		Watches(&gwv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.routesForGateway)).
 		Named("httproute-source").
 		Complete(r)
 }

@@ -13,6 +13,39 @@ import (
 // nsPtr returns a pointer to a gwv1.Namespace for use in parentRef fixtures.
 func nsPtr(s string) *gwv1.Namespace { n := gwv1.Namespace(s); return &n }
 
+func TestRoutesForGatewayMatchesByDefaultedNamespace(t *testing.T) {
+	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway"}}
+	// route A: parentRef nil-namespace, same namespace as gateway → MUST match (defaults to route ns == kgateway)
+	routeA := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "kgateway", Annotations: map[string]string{AnnotationTunnel: "enable"}},
+		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external"}}}},
+	}
+	// route B: explicit cross-namespace parentRef → MUST match
+	routeB := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"}},
+		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
+	}
+	// route C: un-annotated → MUST NOT match
+	routeC := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "immich"},
+		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
+	}
+	// route D: annotated, but parentRef targets a DIFFERENT gateway name → MUST NOT match (locks name/namespace scoping)
+	routeD := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"}},
+		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: nsPtr("kgateway")}}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(routeA, routeB, routeC, routeD).Build()
+	reqs := (&HTTPRouteSourceReconciler{Client: c}).routesForGateway(context.Background(), gw)
+	got := map[string]bool{}
+	for _, r := range reqs {
+		got[r.NamespacedName.String()] = true
+	}
+	if len(reqs) != 2 || !got["kgateway/a"] || !got["immich/b"] {
+		t.Fatalf("want exactly {kgateway/a, immich/b}, got %v", reqs)
+	}
+}
+
 func TestDeriveHTTPRouteForwardsToParentGatewayProxy(t *testing.T) {
 	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway",
 		Annotations: map[string]string{AnnotationGatewayService: "kgateway/external:443"}}}
