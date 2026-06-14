@@ -4,7 +4,7 @@
 
 - A Kubernetes cluster (the operator targets controller-runtime / modern K8s; envtest runs against 1.33).
 - **A Towonel account + a personal API key** (`twk_…`). The `TowonelTunnel` controller calls
-  the Towonel user API (`https://console.towonel.dev` by default) to create invites, converge
+  the Towonel user API (`https://hub.towonel.dev` by default) to create invites, converge
   authorized hostnames, and reserve ports. A personal key is sufficient for the core path
   (least privilege) — the operator-key/hub-admin tier is not required.
 - **The Towonel agent image** — `codeberg.org/towonel/towonel-agent` (the operator *deploys*
@@ -64,7 +64,7 @@ are recommended when tunnels span teams/accounts.
 | `crds.keep` | `true` | `helm.sh/resource-policy: keep` so CRDs survive uninstall |
 | `rbac.enabled` | `true` | Render the operator ClusterRole/Binding |
 | `serviceAccount.create` | `true` | Create the operator ServiceAccount |
-| `towonel.apiURL` | `https://console.towonel.dev` | Towonel hub base URL |
+| `towonel.apiURL` | `https://hub.towonel.dev` | Towonel hub base URL |
 | `credentials.existingSecret` | `""` | Secret holding the API key (`TOWONEL_API_KEY` fallback) |
 | `credentials.tokenKey` | `token` | Key within that Secret |
 | `gatewayAPI.enabled` | `auto` | `auto` probes for Gateway API CRDs; `true`/`false` force the source controllers |
@@ -79,7 +79,7 @@ The chart wires these; set them directly if you run the binary yourself:
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--towonel-api-url` | `https://console.towonel.dev` | Towonel hub base URL |
+| `--towonel-api-url` | `https://hub.towonel.dev` | Towonel hub base URL |
 | `--agent-namespace` | `""` | Namespace for auto-created default agents |
 | `--enable-gateway-api` | `auto` | `auto\|true\|false` — register Gateway/HTTPRoute source controllers |
 | `--leader-elect` | `true` | Leader election |

@@ -1,5 +1,5 @@
 // Package towonel is a Go client for the Towonel user API
-// (auth API-keys, invites, ports). See console.towonel.dev/api-docs/user.json.
+// (auth API-keys, invites, ports). See hub.towonel.dev/api-docs/user.json.
 package towonel
 
 import (
