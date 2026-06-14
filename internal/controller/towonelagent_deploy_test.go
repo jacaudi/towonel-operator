@@ -36,7 +36,7 @@ func TestRenderConfigPartialRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(cfg.ServicesJSON, `"hostname":"app.example"`) || !strings.Contains(cfg.ServicesJSON, `"tls_mode":"passthrough"`) {
+	if !strings.Contains(cfg.ServicesJSON, `"hostname":"app.example"`) || !strings.Contains(cfg.ServicesJSON, `"tls_mode":{"mode":"passthrough"}`) {
 		t.Errorf("services json = %s", cfg.ServicesJSON)
 	}
 	if !strings.Contains(cfg.TCPJSON, `"listen_port":2222`) {

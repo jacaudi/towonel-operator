@@ -22,13 +22,20 @@ import (
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
 
+// agentTLSMode is the agent's nested tls_mode wire object, e.g. {"mode":"passthrough"}.
+// The Towonel agent (>=0.1.32) deserializes tls_mode as a struct, NOT a bare string —
+// emitting "tls_mode":"passthrough" fails with `invalid type: string, expected struct Wire`.
+type agentTLSMode struct {
+	Mode string `json:"mode"`
+}
+
 // Towonel agent env contract (snake_case JSON). Local config, deliberately
 // NOT part of the P1 API client (design §4.E).
 type agentHTTPSService struct {
-	Hostname      string `json:"hostname"`
-	Origin        string `json:"origin"`
-	TLSMode       string `json:"tls_mode,omitempty"`
-	ProxyProtocol bool   `json:"proxy_protocol,omitempty"`
+	Hostname      string        `json:"hostname"`
+	Origin        string        `json:"origin"`
+	TLSMode       *agentTLSMode `json:"tls_mode,omitempty"`
+	ProxyProtocol bool          `json:"proxy_protocol,omitempty"`
 }
 
 type agentL4JSON struct {
@@ -94,7 +101,11 @@ func renderConfig(ta *towonelv1alpha1.TowonelAgent, allocations []towonelv1alpha
 	if len(ta.Spec.Services) > 0 {
 		svcs := make([]agentHTTPSService, 0, len(ta.Spec.Services))
 		for _, s := range ta.Spec.Services {
-			svcs = append(svcs, agentHTTPSService{Hostname: s.Hostname, Origin: s.Origin, TLSMode: s.EdgeTLSMode, ProxyProtocol: s.ProxyProtocol})
+			entry := agentHTTPSService{Hostname: s.Hostname, Origin: s.Origin, ProxyProtocol: s.ProxyProtocol}
+			if s.EdgeTLSMode != "" {
+				entry.TLSMode = &agentTLSMode{Mode: s.EdgeTLSMode}
+			}
+			svcs = append(svcs, entry)
 		}
 		b, err := json.Marshal(svcs)
 		if err != nil {
