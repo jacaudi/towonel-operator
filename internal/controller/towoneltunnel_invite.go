@@ -2,9 +2,12 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -113,15 +116,27 @@ func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *tow
 	observed := dedupe(tt.Status.AuthorizedHostnames)
 	cur := observed
 
-	var toAdd []string
 	for _, h := range desired {
-		if !slices.Contains(observed, h) {
-			toAdd = append(toAdd, h)
+		if slices.Contains(observed, h) {
+			continue
 		}
-	}
-	if len(toAdd) > 0 {
-		resp, err := tc.AddHostnames(ctx, tt.Status.InviteID, toAdd)
+		resp, err := tc.AddHostnames(ctx, tt.Status.InviteID, []string{h})
 		if err != nil {
+			// #14(b): a 409 hostname_conflict for a hostname we WANT authorized means
+			// it is already reserved on our invite — desired state already achieved.
+			// Absorb as idempotent success (single-tenant: a foreign conflict is
+			// indistinguishable by message and is masked — accepted for alpha).
+			if apiErr, ok := errors.AsType[*towonel.APIError](err); ok &&
+				apiErr.StatusCode == http.StatusConflict && strings.Contains(apiErr.Body, "hostname_conflict") {
+				if r.Recorder != nil {
+					r.Recorder.Event(tt, corev1.EventTypeWarning, ReasonHostnameConflict,
+						fmt.Sprintf("hostname %q already reserved by an active invite; treating as authorized", h))
+				}
+				if !slices.Contains(cur, h) {
+					cur = append(cur, h)
+				}
+				continue
+			}
 			return fmt.Errorf("add hostnames: %w", err)
 		}
 		cur = resp.Hostnames

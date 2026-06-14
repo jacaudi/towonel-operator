@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -183,6 +184,70 @@ func TestConvergeHostnames(t *testing.T) {
 	}
 	if !got["a.example"] || !got["c.example"] || got["b.example"] {
 		t.Errorf("authorized = %v, want {a,c}", tt.Status.AuthorizedHostnames)
+	}
+}
+
+func TestConvergeHostnamesAbsorbsOwnConflict(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+
+	// An invite already authorizes the hostname (its hostname is reserved hub-side).
+	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example"}})
+
+	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+	tt := &towonelv1alpha1.TowonelTunnel{
+		ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"},
+	}
+	tt.Status.InviteID = "inv-1"
+	tt.Status.AuthorizedHostnames = nil // STALE: status lost the hostname (the bug condition)
+
+	// Must NOT return an error (the 409 is our own hostname → idempotent success).
+	if err := r.convergeHostnames(context.Background(), tc, tt, []string{"a.example"}); err != nil {
+		t.Fatalf("convergeHostnames returned error on own-invite conflict: %v", err)
+	}
+	if got := tt.Status.AuthorizedHostnames; len(got) != 1 || got[0] != "a.example" {
+		t.Fatalf("AuthorizedHostnames = %v, want [a.example]", got)
+	}
+}
+
+func TestConvergeHostnamesAddsNewHostname(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example"}})
+
+	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt.Status.InviteID = "inv-1"
+	tt.Status.AuthorizedHostnames = []string{"a.example"}
+
+	if err := r.convergeHostnames(context.Background(), tc, tt, []string{"a.example", "b.example"}); err != nil {
+		t.Fatalf("convergeHostnames: %v", err)
+	}
+	if got := tt.Status.AuthorizedHostnames; len(got) != 2 || got[0] != "a.example" || got[1] != "b.example" {
+		t.Fatalf("AuthorizedHostnames = %v, want [a.example b.example]", got)
+	}
+}
+
+func TestConvergeHostnamesPropagatesNon409(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	// No invite seeded: the hub's add handler 404s for an unknown invite ID.
+	// A 404 is NOT an absorbable own-409 hostname_conflict — it must propagate.
+
+	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt.Status.InviteID = "inv-missing"  // hub has no such invite → add returns 404
+	tt.Status.AuthorizedHostnames = nil // observed empty → the add is attempted
+
+	err := r.convergeHostnames(context.Background(), tc, tt, []string{"new.example"})
+	if err == nil {
+		t.Fatal("convergeHostnames absorbed a non-409 error; want it propagated")
+	}
+	if slices.Contains(tt.Status.AuthorizedHostnames, "new.example") {
+		t.Fatalf("un-added hostname leaked into status: %v", tt.Status.AuthorizedHostnames)
 	}
 }
 
