@@ -1,5 +1,5 @@
-# EXPLICIT × GATEWAY (wildcard) — you hand-author the TowonelAgent; origin is a Gateway proxy
-# ClusterIP:443, and a single WILDCARD hostname authorizes a whole zone (BROAD).
+# EXPLICIT × GATEWAY (wildcard) — you hand-author the TowonelAgent; origin is the Gateway proxy
+# Service's in-cluster DNS name:443, and a single WILDCARD hostname authorizes a whole zone (BROAD).
 # This is the explicit equivalent of annotating a Gateway (see 06-implicit-gateway-wildcard.yaml):
 # one services[] entry sends every "*.example.com" name to the in-cluster gateway data-plane
 # proxy, which terminates TLS and does host routing via its own (un-annotated) HTTPRoutes.
@@ -9,7 +9,7 @@
 # "*.example.com" authorizes the whole zone IF Towonel's hub accepts wildcard hostnames (verify
 # upstream); otherwise enumerate each appN.example.com as its own services[] entry.
 #
-# Data flow:  client → Towonel edge (peeks SNI) → agent → gateway proxy ClusterIP:443
+# Data flow:  client → Towonel edge (peeks SNI) → agent → envoy-external-example-com.network.svc:443
 #             (passthrough; gateway terminates TLS) → gateway's HTTPRoutes → backends
 apiVersion: towonel.io/v1alpha1
 kind: TowonelAgent
@@ -23,7 +23,7 @@ spec:
 
   services:                              # → TOWONEL_AGENT_SERVICES (HTTPS / SNI)
     - hostname: "*.example.com"          # WILDCARD → broad: every name in the zone rides this entry
-      origin: 10.0.0.200:443             # the gateway data-plane proxy Service's ClusterIP:443
+      origin: envoy-external-example-com.network.svc:443   # the gateway data-plane proxy Service (DNS:port)
       edgeTLSMode: passthrough           # raw TLS forwarded to the gateway; the GATEWAY terminates
       proxyProtocol: false
 

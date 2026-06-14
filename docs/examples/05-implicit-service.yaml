@@ -15,7 +15,7 @@ metadata:
     towonel.io/tunnel: enable
     towonel.io/tunnel-ref: network/app
     towonel.io/hostname: grafana.domain.dev
-    # towonel.io/origin: 10.0.0.5:3000               # optional; defaults to the Service ClusterIP:firstPort
+    # towonel.io/origin: grafana.monitoring.svc:3000 # optional override; defaults to the Service ClusterIP:firstPort
     # towonel.io/edge-tls-mode: passthrough          # optional: passthrough (default) | terminate
     # towonel.io/dns-record: "false"                 # RESERVED / inert — DNS handoff is not implemented (see ../dns.md)
 spec:
