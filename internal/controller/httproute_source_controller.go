@@ -13,11 +13,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gwv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 )
 
-// HTTPRouteSourceReconciler forwards a route's hostnames directly to its single
-// backend Service (design §4.1, direct-to-backend).
+// HTTPRouteSourceReconciler forwards a route's hostnames through its parent
+// Gateway's proxy: it walks parentRefs to each parent Gateway, resolves that
+// Gateway's towonel.io/gateway-service annotation to a ClusterIP:port origin,
+// and exposes the route's hostnames against that single proxy (design §4.1).
 type HTTPRouteSourceReconciler struct {
 	client.Client
 	APIReader      client.Reader // uncached; used for authoritative GC-decision reads
@@ -53,7 +54,7 @@ func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	rt, ok, derr := r.deriveHTTPRouteRouting(ctx, &rtObj, emit)
 	if derr != nil {
-		return ctrl.Result{}, derr // transient (e.g. ReferenceGrant list failed) — requeue
+		return ctrl.Result{}, derr // transient (e.g. a Get failed) — requeue
 	}
 	if !ok {
 		return ctrl.Result{}, nil
@@ -61,112 +62,102 @@ func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return r.applyContribution(ctx, r.Client, r.AgentNamespace, "HTTPRoute", &rtObj, tunnel, rtObj.Annotations[AnnotationAgentRef], rt)
 }
 
-type backendRef struct {
-	ns, name string
-	port     int32
+// isGatewayParent reports whether a parentRef targets a Gateway. Group/Kind are
+// pointers that default server-side when omitted, so nil == the Gateway default.
+func isGatewayParent(p gwv1.ParentReference) bool {
+	group := "gateway.networking.k8s.io"
+	if p.Group != nil {
+		group = string(*p.Group)
+	}
+	kind := "Gateway"
+	if p.Kind != nil {
+		kind = string(*p.Kind)
+	}
+	return group == "gateway.networking.k8s.io" && kind == "Gateway"
 }
 
-// deriveHTTPRouteRouting returns (routing, ok, error). A non-nil error is
-// transient (a List/Get failure) and is threaded up so Reconcile requeues; ok
-// is false WITH a nil error when an Event was emitted (not retryable).
-func (r *HTTPRouteSourceReconciler) deriveHTTPRouteRouting(ctx context.Context, rtObj *gwv1.HTTPRoute, emit func(string, string)) (routing, bool, error) {
-	seen := map[backendRef]struct{}{}
-	for _, rule := range rtObj.Spec.Rules {
-		for _, b := range rule.BackendRefs {
-			if b.Kind != nil && *b.Kind != "Service" {
-				emit(ReasonInvalidAnnotation, fmt.Sprintf("backendRef kind %q is not Service; skipped", *b.Kind))
+// resolveParentGatewayProxy walks parentRefs, resolves each parent Gateway's
+// towonel.io/gateway-service proxy to a ClusterIP:port origin, and returns the
+// single distinct origin. (origin, true, nil) on success; ("", false, nil) with
+// an emitted Event on a skip case; ("", false, err) on a transient API error.
+func (r *HTTPRouteSourceReconciler) resolveParentGatewayProxy(ctx context.Context, rtObj *gwv1.HTTPRoute, emit func(string, string)) (string, bool, error) {
+	origins := map[string]struct{}{}
+	for _, p := range rtObj.Spec.ParentRefs {
+		if !isGatewayParent(p) {
+			continue
+		}
+		ns := rtObj.Namespace
+		if p.Namespace != nil {
+			ns = string(*p.Namespace)
+		}
+		var gw gwv1.Gateway
+		if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: string(p.Name)}, &gw); err != nil {
+			if apierrors.IsNotFound(err) {
+				emit(ReasonInvalidAnnotation, fmt.Sprintf("parent Gateway %s/%s not found", ns, p.Name))
 				continue
 			}
-			ns := rtObj.Namespace
-			if b.Namespace != nil {
-				ns = string(*b.Namespace)
-			}
-			var port int32
-			if b.Port != nil {
-				port = int32(*b.Port)
-			}
-			seen[backendRef{ns: ns, name: string(b.Name), port: port}] = struct{}{}
+			return "", false, err // transient — requeue
 		}
-	}
-	if len(seen) == 0 {
-		emit(ReasonInvalidAnnotation, "HTTPRoute has no Service backendRef to use as an origin")
-		return routing{}, false, nil
-	}
-	if len(seen) > 1 {
-		emit(ReasonAmbiguousBackend, "HTTPRoute resolves to multiple distinct Service backends; declare a TowonelAgent directly or split the route")
-		return routing{}, false, nil
-	}
-	var only backendRef
-	for b := range seen {
-		only = b
-	}
-	if only.ns != rtObj.Namespace {
-		allowed, err := referenceGrantAllows(ctx, r.Client, only.ns, rtObj.Namespace, only.name)
+		raw := gw.Annotations[AnnotationGatewayService]
+		if raw == "" {
+			emit(ReasonGatewayServiceUnset, fmt.Sprintf("parent Gateway %s/%s has no %s annotation", ns, gw.Name, AnnotationGatewayService))
+			continue
+		}
+		svcNN, port, err := parseGatewayServiceRef(raw, gw.Namespace)
 		if err != nil {
-			return routing{}, false, err // transient — requeue
+			emit(ReasonInvalidAnnotation, err.Error())
+			continue
 		}
-		if !allowed {
-			emit(ReasonBackendRefDenied, fmt.Sprintf("cross-namespace backendRef to %s/%s requires a ReferenceGrant in %q", only.ns, only.name, only.ns))
-			return routing{}, false, nil
+		var svc corev1.Service
+		if err := r.Get(ctx, svcNN, &svc); err != nil {
+			if apierrors.IsNotFound(err) {
+				emit(ReasonInvalidAnnotation, fmt.Sprintf("gateway-service %s not found", svcNN))
+				continue
+			}
+			return "", false, err // transient — requeue
+		}
+		eport, ok := effectiveServicePort(&svc, port)
+		if !ok {
+			emit(ReasonInvalidAnnotation, fmt.Sprintf("gateway-service %s has no ports; specify a port", svcNN))
+			continue
+		}
+		origins[originOf(svc.Spec.ClusterIP, eport)] = struct{}{}
+	}
+	switch len(origins) {
+	case 0:
+		emit(ReasonGatewayServiceUnset, "no parent Gateway with a usable towonel.io/gateway-service")
+		return "", false, nil
+	case 1:
+		for o := range origins {
+			return o, true, nil
 		}
 	}
-	var svc corev1.Service
-	if err := r.Get(ctx, types.NamespacedName{Namespace: only.ns, Name: only.name}, &svc); err != nil {
-		if apierrors.IsNotFound(err) {
-			emit(ReasonInvalidAnnotation, fmt.Sprintf("backend Service %s/%s not found", only.ns, only.name))
-			return routing{}, false, nil
-		}
-		return routing{}, false, err // transient — requeue
-	}
-	port := only.port
-	if port == 0 {
-		if len(svc.Spec.Ports) == 0 {
-			emit(ReasonInvalidAnnotation, fmt.Sprintf("backend Service %s/%s has no ports", only.ns, only.name))
-			return routing{}, false, nil
-		}
-		port = svc.Spec.Ports[0].Port
-	}
-	origin := originOf(svc.Spec.ClusterIP, port)
-	var out routing
-	for _, h := range rtObj.Spec.Hostnames {
-		out.services = append(out.services, map[string]any{"hostname": string(h), "origin": origin})
-	}
-	if out.empty() {
+	emit(ReasonAmbiguousGateway, fmt.Sprintf("parentRefs resolve to %d distinct gateway proxies; one origin is required — name them on separate tunnels or use an explicit TowonelAgent", len(origins)))
+	return "", false, nil
+}
+
+// deriveHTTPRouteRouting emits one passthrough HTTPS entry per spec.hostnames,
+// origin = the parent Gateway's proxy. (routing, ok, error); error is transient.
+func (r *HTTPRouteSourceReconciler) deriveHTTPRouteRouting(ctx context.Context, rtObj *gwv1.HTTPRoute, emit func(string, string)) (routing, bool, error) {
+	if len(rtObj.Spec.Hostnames) == 0 {
 		emit(ReasonInvalidAnnotation, "HTTPRoute has no spec.hostnames to expose")
 		return routing{}, false, nil
 	}
+	origin, ok, err := r.resolveParentGatewayProxy(ctx, rtObj, emit)
+	if err != nil {
+		return routing{}, false, err
+	}
+	if !ok {
+		return routing{}, false, nil
+	}
+	var out routing
+	for _, h := range rtObj.Spec.Hostnames {
+		// No edgeTLSMode set → CRD default `passthrough`: the Towonel edge peeks SNI
+		// and forwards raw TLS; the origin (behind the parent gateway proxy) terminates.
+		// Same routing shape as the Gateway source. DRY: mirrors deriveGatewayRouting.
+		out.services = append(out.services, map[string]any{"hostname": string(h), "origin": origin})
+	}
 	return out, true, nil
-}
-
-// referenceGrantAllows reports whether a ReferenceGrant in backendNS permits an
-// HTTPRoute in routeNS to reference Service backendName.
-func referenceGrantAllows(ctx context.Context, c client.Client, backendNS, routeNS, backendName string) (bool, error) {
-	var grants gwv1beta1.ReferenceGrantList
-	if err := c.List(ctx, &grants, client.InNamespace(backendNS)); err != nil {
-		return false, err
-	}
-	for i := range grants.Items {
-		g := &grants.Items[i]
-		fromOK := false
-		for _, f := range g.Spec.From {
-			if f.Group == "gateway.networking.k8s.io" && f.Kind == "HTTPRoute" && string(f.Namespace) == routeNS {
-				fromOK = true
-				break
-			}
-		}
-		if !fromOK {
-			continue
-		}
-		for _, to := range g.Spec.To {
-			if to.Group != "" || to.Kind != "Service" {
-				continue
-			}
-			if to.Name == nil || string(*to.Name) == backendName {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
 }
 
 func (r *HTTPRouteSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {

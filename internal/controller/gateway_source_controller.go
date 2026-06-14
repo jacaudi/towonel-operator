@@ -96,12 +96,10 @@ func deriveGatewayRouting(ctx context.Context, c client.Client, gw *gwv1.Gateway
 		emit(ReasonInvalidAnnotation, fmt.Sprintf("gateway-service %s not found: %v", svcNN, err))
 		return routing{}, false
 	}
-	if port == 0 {
-		if len(svc.Spec.Ports) == 0 {
-			emit(ReasonInvalidAnnotation, fmt.Sprintf("gateway-service %s has no ports; specify a port", svcNN))
-			return routing{}, false
-		}
-		port = svc.Spec.Ports[0].Port
+	port, ok := effectiveServicePort(&svc, port)
+	if !ok {
+		emit(ReasonInvalidAnnotation, fmt.Sprintf("gateway-service %s has no ports; specify a port", svcNN))
+		return routing{}, false
 	}
 	origin := originOf(svc.Spec.ClusterIP, port)
 	var rt routing

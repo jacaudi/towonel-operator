@@ -60,6 +60,19 @@ func (r *ServiceSourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // originOf formats a ClusterIP:port string for a routing entry.
 func originOf(host string, port int32) string { return fmt.Sprintf("%s:%d", host, port) }
 
+// effectiveServicePort resolves a gateway-service port: a non-zero port is used
+// as-is; port 0 means "first Service port" (the parseGatewayServiceRef contract).
+// ok is false when port is 0 and the Service exposes no ports.
+func effectiveServicePort(svc *corev1.Service, port int32) (int32, bool) {
+	if port != 0 {
+		return port, true
+	}
+	if len(svc.Spec.Ports) == 0 {
+		return 0, false
+	}
+	return svc.Spec.Ports[0].Port, true
+}
+
 // parsePortScopedKey splits "towonel.io/<port>.<suffix>" on the LAST dot (port
 // names are DNS-1123 → no dots).
 func parsePortScopedKey(key string) (port, suffix string, ok bool) {
