@@ -32,7 +32,7 @@ type HTTPRouteSourceReconciler struct {
 }
 
 //+kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=httproutes,verbs=get;list;watch
-//+kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=referencegrants,verbs=get;list;watch
+//+kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=gateways,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=towonel.io,resources=towonelagents,verbs=get;list;watch;create;update;patch;delete
