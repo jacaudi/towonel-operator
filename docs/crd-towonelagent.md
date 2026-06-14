@@ -20,7 +20,7 @@ See [`examples/02-agent.yaml`](examples/02-agent.yaml) and
 | `connectivity` | object | off | Optional iroh direct-path — see [connectivity.md](connectivity.md). |
 | `workload` | object | — | Connector knobs (below). |
 
-**`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `tlsMode` (`passthrough` default | `terminate`), `proxyProtocol` (bool).
+**`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `edgeTLSMode` (edge TLS behavior: `passthrough` default | `terminate`), `proxyProtocol` (bool).
 
 **`AgentL4Service`** (tcp/udp): `name` (unique within the list), `origin` (internal host:port), `preferredPort` (optional — pin the *public* listen port; honored if free), `hostname` (optional — intended for the future DNS handoff; currently informational).
 
