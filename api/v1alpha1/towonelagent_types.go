@@ -64,6 +64,9 @@ type ConnectivitySpec struct {
 	Autodiscover bool `json:"autodiscover,omitempty"`
 	// IrohPort pins the agent's bound UDP port (TOWONEL_AGENT_IROH_PORT).
 	// Required when nodePort.create is true.
+	// Note: under the agent's default non-root securityContext (runAsNonRoot with
+	// capabilities dropped), a privileged port (<1024) cannot be bound — use a port
+	// >=1024, or override workload.securityContext to grant NET_BIND_SERVICE.
 	// +optional
 	// +kubebuilder:validation:Maximum=65535
 	IrohPort int32 `json:"irohPort,omitempty"`

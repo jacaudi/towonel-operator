@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"slices"
 	"testing"
 
@@ -143,7 +142,7 @@ func TestEnsureInviteCreatesWithFullDesired(t *testing.T) {
 	}
 	desired := []string{"agent.example", "extra.example"}
 
-	token, err := r.ensureInvite(context.Background(), tc, tt, desired)
+	token, err := r.ensureInvite(t.Context(), tc, tt, desired)
 	if err != nil {
 		t.Fatalf("ensureInvite: %v", err)
 	}
@@ -203,7 +202,7 @@ func TestConvergeHostnamesAbsorbsOwnConflict(t *testing.T) {
 	tt.Status.AuthorizedHostnames = nil // STALE: status lost the hostname (the bug condition)
 
 	// Must NOT return an error (the 409 is our own hostname → idempotent success).
-	if err := r.convergeHostnames(context.Background(), tc, tt, []string{"a.example"}); err != nil {
+	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example"}); err != nil {
 		t.Fatalf("convergeHostnames returned error on own-invite conflict: %v", err)
 	}
 	if got := tt.Status.AuthorizedHostnames; len(got) != 1 || got[0] != "a.example" {
@@ -222,7 +221,7 @@ func TestConvergeHostnamesAddsNewHostname(t *testing.T) {
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = []string{"a.example"}
 
-	if err := r.convergeHostnames(context.Background(), tc, tt, []string{"a.example", "b.example"}); err != nil {
+	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"}); err != nil {
 		t.Fatalf("convergeHostnames: %v", err)
 	}
 	if got := tt.Status.AuthorizedHostnames; len(got) != 2 || got[0] != "a.example" || got[1] != "b.example" {
@@ -242,7 +241,7 @@ func TestConvergeHostnamesPropagatesNon409(t *testing.T) {
 	tt.Status.InviteID = "inv-missing"  // hub has no such invite → add returns 404
 	tt.Status.AuthorizedHostnames = nil // observed empty → the add is attempted
 
-	err := r.convergeHostnames(context.Background(), tc, tt, []string{"new.example"})
+	err := r.convergeHostnames(t.Context(), tc, tt, []string{"new.example"})
 	if err == nil {
 		t.Fatal("convergeHostnames absorbed a non-409 error; want it propagated")
 	}
