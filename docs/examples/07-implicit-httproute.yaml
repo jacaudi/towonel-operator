@@ -54,8 +54,9 @@ metadata:
 spec:
   parentRefs:
     - name: external-example-com                # the Gateway carrying gateway-service (data only).
-      namespace: network                        # group/kind omitted → defaults to Gateway; namespace
-                                                #   omitted → the route's own namespace.
+      namespace: network                        # group/kind omitted → defaults to Gateway. namespace
+                                                #   set here for cross-namespace; omit it to default
+                                                #   to the route's own namespace.
   hostnames:
     - photos.example.com                        # ← the ONLY hostname this route authorizes on the tunnel
   rules:

@@ -5,9 +5,9 @@ Instead of hand-authoring a [`TowonelAgent`](crd-towonelagent.md), annotate a `S
 on a per-tunnel agent — exactly as if you had written them yourself. This is the optional
 dogfooding path; the CRs remain the source of truth.
 
-Examples: [`04-source-service-simple.yaml`](examples/04-source-service-simple.yaml),
-[`05-source-service-multiport.yaml`](examples/05-source-service-multiport.yaml),
-[`06-source-gateway-httproute.yaml`](examples/06-source-gateway-httproute.yaml).
+Examples: [`05-implicit-service.yaml`](examples/05-implicit-service.yaml),
+[`06-implicit-gateway-wildcard.yaml`](examples/06-implicit-gateway-wildcard.yaml),
+[`07-implicit-httproute.yaml`](examples/07-implicit-httproute.yaml).
 
 ## Annotation vocabulary
 

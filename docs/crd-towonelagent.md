@@ -5,8 +5,9 @@ the agent Deployment + per-agent token Secret. This is where the `hostname → o
 (Towonel routing is agent-local). **Namespaced** (`shortName: twa`). N agents may reference one
 tunnel for failover.
 
-See [`examples/02-agent.yaml`](examples/02-agent.yaml) and
-[`examples/03-agent-failover.yaml`](examples/03-agent-failover.yaml).
+See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
+[`examples/03-explicit-gateway-wildcard.yaml`](examples/03-explicit-gateway-wildcard.yaml), and
+[`examples/04-explicit-httproute.yaml`](examples/04-explicit-httproute.yaml).
 
 ## Spec
 
