@@ -1,0 +1,45 @@
+# IMPLICIT × GATEWAY (wildcard) — annotate a Gateway; the operator crafts the TowonelAgent
+# entries for you. Origin is the gateway proxy ClusterIP:443, and a "*.example.com" listener
+# authorizes the whole zone (BROAD).
+# This is the implicit equivalent of 03-explicit-gateway-wildcard.yaml. The Gateway IS
+# towonel.io/tunnel-annotated here → the operator emits one routing entry per LISTENER hostname,
+# all pointing at the gateway's data-plane proxy. Your gateway terminates TLS and does in-cluster
+# host routing via its own (un-annotated) HTTPRoutes.
+#
+# NOTE: contrast this with 07-implicit-httproute.yaml, where the Gateway is NOT
+# towonel.io/tunnel-annotated (it carries gateway-service as data only) and the HTTPRoute opts
+# in instead — that path is SELECTIVE (only the route's hostnames). Here the Gateway opts in →
+# BROAD (every listener hostname). That contrast is the teaching point.
+#
+# IMPORTANT (SNI): Towonel routes by the SNI the client sends; a CNAME chain does NOT rewrite
+# SNI. Every hostname clients use must be authorized on the tunnel. A wildcard "*.example.com"
+# listener authorizes the whole zone IF Towonel's hub accepts wildcard hostnames (verify
+# upstream); otherwise use specific listener hostnames.
+#
+# Data flow:  client → Towonel edge (peeks SNI) → agent → gateway proxy ClusterIP:443
+#             (passthrough; gateway terminates TLS) → gateway's HTTPRoutes → backends
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: external-example-com
+  namespace: network
+  annotations:
+    towonel.io/tunnel: enable                 # ← the Gateway OPTS IN → broad (all listener hostnames)
+    towonel.io/tunnel-ref: network/app
+    # the gateway's data-plane Service ([<ns>/]<name>[:<port>]); port 0/omitted = first port:
+    towonel.io/gateway-service: network/envoy-external-example-com:443
+    # towonel.io/agent-ref: app-gateway       # optional: pin a specific TowonelAgent
+spec:
+  gatewayClassName: envoy                       # your class; the operator needs none of its own
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.example.com"                 # ← authorized on the tunnel (see the SNI note above)
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: example-com-tls
+# → operator emits one entry per listener hostname, all pointing at the gateway proxy:
+#     spec.services += {hostname: *.example.com, origin: <envoy-external-example-com ClusterIP>:443, edgeTLSMode: passthrough}
+#   Your normal, UN-annotated HTTPRoutes attach to this Gateway and route by host to backends.

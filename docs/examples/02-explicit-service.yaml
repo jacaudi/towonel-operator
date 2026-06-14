@@ -1,6 +1,10 @@
-# TowonelAgent — placement-specific workload + routing.
-# References a TowonelTunnel; renders the agent Deployment + per-agent token Secret,
-# and is where the hostname->origin map lives (Towonel routing is agent-local).
+# EXPLICIT × SERVICE — you hand-author the TowonelAgent; origin is a Service ClusterIP:port (DIRECT).
+# This is the simplest exposure: one HTTPS hostname forwarded straight to a backend Service.
+# The agent forwards the raw TLS stream (edgeTLSMode: passthrough, the default), so the
+# origin Service must terminate TLS. Use origin = the Service's ClusterIP:port (not its DNS
+# name) so routing doesn't depend on in-cluster DNS at connect time.
+#
+# Data flow:  client → Towonel edge (peeks SNI) → agent → app Service ClusterIP:8080 (terminates TLS)
 apiVersion: towonel.io/v1alpha1
 kind: TowonelAgent
 metadata:
@@ -13,16 +17,12 @@ spec:
 
   services:                              # → TOWONEL_AGENT_SERVICES (HTTPS / SNI)
     - hostname: app.domain.dev
-      origin: app.selfhosted.svc:8080
-      tlsMode: passthrough               # passthrough (default) | terminate
+      origin: 10.0.0.42:8080             # the app Service's ClusterIP:port (direct)
+      edgeTLSMode: passthrough           # passthrough (default) = edge peeks SNI, forwards raw TLS; origin terminates
+                                         #   terminate = edge terminates with an on-demand cert, forwards plaintext
       proxyProtocol: false
 
-  tcp:                                   # → TOWONEL_AGENT_TCP_SERVICES
-    - name: app-ssh
-      origin: 10.0.10.5:22               # internal origin host:port
-      preferredPort: 20022               # optional: pin the PUBLIC listen port
-      hostname: ssh.domain.dev          # optional: public DNS name (informational; see docs/dns.md)
-
+  tcp: []                                # → TOWONEL_AGENT_TCP_SERVICES (none here)
   udp: []                                # → TOWONEL_AGENT_UDP_SERVICES (none here)
 
   relayUrl: ""                           # optional TOWONEL_AGENT_RELAY_URL override

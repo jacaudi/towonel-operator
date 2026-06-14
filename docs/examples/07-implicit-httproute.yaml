@@ -1,0 +1,66 @@
+# IMPLICIT × HTTPROUTE — annotate an HTTPRoute; the operator crafts TowonelAgent entries that
+# forward through the route's PARENT GATEWAY proxy. SELECTIVE: only the route's spec.hostnames
+# are authorized on the tunnel, not the whole zone. *** THIS IS THE NEW FEATURE. ***
+#
+# How it works:
+#   - The parent Gateway carries towonel.io/gateway-service as DATA ONLY. It is NOT
+#     towonel.io/tunnel-annotated — it does not opt the whole zone in (contrast
+#     06-implicit-gateway-wildcard.yaml, where the Gateway IS tunnel-annotated → broad).
+#   - The HTTPRoute opts in (towonel.io/tunnel + towonel.io/tunnel-ref). The operator reads the
+#     route's parentRefs to find the Gateway, reads that Gateway's gateway-service, and emits one
+#     routing entry per route hostname pointing at the gateway proxy ClusterIP:443.
+#   - The route's rules/backendRefs still drive the GATEWAY's in-cluster routing — they are no
+#     longer a Towonel origin (there is no backendRef-as-origin). The Towonel origin is always
+#     the gateway proxy.
+#
+# IMPORTANT (SNI): only this route's spec.hostnames are authorized on the tunnel. A client whose
+# SNI is any other name in the zone is rejected at the edge — that selectivity is the whole point
+# of opting in per-route instead of per-Gateway.
+#
+# Data flow:
+#   client → Towonel edge (peeks SNI) → agent → gateway proxy:443 (passthrough; gateway
+#   terminates TLS) → gateway applies THIS HTTPRoute → backend Service
+# ── parent Gateway: DATA ONLY (gateway-service), NOT towonel.io/tunnel-annotated ─────────────
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: external-example-com
+  namespace: network
+  annotations:
+    # NO towonel.io/tunnel here → this Gateway does NOT opt the zone in. It only supplies the
+    # in-cluster proxy address that opted-in HTTPRoutes forward through:
+    towonel.io/gateway-service: network/envoy-external-example-com:443
+spec:
+  gatewayClassName: envoy
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.example.com"                 # the gateway serves the zone; the TUNNEL only
+      tls:                                       #   authorizes the route hostnames below (selective)
+        mode: Terminate
+        certificateRefs:
+          - name: example-com-tls
+---
+# ── HTTPRoute: OPTS IN (tunnel + tunnel-ref); parentRefs → the Gateway above ─────────────────
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: immich
+  namespace: selfhosted
+  annotations:
+    towonel.io/tunnel: enable                   # ← the ROUTE opts in → selective (only its hostnames)
+    towonel.io/tunnel-ref: network/app
+spec:
+  parentRefs:
+    - name: external-example-com                # the Gateway carrying gateway-service (data only).
+      namespace: network                        # group/kind omitted → defaults to Gateway; namespace
+                                                #   omitted → the route's own namespace.
+  hostnames:
+    - photos.example.com                        # ← the ONLY hostname this route authorizes on the tunnel
+  rules:
+    - backendRefs:                              # drives the GATEWAY's in-cluster routing — NOT a
+        - name: immich                          #   Towonel origin (no backendRef-as-origin anymore)
+          port: 2283
+# → operator emits one entry per route hostname, origin = the PARENT gateway proxy:
+#     spec.services += {hostname: photos.example.com, origin: <envoy-external-example-com ClusterIP>:443, edgeTLSMode: passthrough}
