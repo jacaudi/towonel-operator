@@ -23,6 +23,8 @@ type Hub struct {
 	ports    map[string][]*towonel.ReservePortResponse // tenantID -> reservations
 	taken    map[string]bool                           // "proto/port" -> globally taken
 	nextPort int32
+
+	reservedHosts map[string]string // hostname -> owning inviteID
 }
 
 func NewHub() *Hub {
@@ -32,6 +34,8 @@ func NewHub() *Hub {
 		ports:    map[string][]*towonel.ReservePortResponse{},
 		taken:    map[string]bool{},
 		nextPort: 30000,
+
+		reservedHosts: map[string]string{},
 	}
 }
 
@@ -41,6 +45,9 @@ func (h *Hub) Seed(inv towonel.Invite) {
 	defer h.mu.Unlock()
 	cp := inv
 	h.invites[inv.InviteID] = &cp
+	for _, hn := range cp.Hostnames {
+		h.reservedHosts[hn] = cp.InviteID
+	}
 }
 
 // Has reports whether an invite id is present.
@@ -112,6 +119,9 @@ func (h *Hub) handler() http.HandlerFunc {
 			}
 			h.invites[id] = &towonel.Invite{InviteID: id, TenantID: "ten-" + id, Name: name, Hostnames: body.Hostnames}
 			h.tokens[id] = "tok-" + id
+			for _, hn := range body.Hostnames {
+				h.reservedHosts[hn] = id
+			}
 			_ = json.NewEncoder(w).Encode(towonel.CreateInviteResponse{Status: "ok", Token: "tok-" + id, InviteID: id, TenantID: "ten-" + id, Name: name})
 		case req.Method == http.MethodGet && p == "/v1/invites":
 			out := make([]towonel.Invite, 0, len(h.invites))
@@ -123,12 +133,23 @@ func (h *Hub) handler() http.HandlerFunc {
 			id := strings.TrimSuffix(strings.TrimPrefix(p, "/v1/invites/"), "/hostnames")
 			var body towonel.AddHostnamesRequest
 			_ = json.NewDecoder(req.Body).Decode(&body)
-			if inv := h.invites[id]; inv != nil {
-				inv.Hostnames = append(inv.Hostnames, body.Hostnames...)
-				_ = json.NewEncoder(w).Encode(towonel.AddHostnamesResponse{Status: "ok", Hostnames: inv.Hostnames})
+			inv := h.invites[id]
+			if inv == nil {
+				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			w.WriteHeader(http.StatusNotFound)
+			for _, hn := range body.Hostnames {
+				if _, taken := h.reservedHosts[hn]; taken {
+					w.WriteHeader(http.StatusConflict)
+					_, _ = w.Write([]byte(`{"error":{"code":"hostname_conflict","message":"hostname ` + hn + ` is already reserved by an active invite"}}`))
+					return
+				}
+			}
+			for _, hn := range body.Hostnames {
+				h.reservedHosts[hn] = id
+				inv.Hostnames = append(inv.Hostnames, hn)
+			}
+			_ = json.NewEncoder(w).Encode(towonel.AddHostnamesResponse{Status: "ok", Hostnames: inv.Hostnames})
 		case req.Method == http.MethodDelete && strings.Contains(p, "/hostnames/"):
 			parts := strings.SplitN(strings.TrimPrefix(p, "/v1/invites/"), "/hostnames/", 2)
 			id, host := parts[0], parts[1]
@@ -140,15 +161,20 @@ func (h *Hub) handler() http.HandlerFunc {
 					}
 				}
 				inv.Hostnames = kept
+				delete(h.reservedHosts, host)
 				_ = json.NewEncoder(w).Encode(towonel.RemoveHostnameResponse{Status: "ok", Hostname: host, RemainingHostnames: inv.Hostnames})
 				return
 			}
 			w.WriteHeader(http.StatusNotFound)
 		case req.Method == http.MethodDelete && strings.HasPrefix(p, "/v1/invites/"):
 			id := strings.TrimPrefix(p, "/v1/invites/")
-			if _, ok := h.invites[id]; !ok {
+			inv, ok := h.invites[id]
+			if !ok {
 				w.WriteHeader(http.StatusNotFound)
 				return
+			}
+			for _, hn := range inv.Hostnames {
+				delete(h.reservedHosts, hn)
 			}
 			delete(h.invites, id)
 			w.WriteHeader(http.StatusOK)
