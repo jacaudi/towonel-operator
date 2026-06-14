@@ -40,6 +40,8 @@ type TowonelTunnelReconciler struct {
 //+kubebuilder:rbac:groups=towonel.io,resources=towoneltunnels/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// Leader election (manager-level, default-on): controller-runtime's Lease lock.
+//+kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile drives a TowonelTunnel toward its desired state.
 func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
