@@ -45,6 +45,10 @@ See [`examples/01-tunnel.yaml`](examples/01-tunnel.yaml).
 
 ## Lifecycle notes
 
+- **`extraHostnames` semantics.** This is an additive allow-list of authorized SNI hostnames — it
+  is *unioned* with the hostnames contributed by referencing agents' HTTPS services, not a
+  replacement for them. It is not the only source of authorized hostnames; use it only to authorize
+  names no agent serves yet.
 - **Token Secret.** The tunnel writes the canonical token Secret in its own namespace; each agent
   copies it into the agent's namespace. The API key never enters agent pods.
 - **GC / finalizer.** A finalizer releases the invite (`DELETE /v1/invites/{id}`) and reserved ports
