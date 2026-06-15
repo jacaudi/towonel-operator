@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -161,6 +162,35 @@ func agentEnv(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) []corev1.EnvVar
 	return env
 }
 
+// agentPodSecurityContext returns the user-set pod securityContext or, when
+// unset, the upstream least-priv default (towonel.dev/docs/agent/kubernetes).
+func agentPodSecurityContext(ta *towonelv1alpha1.TowonelAgent) *corev1.PodSecurityContext {
+	if ta.Spec.Workload.PodSecurityContext != nil {
+		return ta.Spec.Workload.PodSecurityContext
+	}
+	return &corev1.PodSecurityContext{
+		RunAsNonRoot:   ptr.To(true),
+		RunAsUser:      ptr.To(int64(10001)),
+		RunAsGroup:     ptr.To(int64(10001)),
+		FSGroup:        ptr.To(int64(10001)),
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+}
+
+// agentContainerSecurityContext returns the user-set container securityContext
+// or, when unset, the upstream least-priv default. readOnlyRootFilesystem is
+// safe: the agent reads config from env only and writes no files.
+func agentContainerSecurityContext(ta *towonelv1alpha1.TowonelAgent) *corev1.SecurityContext {
+	if ta.Spec.Workload.SecurityContext != nil {
+		return ta.Spec.Workload.SecurityContext
+	}
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptr.To(false),
+		ReadOnlyRootFilesystem:   ptr.To(true),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+	}
+}
+
 // buildDeployment renders the agent workload (parent §5.2 defaults).
 func buildDeployment(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) *appsv1.Deployment {
 	labels := map[string]string{
@@ -204,16 +234,18 @@ func buildDeployment(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) *appsv1.
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: cfg.SAName,
+					SecurityContext:    agentPodSecurityContext(ta),
 					NodeSelector:       ta.Spec.Workload.NodeSelector,
 					Tolerations:        ta.Spec.Workload.Tolerations,
 					Containers: []corev1.Container{{
-						Name:           AgentAppName,
-						Image:          cfg.Image,
-						Env:            agentEnv(ta, cfg),
-						Ports:          agentContainerPorts(cfg.IrohPort),
-						Resources:      res,
-						LivenessProbe:  probe.DeepCopy(),
-						ReadinessProbe: probe.DeepCopy(),
+						Name:            AgentAppName,
+						Image:           cfg.Image,
+						SecurityContext: agentContainerSecurityContext(ta),
+						Env:             agentEnv(ta, cfg),
+						Ports:           agentContainerPorts(cfg.IrohPort),
+						Resources:       res,
+						LivenessProbe:   probe.DeepCopy(),
+						ReadinessProbe:  probe.DeepCopy(),
 					}},
 				},
 			},
@@ -233,7 +265,9 @@ func deploymentNeedsWrite(current, desired *appsv1.Deployment) bool {
 	return !equality.Semantic.DeepEqual(current.Spec.Replicas, desired.Spec.Replicas) ||
 		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.Containers[0].Resources, desired.Spec.Template.Spec.Containers[0].Resources) ||
 		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.NodeSelector, desired.Spec.Template.Spec.NodeSelector) ||
-		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.Tolerations, desired.Spec.Template.Spec.Tolerations)
+		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.Tolerations, desired.Spec.Template.Spec.Tolerations) ||
+		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.SecurityContext, desired.Spec.Template.Spec.SecurityContext) ||
+		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.Containers[0].SecurityContext, desired.Spec.Template.Spec.Containers[0].SecurityContext)
 }
 
 // ensureDeployment applies the rendered Deployment and returns the live

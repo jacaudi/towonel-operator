@@ -64,6 +64,9 @@ type ConnectivitySpec struct {
 	Autodiscover bool `json:"autodiscover,omitempty"`
 	// IrohPort pins the agent's bound UDP port (TOWONEL_AGENT_IROH_PORT).
 	// Required when nodePort.create is true.
+	// Note: under the agent's default non-root securityContext (runAsNonRoot with
+	// capabilities dropped), a privileged port (<1024) cannot be bound — use a port
+	// >=1024, or override workload.securityContext to grant NET_BIND_SERVICE.
 	// +optional
 	// +kubebuilder:validation:Maximum=65535
 	IrohPort int32 `json:"irohPort,omitempty"`
@@ -86,6 +89,19 @@ type WorkloadSpec struct {
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// PodSecurityContext sets the agent pod's securityContext. When unset, the
+	// operator applies a least-privilege default (runAsNonRoot, uid/gid/fsGroup
+	// 10001, seccompProfile RuntimeDefault) that satisfies restricted Pod Security
+	// Admission. NOTE: setting this REPLACES the default wholesale (no field-level
+	// merge) — provide a complete context, or you may fall below restricted PSA.
+	// +optional
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+	// SecurityContext sets the agent container's securityContext. When unset, the
+	// operator applies a least-privilege default (allowPrivilegeEscalation false,
+	// readOnlyRootFilesystem true, capabilities drop ALL). NOTE: setting this
+	// REPLACES the default wholesale (no field-level merge).
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 // TowonelAgentSpec defines the desired agent (routing + workload).

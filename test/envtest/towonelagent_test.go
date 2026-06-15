@@ -433,9 +433,15 @@ func TestTunnelDeleteReleasesAgentPorts(t *testing.T) {
 		{"pdel", towonelv1alpha1.DeletionPolicyDelete, true},
 		{"pret", towonelv1alpha1.DeletionPolicyRetain, false},
 	} {
+		// A hostname is required for the invite (and thus the tenant/port
+		// reservation) to exist (#14(a) defers hostname-less tunnels); this
+		// test is about the delete/retain policy for port reservations.
 		tt := &towonelv1alpha1.TowonelTunnel{
 			ObjectMeta: metav1.ObjectMeta{Name: tc.name, Namespace: "default"},
-			Spec:       towonelv1alpha1.TowonelTunnelSpec{DeletionPolicy: tc.policy},
+			Spec: towonelv1alpha1.TowonelTunnelSpec{
+				DeletionPolicy: tc.policy,
+				ExtraHostnames: []string{tc.name + ".example"},
+			},
 		}
 		if err := c.Create(ctx, tt); err != nil {
 			t.Fatal(err)

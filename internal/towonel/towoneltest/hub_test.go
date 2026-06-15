@@ -1,12 +1,67 @@
 package towoneltest
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/jacaudi/towonel-operator/internal/towonel"
 )
+
+func TestHubAddHostnameConflict(t *testing.T) {
+	hub := NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	ctx := context.Background()
+
+	created, err := tc.CreateInvite(ctx, towonel.CreateInviteRequest{Hostnames: []string{"a.example"}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Re-adding a hostname already reserved on the invite must 409.
+	_, err = tc.AddHostnames(ctx, created.InviteID, []string{"a.example"})
+	apiErr, ok := errors.AsType[*towonel.APIError](err)
+	if !ok || apiErr.StatusCode != http.StatusConflict {
+		t.Fatalf("re-add: want 409 APIError, got %v", err)
+	}
+	if !strings.Contains(apiErr.Body, "hostname_conflict") {
+		t.Fatalf("re-add: body = %q, want hostname_conflict", apiErr.Body)
+	}
+
+	// A genuinely new hostname still succeeds.
+	if _, err := tc.AddHostnames(ctx, created.InviteID, []string{"b.example"}); err != nil {
+		t.Fatalf("add new: %v", err)
+	}
+}
+
+func TestHubDeleteInviteFreesHostnames(t *testing.T) {
+	hub := NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	ctx := context.Background()
+
+	first, err := tc.CreateInvite(ctx, towonel.CreateInviteRequest{Hostnames: []string{"a.example"}})
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+
+	// Deleting the invite must free its reserved hostnames.
+	if err := tc.DeleteInvite(ctx, first.InviteID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// A new invite can now reclaim the freed hostname without a 409.
+	second, err := tc.CreateInvite(ctx, towonel.CreateInviteRequest{})
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	if _, err := tc.AddHostnames(ctx, second.InviteID, []string{"a.example"}); err != nil {
+		t.Fatalf("re-add after delete: want success, got %v", err)
+	}
+}
 
 func TestHubPorts(t *testing.T) {
 	h := NewHub()

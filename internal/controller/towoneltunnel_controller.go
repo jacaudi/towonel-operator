@@ -40,6 +40,8 @@ type TowonelTunnelReconciler struct {
 //+kubebuilder:rbac:groups=towonel.io,resources=towoneltunnels/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// Leader election (manager-level, default-on): controller-runtime's Lease lock.
+//+kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile drives a TowonelTunnel toward its desired state.
 func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -77,8 +79,27 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	tc := towonel.NewClient(r.BaseURL, apiKey.Expose(), r.HTTPClient)
 
+	agents, err := r.listReferencingAgents(ctx, &tt)
+	if err != nil {
+		return r.fail(ctx, &tt, orig, err)
+	}
+	desired := desiredHostnames(&tt, agents)
+
+	// #14(a): the Towonel API requires >=1 hostname to create an invite, and the
+	// tenant (needed for port reservation) only exists after creation. Defer until
+	// a hostname exists rather than spinning on a 400.
+	if len(desired) == 0 && tt.Status.InviteID == "" {
+		setCond(&tt, CondReady, metav1.ConditionFalse, ReasonPending,
+			"no authorized hostnames yet — a TowonelTunnel needs at least one HTTPS hostname (spec.extraHostnames or an agent HTTPS service) to create its invite, even for TCP/UDP-only routing")
+		tt.Status.Phase = "Pending"
+		if werr := r.writeStatus(ctx, &tt, orig); werr != nil {
+			return ctrl.Result{}, werr
+		}
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
 	inviteCtx, cancelInvite := context.WithTimeout(ctx, hubCallTimeout)
-	token, err := r.ensureInvite(inviteCtx, tc, &tt)
+	token, err := r.ensureInvite(inviteCtx, tc, &tt, desired)
 	cancelInvite()
 	if err != nil {
 		return r.fail(ctx, &tt, orig, err)
@@ -95,12 +116,8 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.fail(ctx, &tt, orig, err)
 	}
 
-	agents, err := r.listReferencingAgents(ctx, &tt)
-	if err != nil {
-		return r.fail(ctx, &tt, orig, err)
-	}
 	hostCtx, cancelHost := context.WithTimeout(ctx, hubCallTimeout)
-	err = r.convergeHostnames(hostCtx, tc, &tt, desiredHostnames(&tt, agents))
+	err = r.convergeHostnames(hostCtx, tc, &tt, desired)
 	cancelHost()
 	if err != nil {
 		setCond(&tt, CondHostnamesSynced, metav1.ConditionFalse, ReasonAPIError, err.Error())

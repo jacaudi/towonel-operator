@@ -2,9 +2,12 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -49,7 +52,7 @@ func inviteName(namespace, name string) string { return namespace + "/" + name }
 // ensureInvite makes status.inviteId authoritative. It returns the invite token,
 // which is non-empty ONLY on a fresh create (CreateInvite returns the token;
 // ListInvites/adoption does not).
-func (r *TowonelTunnelReconciler) ensureInvite(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel) (secret, error) {
+func (r *TowonelTunnelReconciler) ensureInvite(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel, desired []string) (secret, error) {
 	if tt.Status.InviteID != "" {
 		return "", nil // authority; nothing to do
 	}
@@ -72,7 +75,7 @@ func (r *TowonelTunnelReconciler) ensureInvite(ctx context.Context, tc *towonel.
 		}
 	}
 
-	req := towonel.CreateInviteRequest{Hostnames: dedupe(tt.Spec.ExtraHostnames), Name: &want}
+	req := towonel.CreateInviteRequest{Hostnames: dedupe(desired), Name: &want}
 	if tt.Spec.Region != "" {
 		req.Region = &tt.Spec.Region
 	}
@@ -111,17 +114,34 @@ func desiredHostnames(tt *towonelv1alpha1.TowonelTunnel, agents []towonelv1alpha
 // status.authorizedHostnames is published from the API response bodies.
 func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel, desired []string) error {
 	observed := dedupe(tt.Status.AuthorizedHostnames)
+	// cur intentionally aliases observed's backing array. The 409-absorb path below
+	// appends to cur, which may write past observed's length into shared backing
+	// storage — that is safe: observed is never re-grown and is only ever read over
+	// [:len(observed)], so the appended tail is invisible to it. Do not "simplify"
+	// this to a shared-slice mutation that reads observed after a cur append.
 	cur := observed
 
-	var toAdd []string
 	for _, h := range desired {
-		if !slices.Contains(observed, h) {
-			toAdd = append(toAdd, h)
+		if slices.Contains(observed, h) {
+			continue
 		}
-	}
-	if len(toAdd) > 0 {
-		resp, err := tc.AddHostnames(ctx, tt.Status.InviteID, toAdd)
+		resp, err := tc.AddHostnames(ctx, tt.Status.InviteID, []string{h})
 		if err != nil {
+			// #14(b): a 409 hostname_conflict for a hostname we WANT authorized means
+			// it is already reserved on our invite — desired state already achieved.
+			// Absorb as idempotent success (single-tenant: a foreign conflict is
+			// indistinguishable by message and is masked — accepted for alpha).
+			if apiErr, ok := errors.AsType[*towonel.APIError](err); ok &&
+				apiErr.StatusCode == http.StatusConflict && strings.Contains(apiErr.Body, "hostname_conflict") {
+				if r.Recorder != nil {
+					r.Recorder.Event(tt, corev1.EventTypeWarning, ReasonHostnameConflict,
+						fmt.Sprintf("hostname %q already reserved by an active invite; treating as authorized", h))
+				}
+				if !slices.Contains(cur, h) {
+					cur = append(cur, h)
+				}
+				continue
+			}
 			return fmt.Errorf("add hostnames: %w", err)
 		}
 		cur = resp.Hostnames

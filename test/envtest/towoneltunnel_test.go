@@ -94,6 +94,41 @@ func TestReconcileCreatesInviteAndSecret(t *testing.T) {
 	})
 }
 
+func TestReconcileDefersWhenNoHostnames(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, hub, stop := startManager(t)
+	defer stop()
+	ctx := t.Context()
+	// No extraHostnames and no referencing agents -> nothing to authorize yet.
+	// #14(a): must NOT create an invite (API requires >=1 hostname); defer to Pending.
+	tt := &towonelv1alpha1.TowonelTunnel{
+		ObjectMeta: metav1.ObjectMeta{Name: "nohosts", Namespace: "default"},
+	}
+	if err := c.Create(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 15*time.Second, func() bool {
+		var got towonelv1alpha1.TowonelTunnel
+		if c.Get(ctx, types.NamespacedName{Name: "nohosts", Namespace: "default"}, &got) != nil {
+			return false
+		}
+		cond := meta.FindStatusCondition(got.Status.Conditions, controller.CondReady)
+		return got.Status.Phase == "Pending" &&
+			cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == controller.ReasonPending
+	})
+	// The defer path makes zero hub calls -> no invite was created.
+	if n := hub.CreatedCount(); n != 0 {
+		t.Errorf("hub created %d invites, want 0 (hostname-less tunnel must defer)", n)
+	}
+	var got towonelv1alpha1.TowonelTunnel
+	if err := c.Get(ctx, types.NamespacedName{Name: "nohosts", Namespace: "default"}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.InviteID != "" {
+		t.Errorf("InviteID = %q, want empty (no invite created)", got.Status.InviteID)
+	}
+}
+
 func TestReconcileDeletePolicy(t *testing.T) {
 	t.Setenv("TOWONEL_API_KEY", "twk_env")
 	c, hub, stop := startManager(t)
@@ -101,9 +136,14 @@ func TestReconcileDeletePolicy(t *testing.T) {
 	ctx := t.Context()
 	for _, policy := range []towonelv1alpha1.DeletionPolicy{towonelv1alpha1.DeletionPolicyDelete, towonelv1alpha1.DeletionPolicyRetain} {
 		name := "del-" + strings.ToLower(string(policy))
+		// A hostname is required for the invite to be created (#14(a) defers
+		// hostname-less tunnels); this test is about the delete/retain policy.
 		tt := &towonelv1alpha1.TowonelTunnel{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-			Spec:       towonelv1alpha1.TowonelTunnelSpec{DeletionPolicy: policy},
+			Spec: towonelv1alpha1.TowonelTunnelSpec{
+				DeletionPolicy: policy,
+				ExtraHostnames: []string{name + ".example"},
+			},
 		}
 		if err := c.Create(ctx, tt); err != nil {
 			t.Fatal(err)

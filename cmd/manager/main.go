@@ -55,7 +55,7 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "health probe bind address")
 	flag.BoolVar(&leaderElect, "leader-elect", true, "enable leader election for HA")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
-	flag.StringVar(&towonelAPIURL, "towonel-api-url", "https://console.towonel.dev", "Towonel hub base URL")
+	flag.StringVar(&towonelAPIURL, "towonel-api-url", "https://hub.towonel.dev", "Towonel hub base URL")
 	var agentNamespace, enableGatewayAPI string
 	flag.StringVar(&agentNamespace, "agent-namespace", "", "namespace for auto-created default agents (empty = the tunnel's namespace)")
 	flag.StringVar(&enableGatewayAPI, "enable-gateway-api", "auto", "auto|true|false — register Gateway/HTTPRoute source controllers")

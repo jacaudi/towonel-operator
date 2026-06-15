@@ -53,6 +53,18 @@ rbac:
             - update
             - watch
         - apiGroups:
+            - coordination.k8s.io
+          resources:
+            - leases
+          verbs:
+            - create
+            - delete
+            - get
+            - list
+            - patch
+            - update
+            - watch
+        - apiGroups:
             - gateway.networking.k8s.io
           resources:
             - gateways
