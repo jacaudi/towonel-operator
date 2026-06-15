@@ -14,12 +14,20 @@ See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `tunnelRef` | `{name, namespace}` | — | The `TowonelTunnel` to attach to. |
+| `mode` | `Managed` \| `ObserveOnly` | `Managed` | Whether the operator may contribute **source-derived** routing into this agent. `Managed` (default): annotated `Service`/`Gateway`/`HTTPRoute` sources that target this agent (via `towonel.io/agent-ref`, or as the tunnel's default agent) have their routing reconciled into it. `ObserveOnly`: the operator only validates and emits advisory Events, never writing routing — your hand-authored `services`/`tcp`/`udp` still apply. |
 | `services` | []AgentService | — | HTTPS/SNI routes → `TOWONEL_AGENT_SERVICES`. |
 | `tcp` | []AgentL4Service | — | Raw TCP services → `TOWONEL_AGENT_TCP_SERVICES` (list keyed by `name`). |
 | `udp` | []AgentL4Service | — | Raw UDP services → `TOWONEL_AGENT_UDP_SERVICES` (list keyed by `name`). |
 | `relayUrl` | string | — | Optional `TOWONEL_AGENT_RELAY_URL` override. |
 | `connectivity` | object | off | Optional iroh direct-path — see [connectivity.md](connectivity.md). |
 | `workload` | object | — | Connector knobs (below). |
+
+> **`mode` vs the `managed-by` label.** `spec.mode` is *routing intent* (does the operator
+> write routing here?). The `app.kubernetes.io/managed-by: towonel-operator` label is *lifecycle
+> ownership* (did the operator create this agent, and may it garbage-collect it?). They are
+> independent: a hand-authored agent left at the default `mode: Managed` has its routing
+> reconciled, but — because you authored it (no `towonel.io/auto-created` annotation) — the
+> operator never deletes it. You do **not** need to add any label to have routing reconciled.
 
 **`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `edgeTLSMode` (edge TLS behavior: `passthrough` default | `terminate`), `proxyProtocol` (string passed to the agent; e.g. `none` to disable the PROXY-protocol header; empty = agent default).
 

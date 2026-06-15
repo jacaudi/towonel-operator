@@ -97,6 +97,13 @@ func (b *sourceBase) applyContribution(
 	if err := releaseFromOtherAgents(ctx, c, fieldMgr, &targetNN); err != nil {
 		return reconcile.Result{}, err
 	}
+	// Inform (once per TTL) when the operator reconciles routing into an agent it
+	// does not own the lifecycle of — a hand-authored Managed agent. Routing only;
+	// the agent's lifecycle stays the user's.
+	if !agentIsOperatorOwned(target) {
+		b.dedupe.emit(b.recorder, src, corev1.EventTypeNormal, ReasonReconcilingAgent,
+			fmt.Sprintf("operator is reconciling routing into hand-authored agent %s/%s (effective spec.mode: Managed); it manages routing only, never this agent's lifecycle", target.Namespace, target.Name))
+	}
 	b.adviseIfMultipleAgents(ctx, c, emit, tunnel, targetNN)
 	// No orphan-GC on this path. The contribute just made the agent non-empty,
 	// so it can never legitimately be empty here — and re-reading the manager's
@@ -131,6 +138,10 @@ func (b *sourceBase) releaseEverywhere(ctx context.Context, apiReader client.Rea
 	if err := releaseFromOtherAgents(ctx, c, fieldMgr, nil); err != nil {
 		return err
 	}
+	// GC candidates are only ever auto-created agents, which always carry the
+	// managed-by label (both stamped together in ensureDefaultAgent), so this
+	// filter never skips a deletable agent. Cluster-wide field-manager release for
+	// unlabeled hand-authored agents already happened in releaseFromOtherAgents above.
 	var list towonelv1alpha1.TowonelAgentList
 	if err := c.List(ctx, &list, client.MatchingLabels{LabelManagedBy: ManagedByValue}); err != nil {
 		return err
@@ -165,7 +176,7 @@ func (b *sourceBase) observeUserAgent(emit func(reason, msg string), target *tow
 	}
 	for _, s := range rt.services {
 		if h, _ := s["hostname"].(string); h != "" && !served[h] {
-			emit(ReasonObserveOnly, fmt.Sprintf("hostname %q is annotated here but not served by user-owned agent %q (operator is observe-only)", h, target.Name))
+			emit(ReasonObserveOnly, fmt.Sprintf("hostname %q is annotated here but not served by agent %q, which is in observe-only mode; set its spec.mode: Managed to let the operator manage routing", h, target.Name))
 		}
 	}
 }

@@ -104,9 +104,14 @@ func releaseRouting(ctx context.Context, c client.Client, nn types.NamespacedNam
 // (design §5); cluster-wide so a cross-namespace tunnel's agent is reachable
 // even without a tunnel hint.
 func releaseFromOtherAgents(ctx context.Context, c client.Client, fieldMgr string, keep *types.NamespacedName) error {
+	// List ALL agents, not just managed-by-labeled ones: a hand-authored Managed
+	// agent the operator reconciles routing into carries no managed-by label, yet
+	// this source may own routing fields on it that must be released on
+	// retarget/opt-out. ownsAnyField below scopes the mutation to agents this
+	// source actually owns a field on, so the broader List is safe.
 	var list towonelv1alpha1.TowonelAgentList
-	if err := c.List(ctx, &list, client.MatchingLabels{LabelManagedBy: ManagedByValue}); err != nil {
-		return fmt.Errorf("list managed agents: %w", err)
+	if err := c.List(ctx, &list); err != nil {
+		return fmt.Errorf("list agents: %w", err)
 	}
 	for i := range list.Items {
 		a := &list.Items[i]

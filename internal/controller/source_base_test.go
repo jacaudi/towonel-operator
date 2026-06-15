@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -34,4 +35,25 @@ func TestObserveUserAgentWarnsOnUnservedHostname(t *testing.T) {
 		t.Fatal("expected an Event for an unserved hostname")
 	}
 	_ = c
+}
+
+func TestObserveUserAgentActionableMessage(t *testing.T) {
+	b := &sourceBase{}
+	target := &towonelv1alpha1.TowonelAgent{}
+	target.Namespace, target.Name = "net", "mine"
+	target.Spec.Mode = towonelv1alpha1.ModeObserveOnly
+	target.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
+
+	var msgs []string
+	emit := func(_, msg string) { msgs = append(msgs, msg) }
+	rt := routing{services: []map[string]any{{"hostname": "new.example", "origin": "o:1"}}}
+
+	b.observeUserAgent(emit, target, types.NamespacedName{Namespace: "net", Name: "app"}, rt)
+
+	if len(msgs) != 1 {
+		t.Fatalf("want 1 advisory message, got %d: %v", len(msgs), msgs)
+	}
+	if !strings.Contains(msgs[0], "spec.mode: Managed") {
+		t.Fatalf("ObserveOnly message must tell the user how to opt in; got %q", msgs[0])
+	}
 }

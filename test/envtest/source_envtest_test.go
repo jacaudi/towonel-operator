@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -147,29 +148,79 @@ func TestOptOutPrunesAndGCsAgent(t *testing.T) {
 	})
 }
 
-// TestObserveOnlyNeverMutatesUserAgent verifies that a Service pointing at a
-// user-authored agent (no managed-by label) via agent-ref does not mutate it.
-func TestObserveOnlyNeverMutatesUserAgent(t *testing.T) {
+// TestAgentRefContributesToHandAuthoredAgent is the issue #18 regression: a
+// hand-authored agent with NO labels and NO mode field, referenced via agent-ref,
+// is defaulted to Managed and has the source's routing contributed into it — without
+// the operator adding managed-by/part-of labels or the auto-created annotation.
+func TestAgentRefContributesToHandAuthoredAgent(t *testing.T) {
 	ns := mustNamespace(t)
 
-	// Create a user-authored agent (no LabelManagedBy).
+	user := &towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "home"},
+	}
+	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
+	if err := k8sClient.Create(context.Background(), user); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := annService(ns, "web", map[string]string{
+		ctrlpkg.AnnotationTunnel:      "enable",
+		ctrlpkg.AnnotationTunnelRef:   "app",
+		ctrlpkg.AnnotationAgentRef:    "home",
+		ctrlpkg.AnnotationSrcHostname: "new.example",
+		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:80",
+	}, corev1.ServicePort{Port: 80})
+	if err := k8sClient.Create(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+
+	nn := types.NamespacedName{Namespace: ns, Name: "home"}
+	var ta towonelv1alpha1.TowonelAgent
+	waitFor(t, 60*time.Second, func() bool {
+		if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+			return false
+		}
+		for _, s := range ta.Spec.Services {
+			if s.Hostname == "new.example" {
+				return true
+			}
+		}
+		return false
+	})
+	// Lifecycle markers must NOT have been added: the operator reconciles routing,
+	// it does not claim ownership of a hand-authored agent.
+	if _, ok := ta.Labels[ctrlpkg.LabelManagedBy]; ok {
+		t.Fatalf("operator stamped managed-by on a hand-authored agent: %v", ta.Labels)
+	}
+	if ta.Annotations[ctrlpkg.AnnotationAutoCreated] == "true" {
+		t.Fatal("operator stamped auto-created on a hand-authored agent")
+	}
+	// The apiserver default must have set mode=Managed.
+	if ta.Spec.Mode != towonelv1alpha1.ModeManaged {
+		t.Fatalf("expected defaulted mode=Managed, got %q", ta.Spec.Mode)
+	}
+}
+
+// TestObserveOnlyModeNeverMutatesUserAgent verifies that spec.mode=ObserveOnly keeps
+// the operator hands-off even when a source explicitly references the agent.
+func TestObserveOnlyModeNeverMutatesUserAgent(t *testing.T) {
+	ns := mustNamespace(t)
+
 	user := &towonelv1alpha1.TowonelAgent{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "mine"},
 	}
+	user.Spec.Mode = towonelv1alpha1.ModeObserveOnly
 	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
 	user.Spec.Services = []towonelv1alpha1.AgentService{{Hostname: "user.example", Origin: "u:1"}}
 	if err := k8sClient.Create(context.Background(), user); err != nil {
 		t.Fatal(err)
 	}
-
-	// Record the resourceVersion before the Service is created.
 	var before towonelv1alpha1.TowonelAgent
 	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "mine"}, &before); err != nil {
 		t.Fatal(err)
 	}
 	rvBefore := before.ResourceVersion
 
-	// Create a Service pointing at the user-authored agent via agent-ref.
 	svc := annService(ns, "web", map[string]string{
 		ctrlpkg.AnnotationTunnel:      "enable",
 		ctrlpkg.AnnotationTunnelRef:   "app",
@@ -180,21 +231,14 @@ func TestObserveOnlyNeverMutatesUserAgent(t *testing.T) {
 	if err := k8sClient.Create(context.Background(), svc); err != nil {
 		t.Fatal(err)
 	}
-
-	// Give the controller time to process the Service reconcile loop.
 	time.Sleep(500 * time.Millisecond)
 
-	// The user agent must be unchanged.
 	var after towonelv1alpha1.TowonelAgent
 	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "mine"}, &after); err != nil {
 		t.Fatal(err)
 	}
-	if after.ResourceVersion != rvBefore {
-		t.Fatalf("observe-only violated: user agent was mutated (rv %s -> %s, services: %d)",
-			rvBefore, after.ResourceVersion, len(after.Spec.Services))
-	}
-	if len(after.Spec.Services) != 1 {
-		t.Fatalf("observe-only violated: services changed to %d", len(after.Spec.Services))
+	if after.ResourceVersion != rvBefore || len(after.Spec.Services) != 1 {
+		t.Fatalf("ObserveOnly violated: rv %s->%s services=%d", rvBefore, after.ResourceVersion, len(after.Spec.Services))
 	}
 }
 
@@ -296,6 +340,64 @@ func TestGatewayAndHTTPRouteRoundTrip(t *testing.T) {
 	})
 }
 
+// TestRetargetReleasesFromHandAuthoredManagedAgent verifies §3.5: when a source
+// stops contributing (opt-out), its routing is released from a hand-authored
+// Managed agent (which carries no managed-by label) — and the agent, being
+// user-owned, is NOT garbage-collected.
+func TestRetargetReleasesFromHandAuthoredManagedAgent(t *testing.T) {
+	ns := mustNamespace(t)
+
+	user := &towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "home"},
+	}
+	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
+	if err := k8sClient.Create(context.Background(), user); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := annService(ns, "web", map[string]string{
+		ctrlpkg.AnnotationTunnel:      "enable",
+		ctrlpkg.AnnotationTunnelRef:   "app",
+		ctrlpkg.AnnotationAgentRef:    "home",
+		ctrlpkg.AnnotationSrcHostname: "new.example",
+		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:80",
+	}, corev1.ServicePort{Port: 80})
+	if err := k8sClient.Create(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+
+	nn := types.NamespacedName{Namespace: ns, Name: "home"}
+	var ta towonelv1alpha1.TowonelAgent
+	waitFor(t, 60*time.Second, func() bool {
+		if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+			return false
+		}
+		return len(ta.Spec.Services) == 1
+	})
+
+	// Opt out — the source releases its routing.
+	var live corev1.Service
+	waitFor(t, 5*time.Second, func() bool {
+		return k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "web"}, &live) == nil
+	})
+	live.Annotations[ctrlpkg.AnnotationTunnel] = "disable"
+	if err := k8sClient.Update(context.Background(), &live); err != nil {
+		t.Fatal(err)
+	}
+
+	// Routing must be released from the hand-authored agent (filter no longer hides it).
+	waitFor(t, 45*time.Second, func() bool {
+		if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+			return false
+		}
+		return len(ta.Spec.Services) == 0
+	})
+	// And the user-owned agent must STILL exist (never GC'd — not auto-created).
+	if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+		t.Fatalf("hand-authored agent was deleted; it must never be GC'd: %v", err)
+	}
+}
+
 // TestGatewaySourcesDisabledWhenFlagFalse verifies that SetupSourceControllers
 // with EnableGatewayAPI:"false" starts cleanly and that a Service source (which
 // is always enabled) still works while no gateway agent is produced.
@@ -338,4 +440,41 @@ func TestGatewaySourcesDisabledWhenFlagFalse(t *testing.T) {
 	if err := k8sClient.Get(context.Background(), defaultAgentNN(ns, tunnel), &ta); err == nil {
 		t.Fatal("no agent expected for unannotated gateway but one was created")
 	}
+}
+
+// TestReconcilingAgentEventOnHandAuthored verifies the operator emits a
+// ReconcilingAgent event when it contributes routing into a hand-authored agent.
+func TestReconcilingAgentEventOnHandAuthored(t *testing.T) {
+	ns := mustNamespace(t)
+
+	user := &towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "home"},
+	}
+	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
+	if err := k8sClient.Create(context.Background(), user); err != nil {
+		t.Fatal(err)
+	}
+	svc := annService(ns, "web", map[string]string{
+		ctrlpkg.AnnotationTunnel:      "enable",
+		ctrlpkg.AnnotationTunnelRef:   "app",
+		ctrlpkg.AnnotationAgentRef:    "home",
+		ctrlpkg.AnnotationSrcHostname: "new.example",
+		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:80",
+	}, corev1.ServicePort{Port: 80})
+	if err := k8sClient.Create(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, 60*time.Second, func() bool {
+		var events corev1.EventList
+		if err := k8sClient.List(context.Background(), &events, client.InNamespace(ns)); err != nil {
+			return false
+		}
+		for i := range events.Items {
+			if events.Items[i].Reason == ctrlpkg.ReasonReconcilingAgent {
+				return true
+			}
+		}
+		return false
+	})
 }

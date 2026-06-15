@@ -94,6 +94,18 @@ spec:
                         type: integer
                     type: object
                 type: object
+              mode:
+                default: Managed
+                description: |-
+                  Mode controls whether the operator may contribute routing into this agent.
+                  Managed (default): operator contributes routing under per-source field managers.
+                  ObserveOnly: operator validates and emits advisory Events but never writes routing.
+                  Distinct from the app.kubernetes.io/managed-by label (lifecycle ownership):
+                  a hand-authored Managed agent is reconciled but never garbage-collected.
+                enum:
+                - Managed
+                - ObserveOnly
+                type: string
               relayUrl:
                 type: string
               services:

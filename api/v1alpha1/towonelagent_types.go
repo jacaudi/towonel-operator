@@ -104,9 +104,33 @@ type WorkloadSpec struct {
 	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
+// AgentManagementMode controls whether the operator may contribute routing into
+// this agent. It governs ROUTING only — it is distinct from the
+// app.kubernetes.io/managed-by label, which marks operator LIFECYCLE ownership
+// (create/GC). A hand-authored agent with mode Managed has its routing reconciled
+// but is never garbage-collected (GC keys on the towonel.io/auto-created annotation).
+// +kubebuilder:validation:Enum=Managed;ObserveOnly
+type AgentManagementMode string
+
+const (
+	// ModeManaged: the operator contributes routing under per-source field managers.
+	ModeManaged AgentManagementMode = "Managed"
+	// ModeObserveOnly: the operator validates and emits advisory Events but never
+	// writes routing into this agent.
+	ModeObserveOnly AgentManagementMode = "ObserveOnly"
+)
+
 // TowonelAgentSpec defines the desired agent (routing + workload).
 type TowonelAgentSpec struct {
 	TunnelRef TunnelReference `json:"tunnelRef"`
+	// Mode controls whether the operator may contribute routing into this agent.
+	// Managed (default): operator contributes routing under per-source field managers.
+	// ObserveOnly: operator validates and emits advisory Events but never writes routing.
+	// Distinct from the app.kubernetes.io/managed-by label (lifecycle ownership):
+	// a hand-authored Managed agent is reconciled but never garbage-collected.
+	// +kubebuilder:default=Managed
+	// +optional
+	Mode AgentManagementMode `json:"mode,omitempty"`
 	// +listType=map
 	// +listMapKey=hostname
 	// +optional
