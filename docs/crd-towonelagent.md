@@ -14,7 +14,7 @@ See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `tunnelRef` | `{name, namespace}` | — | The `TowonelTunnel` to attach to. |
-| `mode` | `Managed` \| `ObserveOnly` | `Managed` | Whether the operator may contribute routing into this agent. `Managed`: routing is reconciled from annotated sources that reference it. `ObserveOnly`: the operator validates and emits advisory Events but never writes routing. |
+| `mode` | `Managed` \| `ObserveOnly` | `Managed` | Whether the operator may contribute **source-derived** routing into this agent. `Managed` (default): annotated `Service`/`Gateway`/`HTTPRoute` sources that target this agent (via `towonel.io/agent-ref`, or as the tunnel's default agent) have their routing reconciled into it. `ObserveOnly`: the operator only validates and emits advisory Events, never writing routing — your hand-authored `services`/`tcp`/`udp` still apply. |
 | `services` | []AgentService | — | HTTPS/SNI routes → `TOWONEL_AGENT_SERVICES`. |
 | `tcp` | []AgentL4Service | — | Raw TCP services → `TOWONEL_AGENT_TCP_SERVICES` (list keyed by `name`). |
 | `udp` | []AgentL4Service | — | Raw UDP services → `TOWONEL_AGENT_UDP_SERVICES` (list keyed by `name`). |
