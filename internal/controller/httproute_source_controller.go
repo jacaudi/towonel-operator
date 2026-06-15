@@ -50,9 +50,11 @@ func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "HTTPRoute", rtObj.Namespace, rtObj.Name))
 	}
 	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &rtObj, corev1.EventTypeWarning, reason, msg) }
-	tunnel, err := parseTunnelRef(rtObj.Annotations[AnnotationTunnelRef], rtObj.Namespace)
+	tunnel, ok, err := resolveTunnel(ctx, r.Client, emit, rtObj.Annotations[AnnotationTunnelRef], rtObj.Namespace)
 	if err != nil {
-		emit(ReasonTunnelRefMissing, err.Error())
+		return ctrl.Result{}, err
+	}
+	if !ok {
 		return ctrl.Result{}, nil
 	}
 	rt, ok, derr := r.deriveHTTPRouteRouting(ctx, &rtObj, emit)
