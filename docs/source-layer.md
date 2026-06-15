@@ -11,12 +11,13 @@ Examples: [`05-implicit-service.yaml`](examples/05-implicit-service.yaml),
 
 ## Annotation vocabulary
 
-All keys are under `towonel.io/`. Opt in with `tunnel`, point at a tunnel with `tunnel-ref`.
+All keys are under `towonel.io/`. The only required key is `tunnel` (to opt-in); the tunnel and
+agent are inferred when the cluster has exactly one of each.
 
 | Annotation | Applies to | Meaning |
 |---|---|---|
-| `towonel.io/tunnel` | all | Opt-in. Truthy: `true`/`yes`/`enable`/`enabled`; falsy: `false`/`no`/`disable`/`disabled` (case-insensitive). |
-| `towonel.io/tunnel-ref` | all | Target tunnel as `<namespace>/<name>`. |
+| `towonel.io/tunnel` | all | **Required.** Opt-in. Truthy: `true`/`yes`/`enable`/`enabled`; falsy: `false`/`no`/`disable`/`disabled` (case-insensitive). |
+| `towonel.io/tunnel-ref` | all | Optional. Target tunnel as `<namespace>/<name>` (bare `<name>` resolves in the source's namespace). Omit to default to the sole `TowonelTunnel` in the cluster. |
 | `towonel.io/agent-ref` | all | Optional. Target a specific agent by name. See "agent targeting" below. |
 | `towonel.io/hostname` | Service | HTTPS hostname to expose (Service shim). |
 | `towonel.io/origin` | Service | Override origin `host:port` (defaults to the Service's `ClusterIP:port`). |
@@ -71,9 +72,11 @@ unreferenced ports are not exposed. For anything more complex, author the `Towon
 
 ## Agent targeting
 
-- **No `agent-ref`** → the operator's single **default agent** for that tunnel, auto-created in the
-  tunnel's namespace (or the `--agent-namespace` / `agentNamespace` override). One default agent per
-  tunnel — consistent with Towonel's tenant-global routing.
+- **No `agent-ref`, exactly one `TowonelAgent` in the cluster** → that agent is adopted (validated
+  like an explicit `agent-ref`: see the mode rules below).
+- **No `agent-ref`, zero or many agents** → the operator's single **default agent** for that tunnel,
+  auto-created in the tunnel's namespace (or the `--agent-namespace` / `agentNamespace` override). One
+  default agent per tunnel — consistent with Towonel's tenant-global routing.
 - **`agent-ref` → an operator-owned agent** → the operator writes the routing onto it.
 - **`agent-ref` → a hand-authored agent** → the operator reconciles routing into it by default
   (`spec.mode: Managed`, the default). No label is required. This is how you customize an agent's

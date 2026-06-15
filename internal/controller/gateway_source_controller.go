@@ -46,9 +46,11 @@ func (r *GatewaySourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "Gateway", gw.Namespace, gw.Name))
 	}
 	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &gw, corev1.EventTypeWarning, reason, msg) }
-	tunnel, err := parseTunnelRef(gw.Annotations[AnnotationTunnelRef], gw.Namespace)
+	tunnel, ok, err := resolveTunnel(ctx, r.Client, emit, gw.Annotations[AnnotationTunnelRef], gw.Namespace)
 	if err != nil {
-		emit(ReasonTunnelRefMissing, err.Error())
+		return ctrl.Result{}, err
+	}
+	if !ok {
 		return ctrl.Result{}, nil
 	}
 	rt, ok := deriveGatewayRouting(ctx, r.Client, &gw, emit)

@@ -42,9 +42,11 @@ func (r *ServiceSourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "Service", svc.Namespace, svc.Name))
 	}
 	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &svc, corev1.EventTypeWarning, reason, msg) }
-	tunnel, err := parseTunnelRef(svc.Annotations[AnnotationTunnelRef], svc.Namespace)
+	tunnel, ok, err := resolveTunnel(ctx, r.Client, emit, svc.Annotations[AnnotationTunnelRef], svc.Namespace)
 	if err != nil {
-		emit(ReasonTunnelRefMissing, err.Error())
+		return ctrl.Result{}, err
+	}
+	if !ok {
 		return ctrl.Result{}, nil
 	}
 	rt, ok := r.deriveServiceRouting(&svc, emit)

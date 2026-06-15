@@ -72,8 +72,9 @@ metadata:
   namespace: monitoring
   annotations:
     towonel.io/tunnel: enable
-    towonel.io/tunnel-ref: towonel-system/app
     towonel.io/hostname: grafana.example.com
+    # towonel.io/tunnel-ref and towonel.io/agent-ref are optional, if omittted they
+    # default to the sole TowonelTunnel / TowonelAgent in the cluster.
 spec:
   selector:
     app.kubernetes.io/name: grafana

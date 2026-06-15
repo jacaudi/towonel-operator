@@ -60,6 +60,52 @@ func TestParseTunnelRef(t *testing.T) {
 	}
 }
 
+func TestResolveTunnel(t *testing.T) {
+	newTunnel := func(ns, name string) *towonelv1alpha1.TowonelTunnel {
+		tn := &towonelv1alpha1.TowonelTunnel{}
+		tn.Namespace, tn.Name = ns, name
+		return tn
+	}
+	cases := []struct {
+		name             string
+		raw, srcNS       string
+		tunnels          []*towonelv1alpha1.TowonelTunnel
+		wantNS, wantName string
+		wantOK           bool
+	}{
+		{name: "explicit bare", raw: "main", srcNS: "src", wantNS: "src", wantName: "main", wantOK: true},
+		{name: "explicit qualified", raw: "net/main", srcNS: "src", wantNS: "net", wantName: "main", wantOK: true},
+		{name: "empty defaults to sole", srcNS: "src", tunnels: []*towonelv1alpha1.TowonelTunnel{newTunnel("net", "main")}, wantNS: "net", wantName: "main", wantOK: true},
+		{name: "empty with none skips", srcNS: "src", wantOK: false},
+		{name: "empty with many skips", srcNS: "src", tunnels: []*towonelv1alpha1.TowonelTunnel{newTunnel("net", "a"), newTunnel("net", "b")}, wantOK: false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b := fake.NewClientBuilder().WithScheme(srcScheme(t))
+			for _, tn := range c.tunnels {
+				b = b.WithObjects(tn)
+			}
+			var reason string
+			got, ok, err := resolveTunnel(context.Background(), b.Build(), func(r, _ string) { reason = r }, c.raw, c.srcNS)
+			if err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if ok != c.wantOK {
+				t.Fatalf("ok=%v want %v (reason %q)", ok, c.wantOK, reason)
+			}
+			if !c.wantOK {
+				if reason != ReasonTunnelRefMissing {
+					t.Fatalf("skip reason=%q; want %s", reason, ReasonTunnelRefMissing)
+				}
+				return
+			}
+			if got.Namespace != c.wantNS || got.Name != c.wantName {
+				t.Fatalf("got %v; want %s/%s", got, c.wantNS, c.wantName)
+			}
+		})
+	}
+}
+
 func TestResolveTargetDefaultCreatesOperatorOwned(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
@@ -72,6 +118,67 @@ func TestResolveTargetDefaultCreatesOperatorOwned(t *testing.T) {
 	}
 	if ta.Namespace != "net" || ta.Name != defaultAgentName("net", "app") {
 		t.Fatalf("unexpected placement %s/%s", ta.Namespace, ta.Name)
+	}
+}
+
+func TestResolveTargetDefaultAdoptsSoleAgent(t *testing.T) {
+	// No agent-ref + exactly one existing agent (not at the default name) -> adopt
+	// it instead of minting an operator-owned default (single-agent deployment).
+	mine := &towonelv1alpha1.TowonelAgent{}
+	mine.Namespace, mine.Name = "net", "home"
+	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
+
+	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
+	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", tunnel, "")
+	if err != nil || mode != modeWrite {
+		t.Fatalf("mode=%v err=%v; want write into the sole agent", mode, err)
+	}
+	if ta == nil || ta.Name != "home" {
+		t.Fatalf("unexpected target %+v; want adopted sole agent", ta)
+	}
+	// And it must NOT have auto-created a second (default-named) agent.
+	var list towonelv1alpha1.TowonelAgentList
+	_ = c.List(context.Background(), &list)
+	if len(list.Items) != 1 {
+		t.Fatalf("sole-agent default must not mint another agent; found %d", len(list.Items))
+	}
+}
+
+func TestResolveTargetDefaultSoleAgentCrossTunnelSkips(t *testing.T) {
+	// The sole agent is validated like an explicit ref: bound elsewhere -> skip.
+	other := &towonelv1alpha1.TowonelAgent{}
+	other.Namespace, other.Name = "net", "home"
+	other.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "different", Namespace: "net"}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(other).Build()
+
+	var reason string
+	ta, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", types.NamespacedName{Namespace: "net", Name: "app"}, "")
+	if err != nil || mode != modeSkip || reason != ReasonAgentRefConflict {
+		t.Fatalf("mode=%v reason=%q err=%v; want skip/%s", mode, reason, err, ReasonAgentRefConflict)
+	}
+	if ta != nil {
+		t.Fatalf("cross-tunnel sole agent must not return a write target; got %+v", ta)
+	}
+}
+
+func TestResolveTargetDefaultMultipleAgentsMintsDefault(t *testing.T) {
+	// Two agents -> ambiguous, so fall back to the operator-owned default.
+	a1 := &towonelv1alpha1.TowonelAgent{}
+	a1.Namespace, a1.Name = "net", "a1"
+	a1.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
+	a2 := &towonelv1alpha1.TowonelAgent{}
+	a2.Namespace, a2.Name = "net", "a2"
+	a2.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(a1, a2).Build()
+
+	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
+	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", tunnel, "")
+	if err != nil || mode != modeWrite {
+		t.Fatalf("mode=%v err=%v; want write into minted default", mode, err)
+	}
+	if !agentIsOperatorOwned(ta) || ta.Name != defaultAgentName("net", "app") {
+		t.Fatalf("ambiguous agents must mint the operator-owned default; got %+v", ta)
 	}
 }
 

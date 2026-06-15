@@ -139,7 +139,7 @@ func (b *sourceBase) releaseEverywhere(ctx context.Context, apiReader client.Rea
 		return err
 	}
 	// GC candidates are only ever auto-created agents, which always carry the
-	// managed-by label (both stamped together in ensureDefaultAgent), so this
+	// managed-by label (both stamped together in createDefaultAgent), so this
 	// filter never skips a deletable agent. Cluster-wide field-manager release for
 	// unlabeled hand-authored agents already happened in releaseFromOtherAgents above.
 	var list towonelv1alpha1.TowonelAgentList
