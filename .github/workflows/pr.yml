@@ -1,8 +1,10 @@
 ---
 # Pull Request Validation
 # Fast feedback on PRs: the full `task ci` gate (build, vet, gofmt, -race
-# envtest, helm-lint, and the generated-artifact drift gate) plus a no-push
-# multi-arch image build to catch Dockerfile breakage before it reaches main.
+# envtest, helm-lint, and the generated-artifact drift gate).
+# The no-push multi-arch image build (docker-build job below) is commented out
+# because the arm64 leg under QEMU emulation took ~18 min and dominated PR time;
+# Dockerfile breakage is still caught by the release image build in ci-cd.yml.
 # Releases (image + chart publish) are owned exclusively by ci-cd.yml.
 name: PR Validation
 
@@ -36,16 +38,19 @@ jobs:
       - name: Run checks
         run: task ci
 
-  docker-build:
-    name: Build image (no push)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Build image (no push)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          platforms: linux/amd64,linux/arm64
-          tags: towonel-operator:ci
+  # docker-build: temporarily disabled — the multi-arch (arm64-under-QEMU) no-push
+  # build took ~18 min and dominated PR feedback time. Re-enable (and consider
+  # linux/amd64-only, or a native arm64 runner) if Dockerfile drift becomes an issue.
+  # docker-build:
+  #   name: Build image (no push)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: docker/setup-buildx-action@v3
+  #     - name: Build image (no push)
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         push: false
+  #         platforms: linux/amd64,linux/arm64
+  #         tags: towonel-operator:ci
