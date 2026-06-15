@@ -339,6 +339,64 @@ func TestGatewayAndHTTPRouteRoundTrip(t *testing.T) {
 	})
 }
 
+// TestRetargetReleasesFromHandAuthoredManagedAgent verifies §3.5: when a source
+// stops contributing (opt-out), its routing is released from a hand-authored
+// Managed agent (which carries no managed-by label) — and the agent, being
+// user-owned, is NOT garbage-collected.
+func TestRetargetReleasesFromHandAuthoredManagedAgent(t *testing.T) {
+	ns := mustNamespace(t)
+
+	user := &towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "home"},
+	}
+	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
+	if err := k8sClient.Create(context.Background(), user); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := annService(ns, "web", map[string]string{
+		ctrlpkg.AnnotationTunnel:      "enable",
+		ctrlpkg.AnnotationTunnelRef:   "app",
+		ctrlpkg.AnnotationAgentRef:    "home",
+		ctrlpkg.AnnotationSrcHostname: "new.example",
+		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:80",
+	}, corev1.ServicePort{Port: 80})
+	if err := k8sClient.Create(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+
+	nn := types.NamespacedName{Namespace: ns, Name: "home"}
+	var ta towonelv1alpha1.TowonelAgent
+	waitFor(t, 60*time.Second, func() bool {
+		if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+			return false
+		}
+		return len(ta.Spec.Services) == 1
+	})
+
+	// Opt out — the source releases its routing.
+	var live corev1.Service
+	waitFor(t, 5*time.Second, func() bool {
+		return k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "web"}, &live) == nil
+	})
+	live.Annotations[ctrlpkg.AnnotationTunnel] = "disable"
+	if err := k8sClient.Update(context.Background(), &live); err != nil {
+		t.Fatal(err)
+	}
+
+	// Routing must be released from the hand-authored agent (filter no longer hides it).
+	waitFor(t, 45*time.Second, func() bool {
+		if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+			return false
+		}
+		return len(ta.Spec.Services) == 0
+	})
+	// And the user-owned agent must STILL exist (never GC'd — not auto-created).
+	if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+		t.Fatalf("hand-authored agent was deleted; it must never be GC'd: %v", err)
+	}
+}
+
 // TestGatewaySourcesDisabledWhenFlagFalse verifies that SetupSourceControllers
 // with EnableGatewayAPI:"false" starts cleanly and that a Service source (which
 // is always enabled) still works while no gateway agent is produced.
