@@ -12,6 +12,12 @@ controllers:
           repository: {{ .Values.image.repository }}
           tag: {{ .Values.image.tag | default .Chart.AppVersion }}
           pullPolicy: {{ .Values.image.pullPolicy }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
         args:
           - --metrics-bind-address=:8080
           - --health-probe-bind-address=:8081
