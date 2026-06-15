@@ -121,6 +121,7 @@ const (
 	ReasonDefaultAgentClash   = "DefaultAgentNameConflict"
 	ReasonMultipleAgents      = "MultipleAgentsOnTunnel"
 	ReasonObserveOnly         = "ObserveOnlyAgent"
+	ReasonReconcilingAgent    = "ReconcilingAgent"
 )
 
 // srcFieldManager is the per-source SSA field manager owning that source's

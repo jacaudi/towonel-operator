@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -439,4 +440,41 @@ func TestGatewaySourcesDisabledWhenFlagFalse(t *testing.T) {
 	if err := k8sClient.Get(context.Background(), defaultAgentNN(ns, tunnel), &ta); err == nil {
 		t.Fatal("no agent expected for unannotated gateway but one was created")
 	}
+}
+
+// TestReconcilingAgentEventOnHandAuthored verifies the operator emits a
+// ReconcilingAgent event when it contributes routing into a hand-authored agent.
+func TestReconcilingAgentEventOnHandAuthored(t *testing.T) {
+	ns := mustNamespace(t)
+
+	user := &towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "home"},
+	}
+	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
+	if err := k8sClient.Create(context.Background(), user); err != nil {
+		t.Fatal(err)
+	}
+	svc := annService(ns, "web", map[string]string{
+		ctrlpkg.AnnotationTunnel:      "enable",
+		ctrlpkg.AnnotationTunnelRef:   "app",
+		ctrlpkg.AnnotationAgentRef:    "home",
+		ctrlpkg.AnnotationSrcHostname: "new.example",
+		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:80",
+	}, corev1.ServicePort{Port: 80})
+	if err := k8sClient.Create(context.Background(), svc); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, 60*time.Second, func() bool {
+		var events corev1.EventList
+		if err := k8sClient.List(context.Background(), &events, client.InNamespace(ns)); err != nil {
+			return false
+		}
+		for i := range events.Items {
+			if events.Items[i].Reason == ctrlpkg.ReasonReconcilingAgent {
+				return true
+			}
+		}
+		return false
+	})
 }
