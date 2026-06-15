@@ -13,7 +13,6 @@ controllers:
           tag: {{ .Values.image.tag | default .Chart.AppVersion }}
           pullPolicy: {{ .Values.image.pullPolicy }}
         securityContext:
-          # Required for the restricted Pod Security Standard (container-level).
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
