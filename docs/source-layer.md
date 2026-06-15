@@ -75,9 +75,13 @@ unreferenced ports are not exposed. For anything more complex, author the `Towon
   tunnel's namespace (or the `--agent-namespace` / `agentNamespace` override). One default agent per
   tunnel — consistent with Towonel's tenant-global routing.
 - **`agent-ref` → an operator-owned agent** → the operator writes the routing onto it.
-- **`agent-ref` → a user-owned agent** (no operator ownership label) → **observe-only**: the operator
-  validates and emits advisory Events but never mutates a hand-authored agent. It will **never
-  auto-create** a named agent.
+- **`agent-ref` → a hand-authored agent** → the operator reconciles routing into it by default
+  (`spec.mode: Managed`, the default). No label is required. This is how you customize an agent's
+  workload (e.g. pin `spec.workload.image`) while letting the operator manage its routing. The
+  operator never garbage-collects a hand-authored agent.
+- **`agent-ref` → an agent with `spec.mode: ObserveOnly`** → **observe-only**: the operator validates
+  and emits advisory Events but never writes routing. Use this to fully self-manage an agent's routing.
+- The operator will **never auto-create** a named `agent-ref` agent.
 
 ## How contributions are written
 
