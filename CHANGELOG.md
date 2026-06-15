@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.1](https://github.com/jacaudi/towonel-operator/compare/v1.2.0...v1.2.1) (2026-06-15)
+### Bug Fixes
+
+* **controller:** reconcile routing into referenced agents by spec.mode, not the managed-by label ([#18](https://github.com/jacaudi/towonel-operator/issues/18)) ([#21](https://github.com/jacaudi/towonel-operator/issues/21)) ([cd2f2a6](https://github.com/jacaudi/towonel-operator/commit/cd2f2a604a0b5cf8e4bfd475442dce958a382765))
+
 ## [1.2.0](https://github.com/jacaudi/towonel-operator/compare/v1.1.0...v1.2.0) (2026-06-15)
 ### Features
 
