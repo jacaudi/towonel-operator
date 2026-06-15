@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.0](https://github.com/jacaudi/towonel-operator/compare/v1.1.0...v1.2.0) (2026-06-15)
+### Features
+
+* leader-election RBAC, agent securityContext, API host default, and tunnel reconcile-loop fixes ([#11](https://github.com/jacaudi/towonel-operator/issues/11)-[#14](https://github.com/jacaudi/towonel-operator/issues/14)) ([#19](https://github.com/jacaudi/towonel-operator/issues/19)) ([4a8c1c6](https://github.com/jacaudi/towonel-operator/commit/4a8c1c660689b94ecfa6fec32e9f5fb5b8a33ba7)), closes [#13](https://github.com/jacaudi/towonel-operator/issues/13) [#12](https://github.com/jacaudi/towonel-operator/issues/12) [#12](https://github.com/jacaudi/towonel-operator/issues/12) [#12](https://github.com/jacaudi/towonel-operator/issues/12) [#12](https://github.com/jacaudi/towonel-operator/issues/12)
+
 ## [1.1.0](https://github.com/jacaudi/towonel-operator/compare/v1.0.1...v1.1.0) (2026-06-14)
 ### Features
 
