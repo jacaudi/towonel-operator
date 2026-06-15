@@ -75,14 +75,43 @@ func TestResolveTargetDefaultCreatesOperatorOwned(t *testing.T) {
 	}
 }
 
-func TestResolveTargetAgentRefUserOwnedObserveOnly(t *testing.T) {
+func TestResolveTargetAgentRefUnlabeledDefaultsToWrite(t *testing.T) {
+	// #18 regression: a hand-authored agent with NO labels and NO mode field,
+	// referenced via agent-ref with a matching tunnelRef, defaults to Managed -> write.
+	mine := &towonelv1alpha1.TowonelAgent{}
+	mine.Namespace, mine.Name = "net", "home"
+	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
+	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", types.NamespacedName{Namespace: "net", Name: "app"}, "home")
+	if err != nil || mode != modeWrite {
+		t.Fatalf("mode=%v err=%v; want write (unlabeled no-mode agent defaults to Managed)", mode, err)
+	}
+	if ta == nil || ta.Name != "home" {
+		t.Fatalf("unexpected target %+v", ta)
+	}
+}
+
+func TestResolveTargetAgentRefObserveOnlyMode(t *testing.T) {
+	// Explicit ObserveOnly is honored regardless of ownership label.
 	mine := &towonelv1alpha1.TowonelAgent{}
 	mine.Namespace, mine.Name = "net", "mine"
+	mine.Spec.Mode = towonelv1alpha1.ModeObserveOnly
 	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
 	_, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", types.NamespacedName{Namespace: "net", Name: "app"}, "mine")
 	if err != nil || mode != modeObserve {
-		t.Fatalf("mode=%v err=%v; want observe", mode, err)
+		t.Fatalf("mode=%v err=%v; want observe (explicit ObserveOnly)", mode, err)
+	}
+}
+
+func TestAgentModeDefaultsToManaged(t *testing.T) {
+	var ta towonelv1alpha1.TowonelAgent
+	if got := agentMode(&ta); got != towonelv1alpha1.ModeManaged {
+		t.Fatalf("empty mode = %q; want Managed", got)
+	}
+	ta.Spec.Mode = towonelv1alpha1.ModeObserveOnly
+	if got := agentMode(&ta); got != towonelv1alpha1.ModeObserveOnly {
+		t.Fatalf("explicit mode = %q; want ObserveOnly", got)
 	}
 }
 

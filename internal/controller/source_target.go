@@ -18,8 +18,8 @@ import (
 type targetMode int
 
 const (
-	modeWrite   targetMode = iota // operator-owned: contribute routing
-	modeObserve                   // user-owned (agent-ref): validate only, never mutate
+	modeWrite   targetMode = iota // Managed mode: contribute routing
+	modeObserve                   // ObserveOnly mode: validate only, never mutate
 	modeSkip                      // an Event was emitted; do nothing
 )
 
@@ -28,6 +28,17 @@ var errDefaultAgentNameClash = errors.New("default-agent name occupied by a non-
 
 func agentIsOperatorOwned(ta *towonelv1alpha1.TowonelAgent) bool {
 	return ta.Labels[LabelManagedBy] == ManagedByValue
+}
+
+// agentMode returns the agent's management mode, treating an unset value as the
+// Managed default. The CRD default applies server-side; this guards in code for
+// objects observed before defaulting (the fake client in unit tests, or CRs
+// authored before the field existed).
+func agentMode(ta *towonelv1alpha1.TowonelAgent) towonelv1alpha1.AgentManagementMode {
+	if ta.Spec.Mode == "" {
+		return towonelv1alpha1.ModeManaged
+	}
+	return ta.Spec.Mode
 }
 
 // parseTunnelRef parses "[<ns>/]<name>"; a bare name resolves in srcNS.
@@ -78,6 +89,7 @@ func ensureDefaultAgent(ctx context.Context, c client.Client, agentNS string, tu
 			Annotations: map[string]string{AnnotationAutoCreated: "true"},
 		},
 		Spec: towonelv1alpha1.TowonelAgentSpec{
+			Mode:      towonelv1alpha1.ModeManaged,
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: tunnel.Name, Namespace: tunnel.Namespace},
 		},
 	}
@@ -96,7 +108,7 @@ func ensureDefaultAgent(ctx context.Context, c client.Client, agentNS string, tu
 	return ta, nil
 }
 
-// resolveTarget applies the ownership-based agent-ref policy (design §3.2). On
+// resolveTarget applies the mode-based agent-ref policy (design §3.2). On
 // modeSkip it has already emitted an Event via emit.
 func resolveTarget(
 	ctx context.Context,
@@ -126,9 +138,15 @@ func resolveTarget(
 		}
 		return nil, modeSkip, err
 	}
-	if !agentIsOperatorOwned(&ta) {
+	// ObserveOnly is an explicit, opt-in hands-off mode: validate but never write,
+	// regardless of who owns the object. observeUserAgent reports tunnel/hostname
+	// mismatches via Events.
+	if agentMode(&ta) == towonelv1alpha1.ModeObserveOnly {
 		return &ta, modeObserve, nil
 	}
+	// Managed (default, incl. unset): contribute routing as long as the agent is
+	// bound to this tunnel. No ownership-label check — an explicitly referenced
+	// agent is reconciled by intent (issue #18); lifecycle stays user-owned.
 	if want := resolvedTunnelRef(&ta); want != tunnel { // resolvedTunnelRef from indexes.go
 		emit(ReasonAgentRefConflict, fmt.Sprintf("agent-ref %q targets tunnel %s, not %s", agentRef, want, tunnel))
 		return nil, modeSkip, nil
