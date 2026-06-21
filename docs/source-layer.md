@@ -16,7 +16,7 @@ All keys are under `towonel.io/`. Opt in with `tunnel`, point at a tunnel with `
 | Annotation | Applies to | Meaning |
 |---|---|---|
 | `towonel.io/tunnel` | all | Opt-in. Truthy: `true`/`yes`/`enable`/`enabled`; falsy: `false`/`no`/`disable`/`disabled` (case-insensitive). |
-| `towonel.io/tunnel-ref` | all | Target tunnel as `<namespace>/<name>`. |
+| `towonel.io/tunnel-ref` | all | Target tunnel as `<namespace>/<name>` (bare `<name>` resolves in the source's namespace). Optional only when exactly one `TowonelTunnel` exists — see "Tunnel targeting" below. |
 | `towonel.io/agent-ref` | all | Optional. Target a specific agent by name. See "agent targeting" below. |
 | `towonel.io/hostname` | Service | HTTPS hostname to expose (Service shim). |
 | `towonel.io/origin` | Service | Override origin `host:port` (defaults to the Service's `ClusterIP:port`). |
@@ -68,6 +68,17 @@ unreferenced ports are not exposed. For anything more complex, author the `Towon
 > it. Every hostname clients actually use must be authorized — i.e. appear as a Gateway listener
 > hostname or an HTTPRoute hostname. A wildcard listener (`*.example.com`) covers a whole zone *if*
 > Towonel's hub accepts wildcard hostnames (verify upstream); otherwise enumerate each hostname.
+
+## Tunnel targeting
+
+Point a source at its tunnel with `towonel.io/tunnel-ref`. Multiple `TowonelTunnel`s
+**are** supported; only the omission shortcut requires exactly one.
+
+The `towonel.io/tunnel-ref` *omission* default applies only when exactly one
+`TowonelTunnel` exists. With zero or multiple tunnels, set `tunnel-ref` explicitly.
+If you rely on the omission default and later add a second tunnel, ref-less sources
+become ambiguous: they stop resolving, emit a `TunnelRefMissing` event, and release
+their routing until an explicit `tunnel-ref` is set (loud and safe — no mis-routing).
 
 ## Agent targeting
 

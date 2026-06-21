@@ -57,6 +57,32 @@ func parseTunnelRef(raw, srcNS string) (types.NamespacedName, error) {
 	return types.NamespacedName{Namespace: srcNS, Name: raw}, nil
 }
 
+// resolveTunnel resolves the tunnel a source targets. A non-empty raw tunnel-ref
+// is parsed as-is. When omitted, the operator defaults to the sole TowonelTunnel
+// in the cluster — but only when exactly one exists; zero or multiple are
+// ambiguous and skip loudly (emit ReasonTunnelRefMissing, ok=false). A transient
+// List failure returns err so the controller requeues. (PR #24, aclerici38.)
+func resolveTunnel(ctx context.Context, c client.Client, emit func(reason, msg string), raw, srcNS string) (types.NamespacedName, bool, error) {
+	if strings.TrimSpace(raw) != "" {
+		nn, err := parseTunnelRef(raw, srcNS)
+		if err != nil {
+			emit(ReasonTunnelRefMissing, err.Error())
+			return types.NamespacedName{}, false, nil
+		}
+		return nn, true, nil
+	}
+	var list towonelv1alpha1.TowonelTunnelList
+	if err := c.List(ctx, &list); err != nil {
+		return types.NamespacedName{}, false, err
+	}
+	if len(list.Items) != 1 {
+		emit(ReasonTunnelRefMissing, fmt.Sprintf("no %s set and %d TowonelTunnels exist", AnnotationTunnelRef, len(list.Items)))
+		return types.NamespacedName{}, false, nil
+	}
+	t := &list.Items[0]
+	return types.NamespacedName{Namespace: t.Namespace, Name: t.Name}, true, nil
+}
+
 // agentNamespaceFor returns where the default agent lives: the configured
 // --agent-namespace, else the tunnel's namespace (design §3.1).
 func agentNamespaceFor(configured string, tunnel types.NamespacedName) string {
