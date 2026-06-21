@@ -72,6 +72,43 @@ func httpRouteSourcePredicate() predicate.Predicate {
 	}
 }
 
+// autoSelectedByGateway reports whether an un-annotated HTTPRoute is auto-selected
+// for tunneling by a parent Gateway that opted in via towonel.io/auto-routes (#25).
+// Namespace-scoped: only a parent Gateway in the route's OWN namespace counts
+// (design §2). The Gateway must also carry towonel.io/gateway-service (the proxy
+// origin routes flow THROUGH) — an auto-routes Gateway without it is a no-op and
+// emits ReasonGatewayServiceUnset. Returns (true, nil) on the first eligible
+// parent; (false, err) only on a transient Get failure (caller requeues).
+func (r *HTTPRouteSourceReconciler) autoSelectedByGateway(ctx context.Context, rtObj *gwv1.HTTPRoute, emit func(string, string)) (bool, error) {
+	for _, p := range rtObj.Spec.ParentRefs {
+		if !isGatewayParent(p) {
+			continue
+		}
+		// Namespace scoping: a nil parentRef namespace defaults to the route's own
+		// namespace; an explicit cross-namespace parentRef is never auto-selected.
+		if p.Namespace != nil && string(*p.Namespace) != rtObj.Namespace {
+			continue
+		}
+		var gw gwv1.Gateway
+		if err := r.Get(ctx, types.NamespacedName{Namespace: rtObj.Namespace, Name: string(p.Name)}, &gw); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return false, err // transient — requeue
+		}
+		if enabled, _ := ParseTruthy(gw.Annotations[AnnotationAutoRoutes]); !enabled {
+			continue
+		}
+		// Hard prerequisite: routes route through the parent gateway proxy.
+		if gw.Annotations[AnnotationGatewayService] == "" {
+			emit(ReasonGatewayServiceUnset, fmt.Sprintf("Gateway %s/%s has %s but no %s; cannot auto-tunnel its routes (no origin to forward to)", gw.Namespace, gw.Name, AnnotationAutoRoutes, AnnotationGatewayService))
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.ensure(r.Recorder)
 	var rtObj gwv1.HTTPRoute

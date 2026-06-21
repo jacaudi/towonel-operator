@@ -226,3 +226,69 @@ func TestHTTPRouteSourcePredicateAdmitsUnannotatedWithGatewayParent(t *testing.T
 		t.Fatal("annotated route must be admitted regardless of parentRefs")
 	}
 }
+
+func TestAutoSelectedByGateway(t *testing.T) {
+	const ns = "app"
+	mkGW := func(ann map[string]string) *gwv1.Gateway {
+		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: ns, Annotations: ann}}
+	}
+	mkRoute := func(routeNS string, p gwv1.ParentReference) *gwv1.HTTPRoute {
+		return &gwv1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: routeNS},
+			Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{p}}},
+		}
+	}
+
+	t.Run("enabled gateway with gateway-service selects same-ns route", func(t *testing.T) {
+		gw := mkGW(map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "envoy:443"})
+		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
+		r := &HTTPRouteSourceReconciler{Client: c}
+		sel, err := r.autoSelectedByGateway(context.Background(), mkRoute(ns, gwv1.ParentReference{Name: "gw"}), func(string, string) {})
+		if err != nil || !sel {
+			t.Fatalf("want selected, got sel=%v err=%v", sel, err)
+		}
+	})
+
+	t.Run("auto-routes false → not selected", func(t *testing.T) {
+		gw := mkGW(map[string]string{AnnotationAutoRoutes: "false", AnnotationGatewayService: "envoy:443"})
+		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
+		r := &HTTPRouteSourceReconciler{Client: c}
+		if sel, err := r.autoSelectedByGateway(context.Background(), mkRoute(ns, gwv1.ParentReference{Name: "gw"}), func(string, string) {}); sel || err != nil {
+			t.Fatalf("want not selected, got sel=%v err=%v", sel, err)
+		}
+	})
+
+	t.Run("enabled gateway WITHOUT gateway-service → no-op + event, not selected", func(t *testing.T) {
+		gw := mkGW(map[string]string{AnnotationAutoRoutes: "true"})
+		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
+		r := &HTTPRouteSourceReconciler{Client: c}
+		var reason string
+		sel, err := r.autoSelectedByGateway(context.Background(), mkRoute(ns, gwv1.ParentReference{Name: "gw"}), func(rs, _ string) { reason = rs })
+		if sel || err != nil {
+			t.Fatalf("want not selected, got sel=%v err=%v", sel, err)
+		}
+		if reason != ReasonGatewayServiceUnset {
+			t.Fatalf("want ReasonGatewayServiceUnset event, got %q", reason)
+		}
+	})
+
+	t.Run("cross-namespace parentRef → not selected (namespace scoping)", func(t *testing.T) {
+		gw := mkGW(map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "envoy:443"})
+		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
+		r := &HTTPRouteSourceReconciler{Client: c}
+		route := mkRoute("other", gwv1.ParentReference{Name: "gw", Namespace: nsPtr(ns)})
+		if sel, err := r.autoSelectedByGateway(context.Background(), route, func(string, string) {}); sel || err != nil {
+			t.Fatalf("cross-namespace route must NOT be auto-selected, got sel=%v err=%v", sel, err)
+		}
+	})
+
+	t.Run("no Gateway parent → not selected", func(t *testing.T) {
+		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
+		r := &HTTPRouteSourceReconciler{Client: c}
+		svcKind := gwv1.Kind("Service")
+		route := mkRoute(ns, gwv1.ParentReference{Name: "x", Kind: &svcKind})
+		if sel, err := r.autoSelectedByGateway(context.Background(), route, func(string, string) {}); sel || err != nil {
+			t.Fatalf("want not selected, got sel=%v err=%v", sel, err)
+		}
+	})
+}
