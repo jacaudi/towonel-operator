@@ -8,10 +8,58 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
+
+// TestCrossWatchPredicateSkipsStatusOnlyUpdates locks the cross-watch predicate
+// used by the TowonelAgent and parent-Gateway watches: it must skip status-only
+// updates (churn) while still passing Create (the #22 scenario) and any spec,
+// annotation, or label change. The annotation case holds generation constant so
+// it proves AnnotationChanged — not generation — lets the event through; this is
+// the regression guard for gateway-service (an ANNOTATION that never bumps
+// metadata.generation).
+func TestCrossWatchPredicateSkipsStatusOnlyUpdates(t *testing.T) {
+	p := crossWatchPredicate()
+
+	base := func() *corev1.Service {
+		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+			Namespace: "net", Name: "gw", Generation: 1, ResourceVersion: "100",
+			Annotations: map[string]string{"towonel.io/gateway-service": "net/gw:443"},
+			Labels:      map[string]string{"k": "v"},
+		}}
+	}
+
+	if !p.Create(event.CreateEvent{Object: base()}) {
+		t.Fatal("Create must pass (the #22 scenario)")
+	}
+
+	genBumped := base()
+	genBumped.Generation = 2
+	genBumped.ResourceVersion = "101"
+	if !p.Update(event.UpdateEvent{ObjectOld: base(), ObjectNew: genBumped}) {
+		t.Fatal("generation-changed update must pass")
+	}
+
+	annChanged := base()
+	annChanged.ResourceVersion = "101" // generation held at 1 on purpose
+	annChanged.Annotations = map[string]string{"towonel.io/gateway-service": "net/gw:8443"}
+	if !p.Update(event.UpdateEvent{ObjectOld: base(), ObjectNew: annChanged}) {
+		t.Fatal("annotation-changed update must pass (gateway-service regression guard)")
+	}
+
+	statusOnly := base()
+	statusOnly.ResourceVersion = "101" // only resourceVersion differs; gen/ann/labels identical
+	if p.Update(event.UpdateEvent{ObjectOld: base(), ObjectNew: statusOnly}) {
+		t.Fatal("status-only update must be filtered out")
+	}
+
+	// Compile-time assertion that the helper returns a usable predicate type.
+	var _ client.Object = base()
+}
 
 func TestObserveUserAgentWarnsOnUnservedHostname(t *testing.T) {
 	user := &towonelv1alpha1.TowonelAgent{}

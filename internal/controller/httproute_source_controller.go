@@ -16,6 +16,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
 
 // HTTPRouteSourceReconciler forwards a route's hostnames through its parent
@@ -200,10 +202,39 @@ func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj cl
 	return reqs
 }
 
+// sourcesForAgent enqueues every tunnel-annotated HTTPRoute whose towonel.io/agent-ref
+// resolves to the changed TowonelAgent, so a route that opted in before its agent
+// existed re-flows once the agent appears (#22). Matching is delegated to the shared
+// sourceTargetsAgent predicate (mirrors resolveTarget). The AnnotationTunnel presence
+// check is a cheap first-cut filter; Reconcile re-checks truthiness.
+func (r *HTTPRouteSourceReconciler) sourcesForAgent(ctx context.Context, obj client.Object) []reconcile.Request {
+	ta, ok := obj.(*towonelv1alpha1.TowonelAgent)
+	if !ok {
+		return nil
+	}
+	var routes gwv1.HTTPRouteList
+	if err := r.List(ctx, &routes); err != nil {
+		logf.FromContext(ctx).Error(err, "sourcesForAgent: list failed", "agent", client.ObjectKeyFromObject(ta))
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range routes.Items {
+		rt := &routes.Items[i]
+		if _, opted := rt.Annotations[AnnotationTunnel]; !opted {
+			continue
+		}
+		if sourceTargetsAgent(rt.Annotations, rt.Namespace, r.AgentNamespace, ta) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+		}
+	}
+	return reqs
+}
+
 func (r *HTTPRouteSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gwv1.HTTPRoute{}, builder.WithPredicates(sourcePredicate())).
-		Watches(&gwv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.routesForGateway)).
+		Watches(&gwv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.routesForGateway), builder.WithPredicates(crossWatchPredicate())).
+		Watches(&towonelv1alpha1.TowonelAgent{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForAgent), builder.WithPredicates(crossWatchPredicate())).
 		Named("httproute-source").
 		Complete(r)
 }

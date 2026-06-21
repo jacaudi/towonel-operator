@@ -39,6 +39,27 @@ func sourcePredicate() predicate.Predicate {
 	}
 }
 
+// crossWatchPredicate filters the secondary (cross-resource) watches — the
+// parent-Gateway watch and the TowonelAgent watch — so a status-only update does
+// not re-enqueue every dependent source on every status write (churn), while
+// still firing on Create and on any spec, annotation, or label change.
+//
+// AnnotationChangedPredicate is REQUIRED, not optional: a Gateway's
+// towonel.io/gateway-service is an ANNOTATION (httproute_source_controller.go:106),
+// and annotation edits do NOT bump metadata.generation — so GenerationChanged
+// alone would silently drop a gateway-service edit. LabelChangedPredicate matters
+// for the TowonelAgent watch: resolveTarget keys modeWrite/modeObserve on the
+// agent's managed-by LABEL (agentIsOperatorOwned), which can flip with no
+// generation bump. Each predicate overrides only Update; Create defaults to true,
+// so the #22 create scenario always passes.
+func crossWatchPredicate() predicate.Predicate {
+	return predicate.Or(
+		predicate.GenerationChangedPredicate{},
+		predicate.AnnotationChangedPredicate{},
+		predicate.LabelChangedPredicate{},
+	)
+}
+
 // sourceBase carries the shared recorder/dedupe + the contribute orchestration
 // used by all three source controllers. Embedded by value; lazy-init via once.
 type sourceBase struct {

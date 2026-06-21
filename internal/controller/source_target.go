@@ -66,6 +66,30 @@ func agentNamespaceFor(configured string, tunnel types.NamespacedName) string {
 	return tunnel.Namespace
 }
 
+// sourceTargetsAgent reports whether a source carrying the given annotations and
+// namespace would, on reconcile, contribute routing to agent ta. It mirrors the
+// explicit agent-ref branch of resolveTarget: the source must name ta via
+// towonel.io/agent-ref AND ta must live in the resolved agent namespace
+// (agentNamespaceFor(config, tunnel)). Used by the TowonelAgent->source watch to
+// re-enqueue sources stranded when their agent-ref agent did not yet exist (#22).
+//
+// Scope: only EXPLICIT agent-ref sources are matched. The default-agent path
+// (no agent-ref) cannot strand under #22 — resolveTarget create-or-gets the
+// default agent and contributeRouting populates it within the same reconcile
+// (see ensureDefaultAgent + applyContribution) — so an agent event never needs
+// to re-enqueue an agent-ref-less source, and matching them would over-enqueue.
+func sourceTargetsAgent(ann map[string]string, srcNS, agentNSConfig string, ta *towonelv1alpha1.TowonelAgent) bool {
+	agentRef := ann[AnnotationAgentRef]
+	if agentRef == "" || agentRef != ta.Name {
+		return false
+	}
+	tunnel, err := parseTunnelRef(ann[AnnotationTunnelRef], srcNS)
+	if err != nil {
+		return false
+	}
+	return agentNamespaceFor(agentNSConfig, tunnel) == ta.Namespace
+}
+
 // ensureDefaultAgent create-or-gets the single operator-owned default agent for
 // a tunnel (design §6). NEVER reached via agent-ref.
 func ensureDefaultAgent(ctx context.Context, c client.Client, agentNS string, tunnel types.NamespacedName) (*towonelv1alpha1.TowonelAgent, error) {

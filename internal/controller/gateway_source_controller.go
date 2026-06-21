@@ -14,7 +14,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
 
 // GatewaySourceReconciler forwards a Gateway's listener hostnames to its proxy
@@ -116,9 +121,37 @@ func deriveGatewayRouting(ctx context.Context, c client.Client, gw *gwv1.Gateway
 	return rt, true
 }
 
+// sourcesForAgent enqueues every tunnel-annotated Gateway whose towonel.io/agent-ref
+// resolves to the changed TowonelAgent, so a Gateway that opted in before its agent
+// existed re-flows once the agent appears (#22). See sourceTargetsAgent for matching
+// (explicit agent-ref only; the default-agent path cannot strand).
+func (r *GatewaySourceReconciler) sourcesForAgent(ctx context.Context, obj client.Object) []reconcile.Request {
+	ta, ok := obj.(*towonelv1alpha1.TowonelAgent)
+	if !ok {
+		return nil
+	}
+	var gws gwv1.GatewayList
+	if err := r.List(ctx, &gws); err != nil {
+		logf.FromContext(ctx).Error(err, "sourcesForAgent: list failed", "agent", client.ObjectKeyFromObject(ta))
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range gws.Items {
+		gw := &gws.Items[i]
+		if _, opted := gw.Annotations[AnnotationTunnel]; !opted {
+			continue
+		}
+		if sourceTargetsAgent(gw.Annotations, gw.Namespace, r.AgentNamespace, ta) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: gw.Namespace, Name: gw.Name}})
+		}
+	}
+	return reqs
+}
+
 func (r *GatewaySourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gwv1.Gateway{}, builder.WithPredicates(sourcePredicate())).
+		Watches(&towonelv1alpha1.TowonelAgent{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForAgent), builder.WithPredicates(crossWatchPredicate())).
 		Named("gateway-source").
 		Complete(r)
 }

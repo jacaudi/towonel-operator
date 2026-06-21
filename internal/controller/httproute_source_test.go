@@ -8,6 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
 
 // nsPtr returns a pointer to a gwv1.Namespace for use in parentRef fixtures.
@@ -43,6 +45,28 @@ func TestRoutesForGatewayMatchesByDefaultedNamespace(t *testing.T) {
 	}
 	if len(reqs) != 2 || !got["kgateway/a"] || !got["immich/b"] {
 		t.Fatalf("want exactly {kgateway/a, immich/b}, got %v", reqs)
+	}
+}
+
+func TestSourcesForAgentHTTPRouteMatchesByAgentRefAndNamespace(t *testing.T) {
+	agent := &towonelv1alpha1.TowonelAgent{}
+	agent.Namespace, agent.Name = "app", "my-agent"
+	// route A: agent-ref==my-agent, bare tunnel-ref → resolves to route ns "app" == agent ns → MUST match
+	routeA := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "my-agent"}}}
+	// route B: agent-ref names a DIFFERENT agent → MUST NOT match
+	routeB := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "other-agent"}}}
+	// route C: no agent-ref (default-agent path) → MUST NOT match (default path can't strand; see sourceTargetsAgent)
+	routeC := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t"}}}
+	// route D: agent-ref==my-agent but tunnel-ref resolves to ns "other" != agent ns "app" → MUST NOT match
+	routeD := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "other/t", AnnotationAgentRef: "my-agent"}}}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(routeA, routeB, routeC, routeD).Build()
+	reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForAgent(context.Background(), agent)
+	if len(reqs) != 1 || reqs[0].NamespacedName.String() != "app/a" {
+		t.Fatalf("want exactly {app/a}, got %v", reqs)
 	}
 }
 
