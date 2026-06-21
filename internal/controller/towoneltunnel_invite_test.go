@@ -191,19 +191,22 @@ func TestConvergeHostnamesAbsorbsOwnConflict(t *testing.T) {
 	srv, tc := hub.Server()
 	t.Cleanup(srv.Close)
 
-	// An invite already authorizes the hostname (its hostname is reserved hub-side).
-	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example"}})
+	// tt's own invite holds nothing; a DIFFERENT invite already reserves the
+	// desired hostname hub-side. Adding it on tt's invite therefore returns a 409
+	// hostname_conflict, which the converge absorbs as desired-state-achieved.
+	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: nil})
+	hub.Seed(towonel.Invite{InviteID: "inv-other", TenantID: "ten-2", Name: "ns/other", Hostnames: []string{"a.example"}})
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
 	tt := &towonelv1alpha1.TowonelTunnel{
 		ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"},
 	}
 	tt.Status.InviteID = "inv-1"
-	tt.Status.AuthorizedHostnames = nil // STALE: status lost the hostname (the bug condition)
+	tt.Status.AuthorizedHostnames = nil
 
-	// Must NOT return an error (the 409 is our own hostname → idempotent success).
+	// Must NOT return an error (the 409 means the hostname we want is reserved → idempotent success).
 	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example"}); err != nil {
-		t.Fatalf("convergeHostnames returned error on own-invite conflict: %v", err)
+		t.Fatalf("convergeHostnames returned error on hostname conflict: %v", err)
 	}
 	if got := tt.Status.AuthorizedHostnames; len(got) != 1 || got[0] != "a.example" {
 		t.Fatalf("AuthorizedHostnames = %v, want [a.example]", got)
@@ -233,13 +236,14 @@ func TestConvergeHostnamesPropagatesNon409(t *testing.T) {
 	hub := towoneltest.NewHub()
 	srv, tc := hub.Server()
 	t.Cleanup(srv.Close)
-	// No invite seeded: the hub's add handler 404s for an unknown invite ID.
-	// A 404 is NOT an absorbable own-409 hostname_conflict — it must propagate.
+	// No invite seeded: GetInvite 404s for an unknown invite ID, so the converge
+	// errors out before mutating anything. A 404 is NOT an absorbable 409
+	// hostname_conflict — it must propagate (never fall back to a stale status).
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
 	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
-	tt.Status.InviteID = "inv-missing"  // hub has no such invite → add returns 404
-	tt.Status.AuthorizedHostnames = nil // observed empty → the add is attempted
+	tt.Status.InviteID = "inv-missing" // hub has no such invite → GetInvite returns 404
+	tt.Status.AuthorizedHostnames = nil
 
 	err := r.convergeHostnames(t.Context(), tc, tt, []string{"new.example"})
 	if err == nil {
@@ -247,6 +251,103 @@ func TestConvergeHostnamesPropagatesNon409(t *testing.T) {
 	}
 	if slices.Contains(tt.Status.AuthorizedHostnames, "new.example") {
 		t.Fatalf("un-added hostname leaked into status: %v", tt.Status.AuthorizedHostnames)
+	}
+}
+
+// Issue #26 ③: a pure-add converge must NOT strand previously-authorized
+// hostnames. The hub holds {a,b}; desired adds c. AddHostnames echoes only the
+// just-added hostname, so the buggy code (cur = resp.Hostnames) overwrites the
+// authorized set with {c}, dropping a and b. Status must converge to {a,b,c}.
+func TestConvergeHostnamesDoesNotStrandOnAdd(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example"}})
+
+	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt.Status.InviteID = "inv-1"
+	tt.Status.AuthorizedHostnames = []string{"a.example", "b.example"} // in sync with hub
+
+	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example", "c.example"}); err != nil {
+		t.Fatalf("convergeHostnames: %v", err)
+	}
+	got := tt.Status.AuthorizedHostnames
+	want := []string{"a.example", "b.example", "c.example"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("AuthorizedHostnames = %v, want %v (previously-authorized hostnames stranded)", got, want)
+	}
+	for _, h := range want {
+		if !hub.HasHostname("inv-1", h) {
+			t.Fatalf("hub missing %q after converge", h)
+		}
+	}
+}
+
+// Issue #26 ③: convergeHostnames must reconcile against HUB TRUTH, not its own
+// possibly-corrupted status record. Here status is corrupted — it has DROPPED
+// b.example — while the hub authoritatively holds {a,b}; desired adds c. The
+// buggy code sources its observed set from the corrupt status, so it never
+// recovers b and the successful add of c overwrites the set, stranding to {c}.
+// The converge must repair status to {a,b,c} from hub truth.
+func TestConvergeHostnamesRepairsCorruptStatusFromHubTruth(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example"}})
+
+	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt.Status.InviteID = "inv-1"
+	tt.Status.AuthorizedHostnames = []string{"a.example"} // corrupted: dropped b.example
+
+	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example", "c.example"}); err != nil {
+		t.Fatalf("convergeHostnames: %v", err)
+	}
+	got := tt.Status.AuthorizedHostnames
+	want := []string{"a.example", "b.example", "c.example"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("AuthorizedHostnames = %v, want %v (status not repaired from hub truth)", got, want)
+	}
+}
+
+// Issue #26 ③, removal direction: removes must be driven by HUB TRUTH, not by
+// the operator's status. Here status is CORRUPT — it claims only {a}, having
+// dropped b and c — while the hub authoritatively holds {a,b,c}; desired={a,b}.
+// The buggy code derives its remove set from status, so its observed={a} flags
+// nothing for removal and c is left stranded on the hub forever (the literal
+// issue #26 symptom). The fix sources the set from GET /v1/invites/{id}, sees
+// c ∈ hubSet ∧ c ∉ desired, and DELETEs it. The hub.HasHostname("c") assertion
+// is what distinguishes the fix: a status-only check would pass on the old code
+// too (it happens to end with status {a,b}). This corrupt-status divergence is
+// also what keeps the test from being a redundant restatement of the in-sync
+// TestConvergeHostnames above.
+func TestConvergeHostnamesRemovesAgainstHubTruth(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example", "c.example"}})
+
+	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt.Status.InviteID = "inv-1"
+	tt.Status.AuthorizedHostnames = []string{"a.example"} // corrupt: dropped b and c
+
+	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"}); err != nil {
+		t.Fatalf("convergeHostnames: %v", err)
+	}
+	got := tt.Status.AuthorizedHostnames
+	want := []string{"a.example", "b.example"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("AuthorizedHostnames = %v, want %v", got, want)
+	}
+	if hub.HasHostname("inv-1", "c.example") {
+		t.Fatal("c.example stranded on hub: remove was driven by corrupt status, not hub truth")
+	}
+	for _, h := range want {
+		if !hub.HasHostname("inv-1", h) {
+			t.Fatalf("hub missing desired hostname %q after converge", h)
+		}
 	}
 }
 

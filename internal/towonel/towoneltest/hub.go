@@ -153,6 +153,14 @@ func (h *Hub) handler() http.HandlerFunc {
 				out = append(out, *inv)
 			}
 			_ = json.NewEncoder(w).Encode(out)
+		case req.Method == http.MethodGet && strings.HasPrefix(p, "/v1/invites/"):
+			id := strings.TrimPrefix(p, "/v1/invites/")
+			inv := h.invites[id]
+			if inv == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(*inv) // full authoritative hostname set (hub truth)
 		case req.Method == http.MethodPost && strings.HasSuffix(p, "/hostnames"):
 			id := strings.TrimSuffix(strings.TrimPrefix(p, "/v1/invites/"), "/hostnames")
 			var body towonel.AddHostnamesRequest
@@ -173,7 +181,10 @@ func (h *Hub) handler() http.HandlerFunc {
 				h.reservedHosts[hn] = id
 				inv.Hostnames = append(inv.Hostnames, hn)
 			}
-			_ = json.NewEncoder(w).Encode(towonel.AddHostnamesResponse{Status: "ok", Hostnames: inv.Hostnames})
+			// The real hub echoes back ONLY the just-added hostnames (req.hostnames),
+			// NOT the invite's full cumulative set. Mirroring that here is load-bearing:
+			// a full-set echo would mask issue #26's stranding bug.
+			_ = json.NewEncoder(w).Encode(towonel.AddHostnamesResponse{Status: "ok", Hostnames: body.Hostnames})
 		case req.Method == http.MethodDelete && strings.Contains(p, "/hostnames/"):
 			parts := strings.SplitN(strings.TrimPrefix(p, "/v1/invites/"), "/hostnames/", 2)
 			id, host := parts[0], parts[1]
