@@ -72,6 +72,21 @@ func httpRouteSourcePredicate() predicate.Predicate {
 	}
 }
 
+// httpRouteForPredicate gates the broadened admit predicate with a generation/
+// annotation churn filter so status-only writes from gateway controllers (which
+// bump neither metadata.generation nor annotations) do not drive full no-op
+// reconciles. Create/Delete are unaffected (the embedded predicates override only
+// Update); a route's own selection can change via its spec (generation) or its
+// annotations, and the parent-Gateway path is covered by the routesForGateway
+// Watch. Applied to HTTPRoute only — Gateway/Service keep the annotation-only
+// sourcePredicate, so their churn is already bounded to opted-in objects.
+func httpRouteForPredicate() predicate.Predicate {
+	return predicate.And(
+		httpRouteSourcePredicate(),
+		predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}),
+	)
+}
+
 // autoSelectedByGateway reports whether an un-annotated HTTPRoute is auto-selected
 // for tunneling by a parent Gateway that opted in via towonel.io/auto-routes (#25).
 // Namespace-scoped: only a parent Gateway in the route's OWN namespace counts
@@ -334,7 +349,7 @@ func (r *HTTPRouteSourceReconciler) sourcesForAgent(ctx context.Context, obj cli
 
 func (r *HTTPRouteSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&gwv1.HTTPRoute{}, builder.WithPredicates(httpRouteSourcePredicate())).
+		For(&gwv1.HTTPRoute{}, builder.WithPredicates(httpRouteForPredicate())).
 		Watches(&gwv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.routesForGateway), builder.WithPredicates(crossWatchPredicate())).
 		Watches(&towonelv1alpha1.TowonelAgent{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForAgent), builder.WithPredicates(crossWatchPredicate())).
 		Named("httproute-source").

@@ -314,6 +314,41 @@ func TestAutoSelectedByGateway(t *testing.T) {
 	})
 }
 
+func TestHTTPRouteForPredicateDropsStatusOnlyUpdates(t *testing.T) {
+	p := httpRouteForPredicate()
+	base := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns", Generation: 1},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{
+			ParentRefs: []gwv1.ParentReference{{Name: "gw"}}}},
+	}
+	// 1. Create with a Gateway parentRef → admitted.
+	if !p.Create(event.CreateEvent{Object: base}) {
+		t.Fatal("create with a Gateway parentRef must pass")
+	}
+	// 2. Status-only update (same generation, same annotations) → dropped.
+	statusOnly := base.DeepCopy()
+	statusOnly.Status.Parents = []gwv1.RouteParentStatus{{}}
+	if p.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: statusOnly}) {
+		t.Fatal("status-only update must be dropped (no generation/annotation change)")
+	}
+	// 3. Spec change (generation bump) → admitted.
+	specChanged := base.DeepCopy()
+	specChanged.Generation = 2
+	if !p.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: specChanged}) {
+		t.Fatal("spec change (generation bump) must pass")
+	}
+	// 4. Annotation change (generation unchanged) → admitted.
+	annChanged := base.DeepCopy()
+	annChanged.Annotations = map[string]string{AnnotationTunnel: "false"}
+	if !p.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: annChanged}) {
+		t.Fatal("annotation change must pass")
+	}
+	// 5. Delete → still passes.
+	if !p.Delete(event.DeleteEvent{Object: base}) {
+		t.Fatal("delete must pass")
+	}
+}
+
 func TestParentRefNamespace(t *testing.T) {
 	if got := parentRefNamespace(gwv1.ParentReference{Name: "gw"}, "route-ns"); got != "route-ns" {
 		t.Fatalf("nil namespace must default to route ns, got %q", got)
