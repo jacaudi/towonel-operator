@@ -60,6 +60,94 @@ func TestParseTunnelRef(t *testing.T) {
 	}
 }
 
+func TestResolveTunnelOmissionDefault(t *testing.T) {
+	mkTunnel := func(ns, name string) *towonelv1alpha1.TowonelTunnel {
+		tt := &towonelv1alpha1.TowonelTunnel{}
+		tt.Namespace, tt.Name = ns, name
+		return tt
+	}
+	cases := []struct {
+		name       string
+		raw, srcNS string
+		tunnels    []*towonelv1alpha1.TowonelTunnel
+		wantNN     types.NamespacedName
+		wantOK     bool
+		wantReason string // "" => no Event expected
+	}{
+		{
+			name:    "empty ref + exactly one tunnel resolves to it",
+			raw:     "",
+			srcNS:   "src",
+			tunnels: []*towonelv1alpha1.TowonelTunnel{mkTunnel("net", "only")},
+			wantNN:  types.NamespacedName{Namespace: "net", Name: "only"},
+			wantOK:  true,
+		},
+		{
+			name:       "empty ref + zero tunnels skips loudly",
+			raw:        "",
+			srcNS:      "src",
+			tunnels:    nil,
+			wantOK:     false,
+			wantReason: ReasonTunnelRefMissing,
+		},
+		{
+			name:       "empty ref + multiple tunnels skips loudly",
+			raw:        "",
+			srcNS:      "src",
+			tunnels:    []*towonelv1alpha1.TowonelTunnel{mkTunnel("net", "a"), mkTunnel("net", "b")},
+			wantOK:     false,
+			wantReason: ReasonTunnelRefMissing,
+		},
+		{
+			name:    "non-empty bare ref parses unchanged (ignores tunnel count)",
+			raw:     "app",
+			srcNS:   "src",
+			tunnels: []*towonelv1alpha1.TowonelTunnel{mkTunnel("net", "a"), mkTunnel("net", "b")},
+			wantNN:  types.NamespacedName{Namespace: "src", Name: "app"},
+			wantOK:  true,
+		},
+		{
+			name:    "non-empty qualified ref parses unchanged",
+			raw:     "net/app",
+			srcNS:   "src",
+			tunnels: nil,
+			wantNN:  types.NamespacedName{Namespace: "net", Name: "app"},
+			wantOK:  true,
+		},
+		{
+			name:       "non-empty malformed ref skips loudly",
+			raw:        "net/",
+			srcNS:      "src",
+			tunnels:    []*towonelv1alpha1.TowonelTunnel{mkTunnel("net", "only")},
+			wantOK:     false,
+			wantReason: ReasonTunnelRefMissing,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b := fake.NewClientBuilder().WithScheme(srcScheme(t))
+			for _, tt := range c.tunnels {
+				b = b.WithObjects(tt)
+			}
+			cl := b.Build()
+			var reason string
+			nn, ok, err := resolveTunnel(context.Background(), cl, func(r, _ string) { reason = r }, c.raw, c.srcNS)
+			if err != nil {
+				t.Fatalf("unexpected transient error: %v", err)
+			}
+			if ok != c.wantOK {
+				t.Fatalf("ok=%v want %v", ok, c.wantOK)
+			}
+			if c.wantOK && nn != c.wantNN {
+				t.Fatalf("nn=%v want %v", nn, c.wantNN)
+			}
+			if reason != c.wantReason {
+				t.Fatalf("reason=%q want %q", reason, c.wantReason)
+			}
+		})
+	}
+}
+
 func TestResolveTargetDefaultCreatesOperatorOwned(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
