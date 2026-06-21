@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.3](https://github.com/jacaudi/towonel-operator/compare/v1.2.2...v1.2.3) (2026-06-21)
+### Bug Fixes
+
+* reconcile authorized hostnames against hub truth, not status ([#26](https://github.com/jacaudi/towonel-operator/issues/26)) ([#28](https://github.com/jacaudi/towonel-operator/issues/28)) ([5c15d80](https://github.com/jacaudi/towonel-operator/commit/5c15d8023b6b3a4c1e43c5a2cc2a3e4144439703))
+
 ## [1.2.2](https://github.com/jacaudi/towonel-operator/compare/v1.2.1...v1.2.2) (2026-06-21)
 ### Bug Fixes
 
