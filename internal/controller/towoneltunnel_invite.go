@@ -111,22 +111,30 @@ func desiredHostnames(tt *towonelv1alpha1.TowonelTunnel, agents []towonelv1alpha
 
 // convergeHostnames reconciles authorized hostnames to the precomputed desired set.
 // desired must be pre-normalized (sorted, deduped) — use desiredHostnames to compute it.
-// status.authorizedHostnames is published from the API response bodies.
+//
+// The observed set is sourced from HUB TRUTH (GET /v1/invites/{id}), never from
+// status.authorizedHostnames: the operator's own record can be stale or corrupted
+// (issue #26 ③), and AddHostnames echoes back only the just-added hostnames — not
+// the invite's cumulative set — so publishing it would strand previously-authorized
+// hostnames. status.authorizedHostnames is recomputed from the hub set plus the
+// mutations this call applies.
 func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel, desired []string) error {
-	observed := dedupe(tt.Status.AuthorizedHostnames)
-	// cur intentionally aliases observed's backing array. The 409-absorb path below
-	// appends to cur, which may write past observed's length into shared backing
-	// storage — that is safe: observed is never re-grown and is only ever read over
-	// [:len(observed)], so the appended tail is invisible to it. Do not "simplify"
-	// this to a shared-slice mutation that reads observed after a cur append.
-	cur := observed
+	invite, err := tc.GetInvite(ctx, tt.Status.InviteID)
+	if err != nil {
+		return fmt.Errorf("get invite %q: %w", tt.Status.InviteID, err)
+	}
+	hubSet := dedupe(invite.Hostnames)
+
+	// authorized tracks the set the hub holds as this call mutates it. Starting from
+	// hub truth and applying only successful adds/removes keeps status faithful to
+	// the hub regardless of what status previously (mis)recorded.
+	authorized := slices.Clone(hubSet)
 
 	for _, h := range desired {
-		if slices.Contains(observed, h) {
+		if slices.Contains(hubSet, h) {
 			continue
 		}
-		resp, err := tc.AddHostnames(ctx, tt.Status.InviteID, []string{h})
-		if err != nil {
+		if _, err := tc.AddHostnames(ctx, tt.Status.InviteID, []string{h}); err != nil {
 			// #14(b): a 409 hostname_conflict for a hostname we WANT authorized means
 			// it is already reserved on our invite — desired state already achieved.
 			// Absorb as idempotent success (single-tenant: a foreign conflict is
@@ -137,25 +145,26 @@ func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *tow
 					r.Recorder.Event(tt, corev1.EventTypeWarning, ReasonHostnameConflict,
 						fmt.Sprintf("hostname %q already reserved by an active invite; treating as authorized", h))
 				}
-				if !slices.Contains(cur, h) {
-					cur = append(cur, h)
+				if !slices.Contains(authorized, h) {
+					authorized = append(authorized, h)
 				}
 				continue
 			}
 			return fmt.Errorf("add hostnames: %w", err)
 		}
-		cur = resp.Hostnames
-	}
-	for _, h := range observed {
-		if !slices.Contains(desired, h) {
-			resp, err := tc.RemoveHostname(ctx, tt.Status.InviteID, h)
-			if err != nil {
-				return fmt.Errorf("remove hostname %q: %w", h, err)
-			}
-			cur = resp.RemainingHostnames
+		if !slices.Contains(authorized, h) {
+			authorized = append(authorized, h)
 		}
 	}
-	tt.Status.AuthorizedHostnames = dedupe(cur)
+	for _, h := range hubSet {
+		if !slices.Contains(desired, h) {
+			if _, err := tc.RemoveHostname(ctx, tt.Status.InviteID, h); err != nil {
+				return fmt.Errorf("remove hostname %q: %w", h, err)
+			}
+			authorized = slices.DeleteFunc(authorized, func(x string) bool { return x == h })
+		}
+	}
+	tt.Status.AuthorizedHostnames = dedupe(authorized)
 	return nil
 }
 
