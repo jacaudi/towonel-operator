@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.2](https://github.com/jacaudi/towonel-operator/compare/v1.2.1...v1.2.2) (2026-06-21)
+### Bug Fixes
+
+* re-reconcile sources when a referenced TowonelAgent is created ([#22](https://github.com/jacaudi/towonel-operator/issues/22)) ([#27](https://github.com/jacaudi/towonel-operator/issues/27)) ([6ad6162](https://github.com/jacaudi/towonel-operator/commit/6ad6162643fac5fa335bde106a0156f794dc9ac3))
+
 ## [1.2.1](https://github.com/jacaudi/towonel-operator/compare/v1.2.0...v1.2.1) (2026-06-15)
 ### Bug Fixes
 
