@@ -118,10 +118,29 @@ func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		return ctrl.Result{}, err
 	}
-	if enabled, _ := ParseTruthy(rtObj.Annotations[AnnotationTunnel]); !enabled {
-		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "HTTPRoute", rtObj.Namespace, rtObj.Name))
-	}
 	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &rtObj, corev1.EventTypeWarning, reason, msg) }
+
+	// Opt-in decision (design §2). The route's OWN towonel.io/tunnel is authoritative
+	// when PRESENT: truthy → tunnel, false/garbage → release. Only an ABSENT key
+	// inherits a parent Gateway's towonel.io/auto-routes default — check key
+	// PRESENCE (not value), so an explicit "false" can never be force-tunneled.
+	if raw, present := rtObj.Annotations[AnnotationTunnel]; present {
+		if enabled, _ := ParseTruthy(raw); !enabled {
+			return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "HTTPRoute", rtObj.Namespace, rtObj.Name))
+		}
+	} else {
+		selected, serr := r.autoSelectedByGateway(ctx, &rtObj, emit)
+		if serr != nil {
+			return ctrl.Result{}, serr // transient — requeue
+		}
+		if !selected {
+			return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "HTTPRoute", rtObj.Namespace, rtObj.Name))
+		}
+		// Exposure is never silent: record a Normal Event (the emit closure above is
+		// Warning-typed, so call the recorder directly for the Normal type).
+		r.dedupe.emit(r.recorder, &rtObj, corev1.EventTypeNormal, ReasonAutoSelectedByGateway,
+			"auto-selected for tunneling by a parent Gateway's towonel.io/auto-routes; set towonel.io/tunnel: \"false\" on this route to opt out")
+	}
 	tunnel, ok, err := resolveTunnel(ctx, r.Client, emit, rtObj.Annotations[AnnotationTunnelRef], rtObj.Namespace)
 	if err != nil {
 		return ctrl.Result{}, err // transient List failure → requeue
