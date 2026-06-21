@@ -12,8 +12,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -38,6 +40,37 @@ type HTTPRouteSourceReconciler struct {
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=towonel.io,resources=towonelagents,verbs=get;list;watch;create;update;patch;delete
+
+// httpRouteSourcePredicate admits an HTTPRoute to the reconcile queue when it
+// carries the towonel.io/tunnel annotation OR has a Gateway parentRef. The
+// second clause lets an UN-annotated route reach Reconcile so it can inherit a
+// parent Gateway's towonel.io/auto-routes default (#25) — the authoritative
+// decision needs a client (to read the Gateway) and is made in Reconcile, not
+// here. This is the HTTPRoute-specific broadening of the shared, annotation-only
+// sourcePredicate (source_base.go); Gateway/Service keep sourcePredicate.
+func httpRouteSourcePredicate() predicate.Predicate {
+	admit := func(obj client.Object) bool {
+		if _, ok := obj.GetAnnotations()[AnnotationTunnel]; ok {
+			return true
+		}
+		rt, ok := obj.(*gwv1.HTTPRoute)
+		if !ok {
+			return false
+		}
+		for _, p := range rt.Spec.ParentRefs {
+			if isGatewayParent(p) {
+				return true
+			}
+		}
+		return false
+	}
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return admit(e.Object) },
+		UpdateFunc:  func(e event.UpdateEvent) bool { return admit(e.ObjectOld) || admit(e.ObjectNew) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return admit(e.Object) },
+		GenericFunc: func(e event.GenericEvent) bool { return admit(e.Object) },
+	}
+}
 
 func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.ensure(r.Recorder)
@@ -234,7 +267,7 @@ func (r *HTTPRouteSourceReconciler) sourcesForAgent(ctx context.Context, obj cli
 
 func (r *HTTPRouteSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&gwv1.HTTPRoute{}, builder.WithPredicates(sourcePredicate())).
+		For(&gwv1.HTTPRoute{}, builder.WithPredicates(httpRouteSourcePredicate())).
 		Watches(&gwv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.routesForGateway), builder.WithPredicates(crossWatchPredicate())).
 		Watches(&towonelv1alpha1.TowonelAgent{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForAgent), builder.WithPredicates(crossWatchPredicate())).
 		Named("httproute-source").

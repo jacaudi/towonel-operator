@@ -7,6 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -187,5 +188,41 @@ func TestDeriveHTTPRouteGatewayServiceUnset(t *testing.T) {
 	var reason string
 	if _, ok, _ := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(context.Background(), rtObj, func(r, _ string) { reason = r }); ok || reason != ReasonGatewayServiceUnset {
 		t.Fatalf("want GatewayServiceUnset skip, got ok=%v reason=%q", ok, reason)
+	}
+}
+
+func TestHTTPRouteSourcePredicateAdmitsUnannotatedWithGatewayParent(t *testing.T) {
+	p := httpRouteSourcePredicate()
+
+	// un-annotated route WITH a Gateway parentRef → admitted (may inherit auto-routes).
+	withParent := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns"},
+		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "gw"}}}},
+	}
+	if !p.Create(event.CreateEvent{Object: withParent}) {
+		t.Fatal("un-annotated route with a Gateway parentRef must be admitted")
+	}
+
+	// un-annotated route WITHOUT any parentRef → not admitted.
+	noParent := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "r2", Namespace: "ns"}}
+	if p.Create(event.CreateEvent{Object: noParent}) {
+		t.Fatal("un-annotated route with no Gateway parentRef must NOT be admitted")
+	}
+
+	// un-annotated route whose only parentRef is a NON-Gateway → not admitted.
+	svcKind := gwv1.Kind("Service")
+	nonGw := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "r3", Namespace: "ns"},
+		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "x", Kind: &svcKind}}}},
+	}
+	if p.Create(event.CreateEvent{Object: nonGw}) {
+		t.Fatal("un-annotated route with only a non-Gateway parentRef must NOT be admitted")
+	}
+
+	// annotated route with NO parentRef → still admitted (annotation alone qualifies).
+	annotated := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "r4", Namespace: "ns",
+		Annotations: map[string]string{AnnotationTunnel: "true"}}}
+	if !p.Create(event.CreateEvent{Object: annotated}) {
+		t.Fatal("annotated route must be admitted regardless of parentRefs")
 	}
 }
