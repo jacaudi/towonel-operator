@@ -521,9 +521,9 @@ func agentHasHostname(t *testing.T, agentNS string, tunnel types.NamespacedName,
 	return false
 }
 
-// autoSelectedEventFor reports whether a Normal AutoSelectedByGateway event was
-// recorded on the named route in ns.
-func autoSelectedEventFor(t *testing.T, ns, route string) bool {
+// eventFor reports whether an event with the given reason was recorded on the
+// named object in ns.
+func eventFor(t *testing.T, ns, name, reason string) bool {
 	t.Helper()
 	var events corev1.EventList
 	if err := k8sClient.List(context.Background(), &events, client.InNamespace(ns)); err != nil {
@@ -531,11 +531,18 @@ func autoSelectedEventFor(t *testing.T, ns, route string) bool {
 	}
 	for i := range events.Items {
 		e := &events.Items[i]
-		if e.Reason == ctrlpkg.ReasonAutoSelectedByGateway && e.InvolvedObject.Name == route {
+		if e.Reason == reason && e.InvolvedObject.Name == name {
 			return true
 		}
 	}
 	return false
+}
+
+// autoSelectedEventFor reports whether a Normal AutoSelectedByGateway event was
+// recorded on the named route in ns.
+func autoSelectedEventFor(t *testing.T, ns, route string) bool {
+	t.Helper()
+	return eventFor(t, ns, route, ctrlpkg.ReasonAutoSelectedByGateway)
 }
 
 // assertStaysAbsent fails if any host appears on the tunnel's default agent at any
@@ -663,19 +670,7 @@ func TestAutoRoutesNoGatewayServiceIsNoOp(t *testing.T) {
 	}
 
 	// A GatewayServiceUnspecified Warning must be recorded on the route.
-	waitFor(t, 60*time.Second, func() bool {
-		var events corev1.EventList
-		if err := k8sClient.List(context.Background(), &events, client.InNamespace(ns)); err != nil {
-			return false
-		}
-		for i := range events.Items {
-			e := &events.Items[i]
-			if e.Reason == ctrlpkg.ReasonGatewayServiceUnset && e.InvolvedObject.Name == "r" {
-				return true
-			}
-		}
-		return false
-	})
+	waitFor(t, 60*time.Second, func() bool { return eventFor(t, ns, "r", ctrlpkg.ReasonGatewayServiceUnset) })
 
 	// And the route's hostname must never be tunneled.
 	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
@@ -726,4 +721,42 @@ func TestAutoRoutesDisableReleases(t *testing.T) {
 		var gone towonelv1alpha1.TowonelAgent
 		return k8sClient.Get(context.Background(), agentNN, &gone) != nil
 	})
+}
+
+// TestAutoRoutesAmbiguousMultiProxyNotTunneled verifies an auto-SELECTED
+// (un-annotated) route whose parentRefs resolve to two DISTINCT gateway proxies
+// is not tunneled and emits AmbiguousGateway (the selection short-circuits on the
+// first parent, but origin resolution walks all parents and detects ambiguity).
+func TestAutoRoutesAmbiguousMultiProxyNotTunneled(t *testing.T) {
+	ns := mustNamespace(t)
+	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
+
+	// Two distinct proxy Services → two distinct origins.
+	if err := k8sClient.Create(context.Background(), annService(ns, "envoy-a", nil, corev1.ServicePort{Port: 443})); err != nil {
+		t.Fatal(err)
+	}
+	if err := k8sClient.Create(context.Background(), annService(ns, "envoy-b", nil, corev1.ServicePort{Port: 443})); err != nil {
+		t.Fatal(err)
+	}
+	// Two same-namespace auto-routes Gateways with DIFFERENT gateway-services.
+	if err := k8sClient.Create(context.Background(), autoRoutesGateway(ns, "gw-a", "envoy-a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := k8sClient.Create(context.Background(), autoRoutesGateway(ns, "gw-b", "envoy-b")); err != nil {
+		t.Fatal(err)
+	}
+	// Un-annotated route parenting BOTH gateways; explicit tunnel-ref so a broken
+	// ambiguity guard would actually tunnel it (non-vacuous negative).
+	rt := httpRoute(ns, "amb", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw-a", "amb.example")
+	rt.Spec.ParentRefs = append(rt.Spec.ParentRefs, gwv1.ParentReference{Name: "gw-b"})
+	if err := k8sClient.Create(context.Background(), rt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ambiguity is reported as a Warning on the route...
+	waitFor(t, 60*time.Second, func() bool { return eventFor(t, ns, "amb", ctrlpkg.ReasonAmbiguousGateway) })
+	// ...and the route is never tunneled.
+	if agentHasHostname(t, ns, tunnel, "amb.example") {
+		t.Fatal("ambiguous-proxy route was tunneled; must skip with AmbiguousGateway")
+	}
 }
