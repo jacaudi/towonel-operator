@@ -86,7 +86,7 @@ func (r *HTTPRouteSourceReconciler) autoSelectedByGateway(ctx context.Context, r
 		}
 		// Namespace scoping: a nil parentRef namespace defaults to the route's own
 		// namespace; an explicit cross-namespace parentRef is never auto-selected.
-		if p.Namespace != nil && string(*p.Namespace) != rtObj.Namespace {
+		if parentRefNamespace(p, rtObj.Namespace) != rtObj.Namespace {
 			continue
 		}
 		var gw gwv1.Gateway
@@ -158,6 +158,15 @@ func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return r.applyContribution(ctx, r.Client, r.AgentNamespace, "HTTPRoute", &rtObj, tunnel, rtObj.Annotations[AnnotationAgentRef], rt)
 }
 
+// parentRefNamespace returns the effective namespace a parentRef targets: an
+// explicit p.Namespace, else the route's own namespace (Gateway API default).
+func parentRefNamespace(p gwv1.ParentReference, routeNS string) string {
+	if p.Namespace != nil {
+		return string(*p.Namespace)
+	}
+	return routeNS
+}
+
 // isGatewayParent reports whether a parentRef targets a Gateway. Group/Kind are
 // pointers that default server-side when omitted, so nil == the Gateway default.
 func isGatewayParent(p gwv1.ParentReference) bool {
@@ -182,10 +191,7 @@ func (r *HTTPRouteSourceReconciler) resolveParentGatewayProxy(ctx context.Contex
 		if !isGatewayParent(p) {
 			continue
 		}
-		ns := rtObj.Namespace
-		if p.Namespace != nil {
-			ns = string(*p.Namespace)
-		}
+		ns := parentRefNamespace(p, rtObj.Namespace)
 		var gw gwv1.Gateway
 		if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: string(p.Name)}, &gw); err != nil {
 			if apierrors.IsNotFound(err) {
@@ -280,10 +286,7 @@ func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj cl
 			if !isGatewayParent(p) {
 				continue
 			}
-			ns := rt.Namespace // parentRef nil namespace defaults to the ROUTE's namespace
-			if p.Namespace != nil {
-				ns = string(*p.Namespace)
-			}
+			ns := parentRefNamespace(p, rt.Namespace)
 			if ns != gw.Namespace || string(p.Name) != gw.Name {
 				continue
 			}

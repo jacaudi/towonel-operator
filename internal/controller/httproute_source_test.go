@@ -313,3 +313,12 @@ func TestAutoSelectedByGateway(t *testing.T) {
 		}
 	})
 }
+
+func TestParentRefNamespace(t *testing.T) {
+	if got := parentRefNamespace(gwv1.ParentReference{Name: "gw"}, "route-ns"); got != "route-ns" {
+		t.Fatalf("nil namespace must default to route ns, got %q", got)
+	}
+	if got := parentRefNamespace(gwv1.ParentReference{Name: "gw", Namespace: nsPtr("other")}, "route-ns"); got != "other" {
+		t.Fatalf("explicit namespace must win, got %q", got)
+	}
+}
