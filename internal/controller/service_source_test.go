@@ -1,11 +1,36 @@
 package controller
 
 import (
+	"context"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
+
+func TestSourcesForAgentServiceMatchesByAgentRefAndNamespace(t *testing.T) {
+	agent := &towonelv1alpha1.TowonelAgent{}
+	agent.Namespace, agent.Name = "app", "my-agent"
+	mk := func(name string, ann map[string]string) *corev1.Service {
+		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "app", Annotations: ann}}
+	}
+	// A: agent-ref==my-agent, bare tunnel-ref → ns "app" == agent ns → MUST match
+	svcA := mk("a", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "my-agent"})
+	// B: different agent-ref → MUST NOT match
+	svcB := mk("b", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "other-agent"})
+	// C: no agent-ref → MUST NOT match
+	svcC := mk("c", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t"})
+	// D: agent-ref==my-agent but tunnel-ref ns "other" != agent ns → MUST NOT match
+	svcD := mk("d", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "other/t", AnnotationAgentRef: "my-agent"})
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(svcA, svcB, svcC, svcD).Build()
+	reqs := (&ServiceSourceReconciler{Client: c}).sourcesForAgent(context.Background(), agent)
+	if len(reqs) != 1 || reqs[0].NamespacedName.String() != "app/a" {
+		t.Fatalf("want exactly {app/a}, got %v", reqs)
+	}
+}
 
 func svcWith(ann map[string]string, ports ...corev1.ServicePort) *corev1.Service {
 	return &corev1.Service{
