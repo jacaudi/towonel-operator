@@ -34,3 +34,37 @@ func TestGatewayAPISupported(t *testing.T) {
 		t.Fatalf("discovery error: ok=%v err=%v", ok, err)
 	}
 }
+
+// TestGatewayEnable pins the flag DISPATCH that the envtest suite cannot reach
+// (it runs a single shared, gateway-ENABLED manager): explicit "true"/"false"
+// are honored verbatim, while "auto" (and "") probe the cluster — CRDs present
+// → enabled, absent → disabled/degrade, discovery error → fail fast. The
+// "false" → disabled arm is the unit-level proof that auto-routes is inert when
+// gateway-api is disabled.
+func TestGatewayEnable(t *testing.T) {
+	cases := []struct {
+		name    string
+		flag    string
+		mapErr  error // RESTMapping error for the "auto" probe (ignored for true/false)
+		want    bool
+		wantErr bool
+	}{
+		{"explicit true", "true", nil, true, false},
+		{"explicit false → disabled (auto-routes inert)", "false", nil, false, false},
+		{"auto + CRDs present", "auto", nil, true, false},
+		{"auto + CRDs absent → degrade", "auto", &meta.NoKindMatchError{}, false, false},
+		{"auto + discovery error → fail fast", "auto", errors.New("boom"), false, true},
+		{"empty defaults to auto", "", nil, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := gatewayEnable(SourceConfig{EnableGatewayAPI: tc.flag}, stubMapper{err: tc.mapErr})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err=%v wantErr=%v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Fatalf("got=%v want=%v", got, tc.want)
+			}
+		})
+	}
+}
