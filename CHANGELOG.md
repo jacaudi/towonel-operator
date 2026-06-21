@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.0](https://github.com/jacaudi/towonel-operator/compare/v1.2.3...v1.3.0) (2026-06-21)
+### Features
+
+* default tunnel-ref to the sole TowonelTunnel when omitted ([#29](https://github.com/jacaudi/towonel-operator/issues/29)) ([c65b6d3](https://github.com/jacaudi/towonel-operator/commit/c65b6d3ebf5c1eb16c9f05a57131eff5ffc90e00)), closes [#25](https://github.com/jacaudi/towonel-operator/issues/25) [#24](https://github.com/jacaudi/towonel-operator/issues/24)
+
 ## [1.2.3](https://github.com/jacaudi/towonel-operator/compare/v1.2.2...v1.2.3) (2026-06-21)
 ### Bug Fixes
 
