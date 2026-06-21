@@ -521,6 +521,38 @@ func agentHasHostname(t *testing.T, agentNS string, tunnel types.NamespacedName,
 	return false
 }
 
+// autoSelectedEventFor reports whether a Normal AutoSelectedByGateway event was
+// recorded on the named route in ns.
+func autoSelectedEventFor(t *testing.T, ns, route string) bool {
+	t.Helper()
+	var events corev1.EventList
+	if err := k8sClient.List(context.Background(), &events, client.InNamespace(ns)); err != nil {
+		return false
+	}
+	for i := range events.Items {
+		e := &events.Items[i]
+		if e.Reason == ctrlpkg.ReasonAutoSelectedByGateway && e.InvolvedObject.Name == route {
+			return true
+		}
+	}
+	return false
+}
+
+// assertStaysAbsent fails if any host appears on the tunnel's default agent at any
+// point during the window — a negative route must never tunnel, even late.
+func assertStaysAbsent(t *testing.T, window time.Duration, ns string, tunnel types.NamespacedName, hosts ...string) {
+	t.Helper()
+	deadline := time.Now().Add(window)
+	for time.Now().Before(deadline) {
+		for _, h := range hosts {
+			if agentHasHostname(t, ns, tunnel, h) {
+				t.Fatalf("%s appeared during stability window; a negative route must never tunnel", h)
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // TestAutoRoutesPrecedenceMatrix is the design §11 acceptance gate for #25: under a
 // single auto-routes Gateway, a route's OWN towonel.io/tunnel is authoritative when
 // PRESENT (truthy → tunnel, false/garbage/empty → release), and only an ABSENT key
@@ -557,35 +589,20 @@ func TestAutoRoutesPrecedenceMatrix(t *testing.T) {
 		}
 	}
 
-	// Wait until both tunneling routes have landed. A successful apply is a full SSA
-	// round-trip (strictly slower than the release no-ops for the negatives), so once
-	// these are present the negative cases have certainly been reconciled.
+	// Settle anchor: the inherit route's terminal Normal event fires only after a full
+	// successful reconcile (select → resolve → derive → apply).
+	waitFor(t, 60*time.Second, func() bool { return autoSelectedEventFor(t, ns, "inherit") })
+	// And both positive hostnames have landed.
 	waitFor(t, 60*time.Second, func() bool {
-		return agentHasHostname(t, ns, tunnel, "inherit.example") &&
-			agentHasHostname(t, ns, tunnel, "optin.example")
+		return agentHasHostname(t, ns, tunnel, "inherit.example") && agentHasHostname(t, ns, tunnel, "optin.example")
 	})
-
+	// Negatives are absent now AND stay absent across a stability window.
 	for _, host := range []string{"optout.example", "garbage.example", "empty.example"} {
 		if agentHasHostname(t, ns, tunnel, host) {
-			t.Fatalf("%s was tunneled but must never be (present non-truthy/garbage/empty key never inherits)", host)
+			t.Fatalf("%s tunneled but must never be", host)
 		}
 	}
-
-	// The Normal AutoSelectedByGateway event reflects the SELECTION decision and is
-	// asserted only on the inherit route, which also completes routing.
-	waitFor(t, 60*time.Second, func() bool {
-		var events corev1.EventList
-		if err := k8sClient.List(context.Background(), &events, client.InNamespace(ns)); err != nil {
-			return false
-		}
-		for i := range events.Items {
-			e := &events.Items[i]
-			if e.Reason == ctrlpkg.ReasonAutoSelectedByGateway && e.InvolvedObject.Name == "inherit" {
-				return true
-			}
-		}
-		return false
-	})
+	assertStaysAbsent(t, 1*time.Second, ns, tunnel, "optout.example", "garbage.example", "empty.example")
 }
 
 // TestAutoRoutesNamespaceScoped verifies auto-routes is namespace-scoped (#25, §2):
