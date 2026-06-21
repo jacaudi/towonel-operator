@@ -103,7 +103,12 @@ const (
 	AnnotationSrcEdgeTLSMode = "towonel.io/edge-tls-mode"
 	AnnotationSrcProtocol    = "towonel.io/protocol"
 	AnnotationGatewayService = "towonel.io/gateway-service"
-	AnnotationDNSRecord      = "towonel.io/dns-record" // reserved (DNS phase); inert in P5
+	// AnnotationAutoRoutes opts a Gateway into auto-tunneling its SAME-NAMESPACE
+	// child HTTPRoutes (issue #25). DISTINCT from AnnotationTunnel, which on a
+	// Gateway means gateway-as-source (forward the Gateway's own listener
+	// hostnames). Both may coexist on one Gateway. Requires AnnotationGatewayService.
+	AnnotationAutoRoutes = "towonel.io/auto-routes"
+	AnnotationDNSRecord  = "towonel.io/dns-record" // reserved (DNS phase); inert in P5
 
 	// Operator-managed agent markers (design §5/§6).
 	LabelManagedBy        = "app.kubernetes.io/managed-by"
@@ -122,6 +127,11 @@ const (
 	ReasonMultipleAgents      = "MultipleAgentsOnTunnel"
 	ReasonObserveOnly         = "ObserveOnlyAgent"
 	ReasonReconcilingAgent    = "ReconcilingAgent"
+	// ReasonAutoSelectedByGateway is a Normal Event recorded on an HTTPRoute when it
+	// is tunneled by inheriting a parent Gateway's towonel.io/auto-routes default
+	// (issue #25) rather than its own towonel.io/tunnel annotation — exposure is
+	// never silent.
+	ReasonAutoSelectedByGateway = "AutoSelectedByGateway"
 )
 
 // srcFieldManager is the per-source SSA field manager owning that source's
