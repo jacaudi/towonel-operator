@@ -49,6 +49,27 @@ func TestRoutesForGatewayMatchesByDefaultedNamespace(t *testing.T) {
 	}
 }
 
+func TestRoutesForGatewayEnqueuesSameNamespaceUnannotatedRoute(t *testing.T) {
+	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway"}}
+	// un-annotated route in the GATEWAY's namespace parenting it → MUST enqueue
+	// (candidate for towonel.io/auto-routes inheritance; Reconcile decides).
+	sameNS := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "e", Namespace: "kgateway"},
+		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external"}}}},
+	}
+	// un-annotated route in a DIFFERENT namespace parenting it → MUST NOT enqueue
+	// (cross-namespace routes are never auto-selected).
+	crossNS := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "immich"},
+		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(sameNS, crossNS).Build()
+	reqs := (&HTTPRouteSourceReconciler{Client: c}).routesForGateway(context.Background(), gw)
+	if len(reqs) != 1 || reqs[0].NamespacedName.String() != "kgateway/e" {
+		t.Fatalf("want exactly {kgateway/e}, got %v", reqs)
+	}
+}
+
 func TestSourcesForAgentHTTPRouteMatchesByAgentRefAndNamespace(t *testing.T) {
 	agent := &towonelv1alpha1.TowonelAgent{}
 	agent.Namespace, agent.Name = "app", "my-agent"
