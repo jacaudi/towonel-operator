@@ -1,0 +1,48 @@
+# Gateway auto-routes (issue #25): opt every same-namespace HTTPRoute under this
+# Gateway into tunneling, without annotating each route. The route's own
+# towonel.io/tunnel always wins (an explicit "false" opts out).
+#
+# towonel.io/auto-routes is DISTINCT from towonel.io/tunnel on a Gateway:
+#   - towonel.io/tunnel        → expose the Gateway's OWN listener hostnames
+#   - towonel.io/auto-routes   → auto-tunnel the HTTPRoutes UNDER this Gateway
+# Both may coexist. auto-routes requires towonel.io/gateway-service.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: external
+  namespace: web
+  annotations:
+    towonel.io/auto-routes: "true"
+    towonel.io/gateway-service: "envoy:443" # [<ns>/]<name>[:<port>] proxy the routes flow through
+spec:
+  gatewayClassName: kgateway
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+---
+# Inherits the Gateway default (no towonel.io/tunnel) → tunneled.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app
+  namespace: web
+spec:
+  parentRefs:
+    - name: external
+  hostnames:
+    - "app.example.com"
+---
+# Explicit per-route opt-out → excluded even under the auto-routes Gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: internal-only
+  namespace: web
+  annotations:
+    towonel.io/tunnel: "false"
+spec:
+  parentRefs:
+    - name: external
+  hostnames:
+    - "internal.example.com"
