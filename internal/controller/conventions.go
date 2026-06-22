@@ -65,7 +65,7 @@ const (
 	// defaultAgentImage is used when a TowonelAgent leaves spec.workload.image unset.
 	// Pinned to a tag (never :latest) for reproducible rollouts; Renovate bumps it as
 	// upstream tags new releases (see .github/renovate.json customManagers).
-	defaultAgentImage = "codeberg.org/towonel/towonel-agent:0.1.32"
+	defaultAgentImage = "codeberg.org/towonel/towonel-agent:1.0.0"
 	agentHealthAddr   = "0.0.0.0:9090"
 	agentHealthPort   = 9090
 
@@ -103,7 +103,12 @@ const (
 	AnnotationSrcEdgeTLSMode = "towonel.io/edge-tls-mode"
 	AnnotationSrcProtocol    = "towonel.io/protocol"
 	AnnotationGatewayService = "towonel.io/gateway-service"
-	AnnotationDNSRecord      = "towonel.io/dns-record" // reserved (DNS phase); inert in P5
+	// AnnotationAutoRoutes opts a Gateway into auto-tunneling its SAME-NAMESPACE
+	// child HTTPRoutes (issue #25). DISTINCT from AnnotationTunnel, which on a
+	// Gateway means gateway-as-source (forward the Gateway's own listener
+	// hostnames). Both may coexist on one Gateway. Requires AnnotationGatewayService.
+	AnnotationAutoRoutes = "towonel.io/auto-routes"
+	AnnotationDNSRecord  = "towonel.io/dns-record" // reserved (DNS phase); inert in P5
 
 	// Operator-managed agent markers (design §5/§6).
 	LabelManagedBy        = "app.kubernetes.io/managed-by"
@@ -122,6 +127,11 @@ const (
 	ReasonMultipleAgents      = "MultipleAgentsOnTunnel"
 	ReasonObserveOnly         = "ObserveOnlyAgent"
 	ReasonReconcilingAgent    = "ReconcilingAgent"
+	// ReasonAutoSelectedByGateway is a Normal Event recorded on an HTTPRoute when it
+	// is tunneled by inheriting a parent Gateway's towonel.io/auto-routes default
+	// (issue #25) rather than its own towonel.io/tunnel annotation — exposure is
+	// never silent.
+	ReasonAutoSelectedByGateway = "AutoSelectedByGateway"
 )
 
 // srcFieldManager is the per-source SSA field manager owning that source's

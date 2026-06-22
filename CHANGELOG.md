@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.4.1](https://github.com/jacaudi/towonel-operator/compare/v1.4.0...v1.4.1) (2026-06-22)
+### Dependencies
+
+* **deps:** Update GitHub Actions ([70c049a](https://github.com/jacaudi/towonel-operator/commit/70c049a95e309a2436705af68744ab16103844f8))
+* **deps:** Update kubernetes-client-libraries ([ef395e0](https://github.com/jacaudi/towonel-operator/commit/ef395e08a7664df6904b97a230f2470b3ca4ee5f))
+* **towonel-agent:** Update codeberg.org/towonel/towonel-agent Docker tag to v1 ([4548809](https://github.com/jacaudi/towonel-operator/commit/45488090bd1790ae01ac5d13cd225edf76fac515))
+
+## [1.4.0](https://github.com/jacaudi/towonel-operator/compare/v1.3.0...v1.4.0) (2026-06-22)
+### Features
+
+* auto-tunnel HTTPRoutes under a Gateway via towonel.io/auto-routes ([#25](https://github.com/jacaudi/towonel-operator/issues/25)) ([#30](https://github.com/jacaudi/towonel-operator/issues/30)) ([499d1cf](https://github.com/jacaudi/towonel-operator/commit/499d1cf8bfe7f4bd7c033ed1916cb28c2bcd4762))
+
+## [1.3.0](https://github.com/jacaudi/towonel-operator/compare/v1.2.3...v1.3.0) (2026-06-21)
+### Features
+
+* default tunnel-ref to the sole TowonelTunnel when omitted ([#29](https://github.com/jacaudi/towonel-operator/issues/29)) ([c65b6d3](https://github.com/jacaudi/towonel-operator/commit/c65b6d3ebf5c1eb16c9f05a57131eff5ffc90e00)), closes [#25](https://github.com/jacaudi/towonel-operator/issues/25) [#24](https://github.com/jacaudi/towonel-operator/issues/24)
+
+## [1.2.3](https://github.com/jacaudi/towonel-operator/compare/v1.2.2...v1.2.3) (2026-06-21)
+### Bug Fixes
+
+* reconcile authorized hostnames against hub truth, not status ([#26](https://github.com/jacaudi/towonel-operator/issues/26)) ([#28](https://github.com/jacaudi/towonel-operator/issues/28)) ([5c15d80](https://github.com/jacaudi/towonel-operator/commit/5c15d8023b6b3a4c1e43c5a2cc2a3e4144439703))
+
+## [1.2.2](https://github.com/jacaudi/towonel-operator/compare/v1.2.1...v1.2.2) (2026-06-21)
+### Bug Fixes
+
+* re-reconcile sources when a referenced TowonelAgent is created ([#22](https://github.com/jacaudi/towonel-operator/issues/22)) ([#27](https://github.com/jacaudi/towonel-operator/issues/27)) ([6ad6162](https://github.com/jacaudi/towonel-operator/commit/6ad6162643fac5fa335bde106a0156f794dc9ac3))
+
 ## [1.2.1](https://github.com/jacaudi/towonel-operator/compare/v1.2.0...v1.2.1) (2026-06-15)
 ### Bug Fixes
 

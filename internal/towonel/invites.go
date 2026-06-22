@@ -26,6 +26,17 @@ func (c *Client) ListInvites(ctx context.Context) ([]Invite, error) {
 	return out, nil
 }
 
+// GetInvite returns a single invite's current state. Its Hostnames field is the
+// hub's authoritative set of authorized hostnames for the invite. GET /v1/invites/{id}
+func (c *Client) GetInvite(ctx context.Context, inviteID string) (*Invite, error) {
+	var out Invite
+	path := fmt.Sprintf("/v1/invites/%s", url.PathEscape(inviteID))
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // AddHostnames authorizes additional hostnames on an existing invite, without
 // re-issuing the token. POST /v1/invites/{id}/hostnames
 func (c *Client) AddHostnames(ctx context.Context, inviteID string, hostnames []string) (*AddHostnamesResponse, error) {

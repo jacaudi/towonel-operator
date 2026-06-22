@@ -8,9 +8,32 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
 
 func hn(s string) *gwv1.Hostname { h := gwv1.Hostname(s); return &h }
+
+func TestSourcesForAgentGatewayMatchesByAgentRefAndNamespace(t *testing.T) {
+	agent := &towonelv1alpha1.TowonelAgent{}
+	agent.Namespace, agent.Name = "app", "my-agent"
+	mk := func(name string, ann map[string]string) *gwv1.Gateway {
+		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "app", Annotations: ann}}
+	}
+	// A: agent-ref==my-agent, bare tunnel-ref → ns "app" == agent ns → MUST match
+	gwA := mk("a", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "my-agent"})
+	// B: different agent-ref → MUST NOT match
+	gwB := mk("b", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "other-agent"})
+	// C: no agent-ref → MUST NOT match
+	gwC := mk("c", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t"})
+	// D: agent-ref==my-agent but tunnel-ref ns "other" != agent ns → MUST NOT match
+	gwD := mk("d", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "other/t", AnnotationAgentRef: "my-agent"})
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gwA, gwB, gwC, gwD).Build()
+	reqs := (&GatewaySourceReconciler{Client: c}).sourcesForAgent(context.Background(), agent)
+	if len(reqs) != 1 || reqs[0].NamespacedName.String() != "app/a" {
+		t.Fatalf("want exactly {app/a}, got %v", reqs)
+	}
+}
 
 func TestDeriveGatewayRoutingForwardsToProxy(t *testing.T) {
 	proxy := &corev1.Service{

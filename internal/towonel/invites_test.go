@@ -113,6 +113,41 @@ func TestDeleteInvite(t *testing.T) {
 	}
 }
 
+func TestGetInvite(t *testing.T) {
+	var gotMethod, gotPath string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		_, _ = w.Write([]byte(`{"invite_id":"inv1","tenant_id":"ten1","name":"app","hostnames":["a.dev","b.dev"],"region":"EU"}`))
+	})
+	got, err := c.GetInvite(context.Background(), "inv1")
+	if err != nil {
+		t.Fatalf("GetInvite() error = %v", err)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/v1/invites/inv1" {
+		t.Errorf("request = %s %s, want GET /v1/invites/inv1", gotMethod, gotPath)
+	}
+	if got.InviteID != "inv1" || got.TenantID != "ten1" {
+		t.Errorf("got = %+v", got)
+	}
+	if len(got.Hostnames) != 2 || got.Hostnames[0] != "a.dev" || got.Hostnames[1] != "b.dev" {
+		t.Errorf("got.Hostnames = %v, want [a.dev b.dev]", got.Hostnames)
+	}
+}
+
+func TestGetInvite_EscapedPathParam(t *testing.T) {
+	var gotPath string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		_, _ = w.Write([]byte(`{"invite_id":"inv/1","hostnames":[]}`))
+	})
+	if _, err := c.GetInvite(context.Background(), "inv/1"); err != nil {
+		t.Fatalf("GetInvite() error = %v", err)
+	}
+	if gotPath != "/v1/invites/inv%2F1" {
+		t.Errorf("path = %s, want escaped segment", gotPath)
+	}
+}
+
 func TestListInvites(t *testing.T) {
 	var gotMethod, gotPath string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {

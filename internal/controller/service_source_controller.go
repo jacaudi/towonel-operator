@@ -9,10 +9,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
 
 // ServiceSourceReconciler emits routing from annotated Services (design §4.1).
@@ -42,10 +48,12 @@ func (r *ServiceSourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "Service", svc.Namespace, svc.Name))
 	}
 	emit := func(reason, msg string) { r.dedupe.emit(r.recorder, &svc, corev1.EventTypeWarning, reason, msg) }
-	tunnel, err := parseTunnelRef(svc.Annotations[AnnotationTunnelRef], svc.Namespace)
+	tunnel, ok, err := resolveTunnel(ctx, r.Client, emit, svc.Annotations[AnnotationTunnelRef], svc.Namespace)
 	if err != nil {
-		emit(ReasonTunnelRefMissing, err.Error())
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err // transient List failure → requeue
+	}
+	if !ok {
+		return ctrl.Result{}, nil // already emitted; no requeue
 	}
 	rt, ok := r.deriveServiceRouting(&svc, emit)
 	if !ok {
@@ -190,9 +198,37 @@ func (r *ServiceSourceReconciler) applyPublicPorts(ann map[string]string, rt *ro
 	}
 }
 
+// sourcesForAgent enqueues every tunnel-annotated Service whose towonel.io/agent-ref
+// resolves to the changed TowonelAgent, so a Service that opted in before its agent
+// existed re-flows once the agent appears (#22). See sourceTargetsAgent for matching
+// (explicit agent-ref only; the default-agent path cannot strand).
+func (r *ServiceSourceReconciler) sourcesForAgent(ctx context.Context, obj client.Object) []reconcile.Request {
+	ta, ok := obj.(*towonelv1alpha1.TowonelAgent)
+	if !ok {
+		return nil
+	}
+	var svcs corev1.ServiceList
+	if err := r.List(ctx, &svcs); err != nil {
+		logf.FromContext(ctx).Error(err, "sourcesForAgent: list failed", "agent", client.ObjectKeyFromObject(ta))
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range svcs.Items {
+		svc := &svcs.Items[i]
+		if _, opted := svc.Annotations[AnnotationTunnel]; !opted {
+			continue
+		}
+		if sourceTargetsAgent(svc.Annotations, svc.Namespace, r.AgentNamespace, ta) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}})
+		}
+	}
+	return reqs
+}
+
 func (r *ServiceSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Service{}, builder.WithPredicates(sourcePredicate())).
+		Watches(&towonelv1alpha1.TowonelAgent{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForAgent), builder.WithPredicates(crossWatchPredicate())).
 		Named("service-source").
 		Complete(r)
 }

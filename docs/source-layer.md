@@ -16,13 +16,14 @@ All keys are under `towonel.io/`. Opt in with `tunnel`, point at a tunnel with `
 | Annotation | Applies to | Meaning |
 |---|---|---|
 | `towonel.io/tunnel` | all | Opt-in. Truthy: `true`/`yes`/`enable`/`enabled`; falsy: `false`/`no`/`disable`/`disabled` (case-insensitive). |
-| `towonel.io/tunnel-ref` | all | Target tunnel as `<namespace>/<name>`. |
+| `towonel.io/tunnel-ref` | all | Target tunnel as `<namespace>/<name>` (bare `<name>` resolves in the source's namespace). Optional only when exactly one `TowonelTunnel` exists — see "Tunnel targeting" below. |
 | `towonel.io/agent-ref` | all | Optional. Target a specific agent by name. See "agent targeting" below. |
 | `towonel.io/hostname` | Service | HTTPS hostname to expose (Service shim). |
 | `towonel.io/origin` | Service | Override origin `host:port` (defaults to the Service's `ClusterIP:port`). |
 | `towonel.io/edge-tls-mode` | Service | `passthrough` (default) or `terminate`. |
 | `towonel.io/protocol` | Service | `tcp` or `udp` — emit a raw L4 service instead of HTTPS. |
 | `towonel.io/gateway-service` | Gateway | **Required** on an opted-in Gateway — the proxy Service the agent forwards to (not derivable from the Gateway object). |
+| `towonel.io/auto-routes` | Gateway | Opt every **same-namespace** HTTPRoute under this Gateway into tunneling, without annotating each route. Truthy values as `towonel.io/tunnel`. **Distinct** from `towonel.io/tunnel` on a Gateway (which exposes the Gateway's own listeners). Requires `towonel.io/gateway-service`. See "Gateway auto-routes" below. |
 | `towonel.io/dns-record` | all | **Reserved / inert** — intended to opt a hostname out of the (unimplemented) DNS handoff. See [dns.md](dns.md). |
 
 ### Multi-exposure on one Service (port-name-scoped keys)
@@ -55,6 +56,75 @@ unreferenced ports are not exposed. For anything more complex, author the `Towon
   resolve to more than one distinct proxy, the operator emits an `AmbiguousGateway` Event and skips
   (no silent first-wins).
 
+## Gateway auto-routes (`towonel.io/auto-routes`)
+
+Annotating every `HTTPRoute` gets tedious under a busy Gateway. Set
+`towonel.io/auto-routes: "true"` on the **Gateway** to tunnel its **same-namespace**
+child routes by default — each route is still free to opt out.
+
+`towonel.io/auto-routes` is a **different key** from `towonel.io/tunnel`. On a Gateway,
+`towonel.io/tunnel` means *"expose this Gateway's own listener hostnames"* (gateway-as-source);
+`towonel.io/auto-routes` means *"auto-tunnel the HTTPRoutes under this Gateway."* A single
+Gateway may carry both.
+
+### Precedence (the route's own annotation always wins)
+
+A route's `towonel.io/tunnel` is authoritative; the Gateway default applies **only** when the
+route has no `towonel.io/tunnel` key at all:
+
+| Route `towonel.io/tunnel` | Under an `auto-routes` Gateway | Result |
+|---|---|---|
+| `"true"` / `yes` / `enable` | any | **Tunneled** (unchanged) |
+| `"false"` / `no` / `disable` | any | **Excluded** — explicit per-route opt-out |
+| **absent** | enabled | **Tunneled** — inherited Gateway default (new) |
+| absent | not enabled | Not tunneled (unchanged) |
+| present but unrecognized (e.g. `""`, garbage) | any | Not tunneled — a present key never inherits |
+
+A route can never be force-tunneled against its own explicit `false`.
+
+### Worked example
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: external
+  namespace: web
+  annotations:
+    towonel.io/auto-routes: "true"          # tunnel my same-namespace HTTPRoutes
+    towonel.io/gateway-service: envoy:443    # the proxy they route through (required)
+spec: { gatewayClassName: kgateway, listeners: [ ... ] }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: app, namespace: web }       # no towonel.io/tunnel → inherits → tunneled
+spec:
+  parentRefs: [{ name: external }]
+  hostnames: ["app.example.com"]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: internal-only
+  namespace: web
+  annotations: { towonel.io/tunnel: "false" }  # explicit opt-out → excluded
+spec:
+  parentRefs: [{ name: external }]
+  hostnames: ["internal.example.com"]
+```
+
+The operator records a Normal `AutoSelectedByGateway` Event on each inherited route, so you can
+audit what got exposed with `kubectl describe httproute <name>`.
+
+### Where auto-routes does NOT apply
+
+- **Cross-namespace routes.** An HTTPRoute in a *different* namespace than the Gateway is **not**
+  auto-selected, even if it parents the enabled Gateway. It still needs its own `towonel.io/tunnel: "true"`.
+- **Gateway without `towonel.io/gateway-service`.** No origin to forward through → no-op + a
+  `GatewayServiceUnspecified` Warning Event on the route.
+- **Gateway API disabled** (`--enable-gateway-api=false`). The HTTPRoute/Gateway controllers don't run.
+- **An explicit `towonel.io/tunnel: "false"` on the route.** Always excluded, regardless of the Gateway.
+
 > **Origins and TLS (important).** The emitted `origin` is the target Service's **`ClusterIP:port`**
 > — *not* its cluster-DNS name (it updates if the Service's ClusterIP changes). Source-emitted
 > services carry the default `edgeTLSMode: passthrough`: the Towonel edge peeks the SNI and forwards
@@ -68,6 +138,17 @@ unreferenced ports are not exposed. For anything more complex, author the `Towon
 > it. Every hostname clients actually use must be authorized — i.e. appear as a Gateway listener
 > hostname or an HTTPRoute hostname. A wildcard listener (`*.example.com`) covers a whole zone *if*
 > Towonel's hub accepts wildcard hostnames (verify upstream); otherwise enumerate each hostname.
+
+## Tunnel targeting
+
+Point a source at its tunnel with `towonel.io/tunnel-ref`. Multiple `TowonelTunnel`s
+**are** supported; only the omission shortcut requires exactly one.
+
+The `towonel.io/tunnel-ref` *omission* default applies only when exactly one
+`TowonelTunnel` exists. With zero or multiple tunnels, set `tunnel-ref` explicitly.
+If you rely on the omission default and later add a second tunnel, ref-less sources
+become ambiguous: they stop resolving, emit a `TunnelRefMissing` event, and release
+their routing until an explicit `tunnel-ref` is set (loud and safe — no mis-routing).
 
 ## Agent targeting
 

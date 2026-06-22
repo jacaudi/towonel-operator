@@ -57,6 +57,32 @@ func parseTunnelRef(raw, srcNS string) (types.NamespacedName, error) {
 	return types.NamespacedName{Namespace: srcNS, Name: raw}, nil
 }
 
+// resolveTunnel resolves the tunnel a source targets. A non-empty raw tunnel-ref
+// is parsed as-is. When omitted, the operator defaults to the sole TowonelTunnel
+// in the cluster — but only when exactly one exists; zero or multiple are
+// ambiguous and skip loudly (emit ReasonTunnelRefMissing, ok=false). A transient
+// List failure returns err so the controller requeues. (PR #24, aclerici38.)
+func resolveTunnel(ctx context.Context, c client.Client, emit func(reason, msg string), raw, srcNS string) (types.NamespacedName, bool, error) {
+	if strings.TrimSpace(raw) != "" {
+		nn, err := parseTunnelRef(raw, srcNS)
+		if err != nil {
+			emit(ReasonTunnelRefMissing, err.Error())
+			return types.NamespacedName{}, false, nil
+		}
+		return nn, true, nil
+	}
+	var list towonelv1alpha1.TowonelTunnelList
+	if err := c.List(ctx, &list); err != nil {
+		return types.NamespacedName{}, false, err
+	}
+	if len(list.Items) != 1 {
+		emit(ReasonTunnelRefMissing, fmt.Sprintf("no %s set and %d TowonelTunnels exist", AnnotationTunnelRef, len(list.Items)))
+		return types.NamespacedName{}, false, nil
+	}
+	t := &list.Items[0]
+	return types.NamespacedName{Namespace: t.Namespace, Name: t.Name}, true, nil
+}
+
 // agentNamespaceFor returns where the default agent lives: the configured
 // --agent-namespace, else the tunnel's namespace (design §3.1).
 func agentNamespaceFor(configured string, tunnel types.NamespacedName) string {
@@ -64,6 +90,30 @@ func agentNamespaceFor(configured string, tunnel types.NamespacedName) string {
 		return configured
 	}
 	return tunnel.Namespace
+}
+
+// sourceTargetsAgent reports whether a source carrying the given annotations and
+// namespace would, on reconcile, contribute routing to agent ta. It mirrors the
+// explicit agent-ref branch of resolveTarget: the source must name ta via
+// towonel.io/agent-ref AND ta must live in the resolved agent namespace
+// (agentNamespaceFor(config, tunnel)). Used by the TowonelAgent->source watch to
+// re-enqueue sources stranded when their agent-ref agent did not yet exist (#22).
+//
+// Scope: only EXPLICIT agent-ref sources are matched. The default-agent path
+// (no agent-ref) cannot strand under #22 — resolveTarget create-or-gets the
+// default agent and contributeRouting populates it within the same reconcile
+// (see ensureDefaultAgent + applyContribution) — so an agent event never needs
+// to re-enqueue an agent-ref-less source, and matching them would over-enqueue.
+func sourceTargetsAgent(ann map[string]string, srcNS, agentNSConfig string, ta *towonelv1alpha1.TowonelAgent) bool {
+	agentRef := ann[AnnotationAgentRef]
+	if agentRef == "" || agentRef != ta.Name {
+		return false
+	}
+	tunnel, err := parseTunnelRef(ann[AnnotationTunnelRef], srcNS)
+	if err != nil {
+		return false
+	}
+	return agentNamespaceFor(agentNSConfig, tunnel) == ta.Namespace
 }
 
 // ensureDefaultAgent create-or-gets the single operator-owned default agent for

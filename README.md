@@ -24,8 +24,10 @@ that from Kubernetes via two resources:
   can share one tunnel for failover.
 
 You can author those resources directly, or annotate a `Service`, `Gateway`, or
-`HTTPRoute` and let the operator materialize them (the dogfooding path). See
-[`docs/architecture.md`](docs/architecture.md) for the why behind the two-resource split.
+`HTTPRoute` and let the operator materialize them (the dogfooding path). Set
+`towonel.io/auto-routes: "true"` on a Gateway to tunnel its same-namespace HTTPRoutes
+without annotating each one — see [Gateway auto-routes](docs/source-layer.md#gateway-auto-routes-towonelioauto-routes).
+See [`docs/architecture.md`](docs/architecture.md) for the why behind the two-resource split.
 
 ## Quickstart
 
