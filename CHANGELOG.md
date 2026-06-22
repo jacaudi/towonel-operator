@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.0](https://github.com/jacaudi/towonel-operator/compare/v1.3.0...v1.4.0) (2026-06-22)
+### Features
+
+* auto-tunnel HTTPRoutes under a Gateway via towonel.io/auto-routes ([#25](https://github.com/jacaudi/towonel-operator/issues/25)) ([#30](https://github.com/jacaudi/towonel-operator/issues/30)) ([499d1cf](https://github.com/jacaudi/towonel-operator/commit/499d1cf8bfe7f4bd7c033ed1916cb28c2bcd4762))
+
 ## [1.3.0](https://github.com/jacaudi/towonel-operator/compare/v1.2.3...v1.3.0) (2026-06-21)
 ### Features
 

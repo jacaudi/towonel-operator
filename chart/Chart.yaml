@@ -2,8 +2,8 @@ apiVersion: v2
 name: towonel-operator
 description: Kubernetes operator for Towonel tunnels and agents
 type: application
-version: 1.3.0
-appVersion: "1.3.0"
+version: 1.4.0
+appVersion: "1.4.0"
 kubeVersion: ">=1.31.0-0"
 dependencies:
   - name: common
