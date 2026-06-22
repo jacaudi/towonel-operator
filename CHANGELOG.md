@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/jacaudi/towonel-operator/compare/v1.4.0...v1.4.1) (2026-06-22)
+### Dependencies
+
+* **deps:** Update GitHub Actions ([70c049a](https://github.com/jacaudi/towonel-operator/commit/70c049a95e309a2436705af68744ab16103844f8))
+* **deps:** Update kubernetes-client-libraries ([ef395e0](https://github.com/jacaudi/towonel-operator/commit/ef395e08a7664df6904b97a230f2470b3ca4ee5f))
+* **towonel-agent:** Update codeberg.org/towonel/towonel-agent Docker tag to v1 ([4548809](https://github.com/jacaudi/towonel-operator/commit/45488090bd1790ae01ac5d13cd225edf76fac515))
+
 ## [1.4.0](https://github.com/jacaudi/towonel-operator/compare/v1.3.0...v1.4.0) (2026-06-22)
 ### Features
 
