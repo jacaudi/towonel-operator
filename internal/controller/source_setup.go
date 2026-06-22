@@ -27,6 +27,20 @@ func gatewayAPISupported(rm meta.RESTMapper) (bool, error) {
 	return false, err
 }
 
+// gatewayEnable resolves whether the Gateway/HTTPRoute source controllers should
+// run: "true"/"false" are explicit; "auto" (and "") probe the cluster for the
+// gateway-api CRDs (absent → disabled/degrade; discovery error → fail fast).
+func gatewayEnable(cfg SourceConfig, rm meta.RESTMapper) (bool, error) {
+	switch cfg.EnableGatewayAPI {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default: // "auto" (and "")
+		return gatewayAPISupported(rm)
+	}
+}
+
 // SetupSourceControllers registers the Service source unconditionally and the
 // Gateway/HTTPRoute sources only when the gateway-api CRDs are present (design §8).
 // The SCHEME is installed unconditionally in main (harmless when CRDs are absent);
@@ -42,21 +56,12 @@ func SetupSourceControllers(mgr ctrl.Manager, cfg SourceConfig) error {
 		return fmt.Errorf("setup ServiceSource: %w", err)
 	}
 
-	enable := false
-	switch cfg.EnableGatewayAPI {
-	case "true":
-		enable = true
-	case "false":
-		enable = false
-	default: // "auto"
-		ok, err := gatewayAPISupported(mgr.GetRESTMapper())
-		if err != nil {
-			return fmt.Errorf("probe gateway-api support: %w", err)
-		}
-		enable = ok
-		if !ok {
-			ctrl.Log.WithName("source").Info("gateway-api CRDs absent — Gateway/HTTPRoute sources disabled; Service shim unaffected")
-		}
+	enable, err := gatewayEnable(cfg, mgr.GetRESTMapper())
+	if err != nil {
+		return fmt.Errorf("probe gateway-api support: %w", err)
+	}
+	if !enable && cfg.EnableGatewayAPI != "false" {
+		ctrl.Log.WithName("source").Info("gateway-api CRDs absent — Gateway/HTTPRoute sources disabled; Service shim unaffected")
 	}
 	if !enable {
 		return nil

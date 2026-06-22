@@ -478,3 +478,285 @@ func TestReconcilingAgentEventOnHandAuthored(t *testing.T) {
 		return false
 	})
 }
+
+// httpRoute builds an HTTPRoute with the given annotations, a single Gateway
+// parentRef in its own namespace, and one hostname.
+func httpRoute(ns, name string, ann map[string]string, gwName, host string) *gwv1.HTTPRoute {
+	return &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Annotations: ann},
+		Spec: gwv1.HTTPRouteSpec{
+			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: gwv1.ObjectName(gwName)}}},
+			Hostnames:       []gwv1.Hostname{gwv1.Hostname(host)},
+		},
+	}
+}
+
+// autoRoutesGateway builds a Gateway opted into auto-routes with a gateway-service
+// pointing at proxySvc:443 (no towonel.io/tunnel — it is not a source itself).
+func autoRoutesGateway(ns, name, proxySvc string) *gwv1.Gateway {
+	return &gwv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Annotations: map[string]string{
+			ctrlpkg.AnnotationAutoRoutes:     "true",
+			ctrlpkg.AnnotationGatewayService: proxySvc + ":443",
+		}},
+		Spec: gwv1.GatewaySpec{GatewayClassName: "x", Listeners: []gwv1.Listener{
+			{Name: "https", Protocol: gwv1.HTTPSProtocolType, Port: 443},
+		}},
+	}
+}
+
+// agentHasHostname reports whether the default agent for tunnel currently has a
+// service entry for host.
+func agentHasHostname(t *testing.T, agentNS string, tunnel types.NamespacedName, host string) bool {
+	t.Helper()
+	var ta towonelv1alpha1.TowonelAgent
+	if err := k8sClient.Get(context.Background(), defaultAgentNN(agentNS, tunnel), &ta); err != nil {
+		return false
+	}
+	for _, s := range ta.Spec.Services {
+		if s.Hostname == host {
+			return true
+		}
+	}
+	return false
+}
+
+// eventFor reports whether an event with the given reason was recorded on the
+// named object in ns.
+func eventFor(t *testing.T, ns, name, reason string) bool {
+	t.Helper()
+	var events corev1.EventList
+	if err := k8sClient.List(context.Background(), &events, client.InNamespace(ns)); err != nil {
+		return false
+	}
+	for i := range events.Items {
+		e := &events.Items[i]
+		if e.Reason == reason && e.InvolvedObject.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// autoSelectedEventFor reports whether a Normal AutoSelectedByGateway event was
+// recorded on the named route in ns.
+func autoSelectedEventFor(t *testing.T, ns, route string) bool {
+	t.Helper()
+	return eventFor(t, ns, route, ctrlpkg.ReasonAutoSelectedByGateway)
+}
+
+// assertStaysAbsent fails if any host appears on the tunnel's default agent at any
+// point during the window — a negative route must never tunnel, even late.
+func assertStaysAbsent(t *testing.T, window time.Duration, ns string, tunnel types.NamespacedName, hosts ...string) {
+	t.Helper()
+	deadline := time.Now().Add(window)
+	for time.Now().Before(deadline) {
+		for _, h := range hosts {
+			if agentHasHostname(t, ns, tunnel, h) {
+				t.Fatalf("%s appeared during stability window; a negative route must never tunnel", h)
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestAutoRoutesPrecedenceMatrix is the design §11 acceptance gate for #25: under a
+// single auto-routes Gateway, a route's OWN towonel.io/tunnel is authoritative when
+// PRESENT (truthy → tunnel, false/garbage/empty → release), and only an ABSENT key
+// inherits the Gateway's auto-routes default. Tunnel targeting is made deterministic
+// by setting towonel.io/tunnel-ref explicitly on every route (the shared-API-server
+// envtest cannot rely on sole-TowonelTunnel ref-less resolution), so the only variable
+// distinguishing the five routes is the towonel.io/tunnel key itself.
+func TestAutoRoutesPrecedenceMatrix(t *testing.T) {
+	ns := mustNamespace(t)
+	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
+
+	proxy := annService(ns, "envoy", nil, corev1.ServicePort{Port: 443})
+	if err := k8sClient.Create(context.Background(), proxy); err != nil {
+		t.Fatal(err)
+	}
+	gw := autoRoutesGateway(ns, "gw", "envoy")
+	if err := k8sClient.Create(context.Background(), gw); err != nil {
+		t.Fatal(err)
+	}
+
+	// Every route carries a valid tunnel-ref so the ONLY variable is the
+	// towonel.io/tunnel key: optout/garbage/empty must NOT tunnel even though a
+	// resolvable tunnel and a valid gateway-service are both present.
+	routes := []*gwv1.HTTPRoute{
+		httpRoute(ns, "inherit", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw", "inherit.example"),
+		httpRoute(ns, "optout", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: "false"}, "gw", "optout.example"),
+		httpRoute(ns, "optin", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: "true"}, "gw", "optin.example"),
+		httpRoute(ns, "garbage", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: "banana"}, "gw", "garbage.example"),
+		httpRoute(ns, "empty", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: ""}, "gw", "empty.example"),
+	}
+	for _, rt := range routes {
+		if err := k8sClient.Create(context.Background(), rt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Settle anchor: the inherit route's terminal Normal event fires only after a full
+	// successful reconcile (select → resolve → derive → apply).
+	waitFor(t, 60*time.Second, func() bool { return autoSelectedEventFor(t, ns, "inherit") })
+	// And both positive hostnames have landed.
+	waitFor(t, 60*time.Second, func() bool {
+		return agentHasHostname(t, ns, tunnel, "inherit.example") && agentHasHostname(t, ns, tunnel, "optin.example")
+	})
+	// Negatives are absent now AND stay absent across a stability window.
+	for _, host := range []string{"optout.example", "garbage.example", "empty.example"} {
+		if agentHasHostname(t, ns, tunnel, host) {
+			t.Fatalf("%s tunneled but must never be", host)
+		}
+	}
+	assertStaysAbsent(t, 1*time.Second, ns, tunnel, "optout.example", "garbage.example", "empty.example")
+}
+
+// TestAutoRoutesNamespaceScoped verifies auto-routes is namespace-scoped (#25, §2):
+// a route in a DIFFERENT namespace with an explicit cross-namespace parentRef into the
+// Gateway's namespace is NEVER auto-selected. The route is given a valid tunnel-ref so
+// a broken namespace guard WOULD create an agent — making the negative non-vacuous.
+func TestAutoRoutesNamespaceScoped(t *testing.T) {
+	gwNS := mustNamespace(t)
+	routeNS := mustNamespace(t)
+
+	proxy := annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443})
+	if err := k8sClient.Create(context.Background(), proxy); err != nil {
+		t.Fatal(err)
+	}
+	gw := autoRoutesGateway(gwNS, "gw", "envoy")
+	if err := k8sClient.Create(context.Background(), gw); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cross-namespace parentRef: route lives in routeNS, parents the Gateway in gwNS.
+	gwNSObj := gwv1.Namespace(gwNS)
+	rt := httpRoute(routeNS, "xroute", map[string]string{ctrlpkg.AnnotationTunnelRef: routeNS + "/gwtun"}, "gw", "xns.example")
+	rt.Spec.ParentRefs[0].Namespace = &gwNSObj
+	if err := k8sClient.Create(context.Background(), rt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Give the controller time to react; the cross-ns route must never be tunneled.
+	time.Sleep(1 * time.Second)
+	tunnel := types.NamespacedName{Namespace: routeNS, Name: "gwtun"}
+	if agentHasHostname(t, routeNS, tunnel, "xns.example") {
+		t.Fatal("cross-namespace route was auto-selected; auto-routes must be namespace-scoped")
+	}
+}
+
+// TestAutoRoutesNoGatewayServiceIsNoOp verifies the gateway-service prerequisite
+// (#25): a Gateway with auto-routes:"true" but NO gateway-service cannot auto-tunnel
+// its routes. The un-annotated route gets a ReasonGatewayServiceUnset Warning and is
+// never tunneled.
+func TestAutoRoutesNoGatewayServiceIsNoOp(t *testing.T) {
+	ns := mustNamespace(t)
+
+	// auto-routes enabled but NO gateway-service annotation.
+	gw := &gwv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "gw", Annotations: map[string]string{
+			ctrlpkg.AnnotationAutoRoutes: "true",
+		}},
+		Spec: gwv1.GatewaySpec{GatewayClassName: "x", Listeners: []gwv1.Listener{
+			{Name: "https", Protocol: gwv1.HTTPSProtocolType, Port: 443},
+		}},
+	}
+	if err := k8sClient.Create(context.Background(), gw); err != nil {
+		t.Fatal(err)
+	}
+	rt := httpRoute(ns, "r", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw", "noproxy.example")
+	if err := k8sClient.Create(context.Background(), rt); err != nil {
+		t.Fatal(err)
+	}
+
+	// A GatewayServiceUnspecified Warning must be recorded on the route.
+	waitFor(t, 60*time.Second, func() bool { return eventFor(t, ns, "r", ctrlpkg.ReasonGatewayServiceUnset) })
+
+	// And the route's hostname must never be tunneled.
+	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
+	if agentHasHostname(t, ns, tunnel, "noproxy.example") {
+		t.Fatal("route was tunneled despite the Gateway having no gateway-service")
+	}
+}
+
+// TestAutoRoutesDisableReleases verifies §11: removing towonel.io/auto-routes from a
+// Gateway releases its auto-selected routes and GCs the auto-created default agent.
+func TestAutoRoutesDisableReleases(t *testing.T) {
+	ns := mustNamespace(t)
+	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
+
+	proxy := annService(ns, "envoy", nil, corev1.ServicePort{Port: 443})
+	if err := k8sClient.Create(context.Background(), proxy); err != nil {
+		t.Fatal(err)
+	}
+	gw := autoRoutesGateway(ns, "gw", "envoy")
+	if err := k8sClient.Create(context.Background(), gw); err != nil {
+		t.Fatal(err)
+	}
+	rt := httpRoute(ns, "r", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw", "rel.example")
+	if err := k8sClient.Create(context.Background(), rt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait until the un-annotated route is auto-selected and tunneled.
+	waitFor(t, 60*time.Second, func() bool {
+		return agentHasHostname(t, ns, tunnel, "rel.example")
+	})
+
+	// Disable auto-routes by removing the annotation from the Gateway.
+	var live gwv1.Gateway
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "gw"}, &live); err != nil {
+		t.Fatal(err)
+	}
+	delete(live.Annotations, ctrlpkg.AnnotationAutoRoutes)
+	if err := k8sClient.Update(context.Background(), &live); err != nil {
+		t.Fatal(err)
+	}
+
+	// The route's routing is released and the auto-created default agent is GC'd once
+	// its routing empties. The waitingRequeue delay means GC can take up to 30s after
+	// the release fires; allow 45s (matching TestOptOutPrunesAndGCsAgent).
+	agentNN := defaultAgentNN(ns, tunnel)
+	waitFor(t, 45*time.Second, func() bool {
+		var gone towonelv1alpha1.TowonelAgent
+		return k8sClient.Get(context.Background(), agentNN, &gone) != nil
+	})
+}
+
+// TestAutoRoutesAmbiguousMultiProxyNotTunneled verifies an auto-SELECTED
+// (un-annotated) route whose parentRefs resolve to two DISTINCT gateway proxies
+// is not tunneled and emits AmbiguousGateway (the selection short-circuits on the
+// first parent, but origin resolution walks all parents and detects ambiguity).
+func TestAutoRoutesAmbiguousMultiProxyNotTunneled(t *testing.T) {
+	ns := mustNamespace(t)
+	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
+
+	// Two distinct proxy Services → two distinct origins.
+	if err := k8sClient.Create(context.Background(), annService(ns, "envoy-a", nil, corev1.ServicePort{Port: 443})); err != nil {
+		t.Fatal(err)
+	}
+	if err := k8sClient.Create(context.Background(), annService(ns, "envoy-b", nil, corev1.ServicePort{Port: 443})); err != nil {
+		t.Fatal(err)
+	}
+	// Two same-namespace auto-routes Gateways with DIFFERENT gateway-services.
+	if err := k8sClient.Create(context.Background(), autoRoutesGateway(ns, "gw-a", "envoy-a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := k8sClient.Create(context.Background(), autoRoutesGateway(ns, "gw-b", "envoy-b")); err != nil {
+		t.Fatal(err)
+	}
+	// Un-annotated route parenting BOTH gateways; explicit tunnel-ref so a broken
+	// ambiguity guard would actually tunnel it (non-vacuous negative).
+	rt := httpRoute(ns, "amb", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw-a", "amb.example")
+	rt.Spec.ParentRefs = append(rt.Spec.ParentRefs, gwv1.ParentReference{Name: "gw-b"})
+	if err := k8sClient.Create(context.Background(), rt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ambiguity is reported as a Warning on the route...
+	waitFor(t, 60*time.Second, func() bool { return eventFor(t, ns, "amb", ctrlpkg.ReasonAmbiguousGateway) })
+	// ...and the route is never tunneled.
+	if agentHasHostname(t, ns, tunnel, "amb.example") {
+		t.Fatal("ambiguous-proxy route was tunneled; must skip with AmbiguousGateway")
+	}
+}
