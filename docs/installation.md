@@ -26,7 +26,7 @@ helm install towonel-operator \
 ```
 
 Replace `<version>` with the chart version you want to install — use the
-[latest release](https://github.com/jacaudi/towonel-operator/releases) (currently `v1.0.1`).
+[latest release](https://github.com/jacaudi/towonel-operator/releases) (currently `v1.4.1`).
 
 The image is `ghcr.io/jacaudi/towonel-operator` (multi-arch `linux/amd64` + `linux/arm64`);
 the chart's `appVersion` selects a matching image tag, so you normally don't set `image.tag`.
