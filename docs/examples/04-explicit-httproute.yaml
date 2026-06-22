@@ -48,7 +48,7 @@ spec:
 
   workload:
     replicas: 1
-    image: codeberg.org/towonel/towonel-agent:0.1.32
+    image: codeberg.org/towonel/towonel-agent:1.0.0
     resources:
       requests:
         cpu: 25m
