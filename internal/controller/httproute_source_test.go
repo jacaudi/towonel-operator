@@ -294,7 +294,7 @@ func TestAutoSelectedByGateway(t *testing.T) {
 		}
 	})
 
-	t.Run("cross-namespace parentRef → not selected (namespace scoping)", func(t *testing.T) {
+	t.Run("cross-ns + not allowlisted → not selected", func(t *testing.T) {
 		gw := mkGW(map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "envoy:443"})
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
 		r := &HTTPRouteSourceReconciler{Client: c}
@@ -311,6 +311,75 @@ func TestAutoSelectedByGateway(t *testing.T) {
 		route := mkRoute(ns, gwv1.ParentReference{Name: "x", Kind: &svcKind})
 		if sel, err := r.autoSelectedByGateway(context.Background(), route, func(string, string) {}); sel || err != nil {
 			t.Fatalf("want not selected, got sel=%v err=%v", sel, err)
+		}
+	})
+}
+
+func TestAutoSelectedByGatewayCrossNamespace(t *testing.T) {
+	const gwNS = "a"
+	mkGW := func(ann map[string]string) *gwv1.Gateway {
+		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: gwNS, Annotations: ann}}
+	}
+	// route in ns "b" with an explicit cross-namespace parentRef into gwNS "a".
+	route := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "b"},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
+			{Name: "gw", Namespace: nsPtr(gwNS)},
+		}}},
+	}
+
+	t.Run("allowlisted cross-ns route is selected", func(t *testing.T) {
+		gw := mkGW(map[string]string{
+			AnnotationAutoRoutes:           "true",
+			AnnotationAutoRoutesNamespaces: "b,c",
+			AnnotationGatewayService:       "envoy:443",
+		})
+		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
+		sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(context.Background(), route, func(string, string) {})
+		if err != nil || !sel {
+			t.Fatalf("allowlisted cross-ns route must be selected: sel=%v err=%v", sel, err)
+		}
+	})
+
+	t.Run("all wildcard selects cross-ns route", func(t *testing.T) {
+		gw := mkGW(map[string]string{
+			AnnotationAutoRoutes:           "true",
+			AnnotationAutoRoutesNamespaces: "all",
+			AnnotationGatewayService:       "envoy:443",
+		})
+		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
+		sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(context.Background(), route, func(string, string) {})
+		if err != nil || !sel {
+			t.Fatalf(`"all" must select a cross-ns route: sel=%v err=%v`, sel, err)
+		}
+	})
+
+	t.Run("auto-routes set but namespace NOT allowlisted → not selected", func(t *testing.T) {
+		gw := mkGW(map[string]string{
+			AnnotationAutoRoutes:     "true",
+			AnnotationGatewayService: "envoy:443",
+			// no auto-routes-namespaces → same-namespace only; "b" excluded
+		})
+		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
+		if sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(context.Background(), route, func(string, string) {}); sel || err != nil {
+			t.Fatalf("un-allowlisted cross-ns route must NOT be selected: sel=%v err=%v", sel, err)
+		}
+	})
+
+	t.Run("allowlisted but gateway-service absent → no-op + event", func(t *testing.T) {
+		gw := mkGW(map[string]string{
+			AnnotationAutoRoutes:           "true",
+			AnnotationAutoRoutesNamespaces: "b",
+			// no gateway-service
+		})
+		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
+		var reason string
+		sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(context.Background(), route, func(rs, _ string) { reason = rs })
+		if sel || err != nil {
+			t.Fatalf("want not selected, got sel=%v err=%v", sel, err)
+		}
+		if reason != ReasonGatewayServiceUnset {
+			t.Fatalf("want ReasonGatewayServiceUnset, got %q", reason)
 		}
 	})
 }
