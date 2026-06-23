@@ -1,0 +1,54 @@
+# Cross-namespace auto-routes (issue #39): a Gateway in ns "a" auto-tunnels
+# un-annotated HTTPRoutes in the namespaces it ALLOWLISTS.
+#
+# SECURITY: this exposes another namespace's routes to the PUBLIC Towonel edge with
+# gateway-owner-only consent. Use only in clusters you fully trust. The wildcard
+# towonel.io/auto-routes-namespaces: "all" tunnels every un-opted-out route parenting
+# this Gateway in ANY namespace (cluster-wide blast radius). A route opts OUT with
+# towonel.io/tunnel: "false".
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: external
+  namespace: a
+  annotations:
+    towonel.io/auto-routes: "true"
+    towonel.io/auto-routes-namespaces: "b"     # explicit allowlist — or "all" (see SECURITY above)
+    towonel.io/gateway-service: "a/envoy:443"  # the proxy the routes flow through (required); ns/name:port — bare "envoy:443" also works, defaulting to this Gateway's namespace
+spec:
+  gatewayClassName: kgateway
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      allowedRoutes:
+        namespaces:
+          from: All                            # Gateway API: required for a route in "b" to attach
+---
+# Un-annotated route in ns "b" → auto-tunneled because the Gateway allowlists "b".
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app
+  namespace: b
+spec:
+  parentRefs:
+    - name: external
+      namespace: a
+  hostnames:
+    - "app.example.com"
+---
+# A route in "b" that opts OUT (always wins, even under the allowlist).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: internal-only
+  namespace: b
+  annotations:
+    towonel.io/tunnel: "false"
+spec:
+  parentRefs:
+    - name: external
+      namespace: a
+  hostnames:
+    - "internal.example.com"

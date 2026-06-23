@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -87,29 +89,66 @@ func httpRouteForPredicate() predicate.Predicate {
 	)
 }
 
+// gatewayAllowsRouteNamespace reports whether gw may auto-select a route in
+// routeNS: its OWN namespace always, plus any namespace in
+// towonel.io/auto-routes-namespaces ("all" = any, case-insensitive). An absent
+// annotation means same-namespace only — the Issue #25 default. This is the
+// gateway-owner-side consent gate for cross-namespace auto-routes (#39).
+func gatewayAllowsRouteNamespace(gw *gwv1.Gateway, routeNS string) bool {
+	if gw.Namespace == routeNS {
+		return true // own namespace always — the Issue #25 default
+	}
+	raw := strings.TrimSpace(gw.Annotations[AnnotationAutoRoutesNamespaces])
+	if raw == "" {
+		return false // no allowlist → same-namespace only
+	}
+	if strings.EqualFold(raw, "all") {
+		return true
+	}
+	return slices.Contains(splitNamespaces(raw), routeNS)
+}
+
+// splitNamespaces parses the comma-separated allowlist: trim each entry, drop
+// blanks. n is single-digit, so a plain slice + slices.Contains is the right
+// shape — a map/set would be over-engineering (KISS).
+func splitNamespaces(raw string) []string {
+	var out []string
+	for ns := range strings.SplitSeq(raw, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	return out
+}
+
 // autoSelectedByGateway reports whether an un-annotated HTTPRoute is auto-selected
-// for tunneling by a parent Gateway that opted in via towonel.io/auto-routes (#25).
-// Namespace-scoped: only a parent Gateway in the route's OWN namespace counts
-// (design §2). The Gateway must also carry towonel.io/gateway-service (the proxy
-// origin routes flow THROUGH) — an auto-routes Gateway without it is a no-op and
-// emits ReasonGatewayServiceUnset. Returns (true, nil) on the first eligible
-// parent; (false, err) only on a transient Get failure (caller requeues).
+// for tunneling by a parent Gateway that opted in via towonel.io/auto-routes.
+// By default this is the route's OWN namespace (#25); a Gateway may extend it to
+// other namespaces via towonel.io/auto-routes-namespaces (#39) — own namespace
+// always, plus the allowlist ("all" = any). The Gateway must also carry
+// towonel.io/gateway-service (the proxy origin routes flow THROUGH) — an
+// auto-routes Gateway without it is a no-op and emits ReasonGatewayServiceUnset.
+// Returns (true, nil) on the first eligible parent; (false, err) only on a
+// transient Get failure (caller requeues).
 func (r *HTTPRouteSourceReconciler) autoSelectedByGateway(ctx context.Context, rtObj *gwv1.HTTPRoute, emit func(string, string)) (bool, error) {
 	for _, p := range rtObj.Spec.ParentRefs {
 		if !isGatewayParent(p) {
 			continue
 		}
-		// Namespace scoping: a nil parentRef namespace defaults to the route's own
-		// namespace; an explicit cross-namespace parentRef is never auto-selected.
-		if parentRefNamespace(p, rtObj.Namespace) != rtObj.Namespace {
-			continue
-		}
+		// Look up the Gateway in the parentRef's actual namespace (cross-namespace
+		// parentRefs are now resolvable, #39).
+		gwNS := parentRefNamespace(p, rtObj.Namespace)
 		var gw gwv1.Gateway
-		if err := r.Get(ctx, types.NamespacedName{Namespace: rtObj.Namespace, Name: string(p.Name)}, &gw); err != nil {
+		if err := r.Get(ctx, types.NamespacedName{Namespace: gwNS, Name: string(p.Name)}, &gw); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
 			return false, err // transient — requeue
+		}
+		// Namespace gate: own namespace always; cross-namespace only if the Gateway
+		// allowlists this route's namespace via towonel.io/auto-routes-namespaces.
+		if !gatewayAllowsRouteNamespace(&gw, rtObj.Namespace) {
+			continue
 		}
 		if enabled, _ := ParseTruthy(gw.Annotations[AnnotationAutoRoutes]); !enabled {
 			continue
@@ -277,12 +316,14 @@ func (r *HTTPRouteSourceReconciler) deriveHTTPRouteRouting(ctx context.Context, 
 	return out, true, nil
 }
 
-// routesForGateway enqueues HTTPRoutes affected by a change to the given Gateway:
-// every annotated route whose parentRef targets it (so a gateway-service edit
-// re-flows), plus every SAME-NAMESPACE route (annotated or not) so toggling the
-// Gateway's towonel.io/auto-routes re-flows its un-annotated children (#25, §4.4).
-// Cross-namespace un-annotated routes are skipped (never auto-selectable).
-// Reconcile re-decides opt-in for each enqueued route.
+// routesForGateway enqueues every HTTPRoute whose parentRef targets the changed
+// Gateway — same-namespace or cross-namespace, annotated or not. Reconcile
+// (autoSelectedByGateway) is the single source of truth for select-vs-release.
+// Enqueuing on the stable "parents this Gateway" fact (not the allowlist value)
+// is what makes allowlist-SHRINK release correctly: the mapper has no memory, so
+// a route dropped from towonel.io/auto-routes-namespaces must still re-reconcile
+// to be released (#39 §4). The cost is extra no-op reconciles on cross-ns routes
+// under gateways with no allowlist — accepted for correct release semantics.
 func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj client.Object) []reconcile.Request {
 	gw, ok := obj.(*gwv1.Gateway)
 	if !ok {
@@ -296,7 +337,6 @@ func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj cl
 	var reqs []reconcile.Request
 	for i := range routes.Items {
 		rt := &routes.Items[i]
-		_, annotated := rt.Annotations[AnnotationTunnel]
 		for _, p := range rt.Spec.ParentRefs {
 			if !isGatewayParent(p) {
 				continue
@@ -305,14 +345,7 @@ func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj cl
 			if ns != gw.Namespace || string(p.Name) != gw.Name {
 				continue
 			}
-			// Enqueue if the route is explicitly annotated (apply/release as before)
-			// OR it lives in the Gateway's OWN namespace — only same-namespace routes
-			// can inherit towonel.io/auto-routes (#25, §2), so a cross-namespace
-			// un-annotated route can never be selected and is skipped. Reconcile
-			// re-decides opt-in for everything enqueued.
-			if annotated || rt.Namespace == gw.Namespace {
-				reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
-			}
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
 			break
 		}
 	}

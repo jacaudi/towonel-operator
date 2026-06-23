@@ -27,6 +27,7 @@ You can author those resources directly, or annotate a `Service`, `Gateway`, or
 `HTTPRoute` and let the operator materialize them (the dogfooding path). Set
 `towonel.io/auto-routes: "true"` on a Gateway to tunnel its same-namespace HTTPRoutes
 without annotating each one — see [Gateway auto-routes](docs/source-layer.md#gateway-auto-routes-towonelioauto-routes).
+A Gateway can extend auto-routes to other namespaces with an opt-in `towonel.io/auto-routes-namespaces` allowlist (off by default) — note the [security implications](docs/source-layer.md#cross-namespace-auto-routes-towonelioauto-routes-namespaces) of public cross-namespace exposure.
 See [`docs/architecture.md`](docs/architecture.md) for the why behind the two-resource split.
 
 ## Quickstart

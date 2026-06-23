@@ -103,12 +103,20 @@ const (
 	AnnotationSrcEdgeTLSMode = "towonel.io/edge-tls-mode"
 	AnnotationSrcProtocol    = "towonel.io/protocol"
 	AnnotationGatewayService = "towonel.io/gateway-service"
-	// AnnotationAutoRoutes opts a Gateway into auto-tunneling its SAME-NAMESPACE
-	// child HTTPRoutes (issue #25). DISTINCT from AnnotationTunnel, which on a
-	// Gateway means gateway-as-source (forward the Gateway's own listener
-	// hostnames). Both may coexist on one Gateway. Requires AnnotationGatewayService.
+	// AnnotationAutoRoutes opts a Gateway into auto-tunneling un-annotated child
+	// HTTPRoutes (issue #25). By default this is the Gateway's OWN namespace only;
+	// AnnotationAutoRoutesNamespaces (below) extends it to listed namespaces (#39).
+	// DISTINCT from AnnotationTunnel, which on a Gateway means gateway-as-source
+	// (forward the Gateway's own listener hostnames). Both may coexist on one
+	// Gateway. Requires AnnotationGatewayService.
 	AnnotationAutoRoutes = "towonel.io/auto-routes"
-	AnnotationDNSRecord  = "towonel.io/dns-record" // reserved (DNS phase); inert in P5
+	// AnnotationAutoRoutesNamespaces extends AnnotationAutoRoutes across namespaces
+	// (issue #39): a comma-separated namespace allowlist, or the wildcard "all"
+	// (any namespace, case-insensitive). Absent → same-namespace only (#25). This
+	// is gateway-owner-side consent to PUBLICLY expose those namespaces' un-opted-out
+	// routes; per-route towonel.io/tunnel:"false" is the only target-side opt-out.
+	AnnotationAutoRoutesNamespaces = "towonel.io/auto-routes-namespaces"
+	AnnotationDNSRecord            = "towonel.io/dns-record" // reserved (DNS phase); inert in P5
 
 	// Operator-managed agent markers (design §5/§6).
 	LabelManagedBy        = "app.kubernetes.io/managed-by"

@@ -760,3 +760,140 @@ func TestAutoRoutesAmbiguousMultiProxyNotTunneled(t *testing.T) {
 		t.Fatal("ambiguous-proxy route was tunneled; must skip with AmbiguousGateway")
 	}
 }
+
+// autoRoutesGatewayNS is autoRoutesGateway plus a towonel.io/auto-routes-namespaces
+// allowlist (e.g. "b" or "all").
+func autoRoutesGatewayNS(ns, name, proxySvc, allowlist string) *gwv1.Gateway {
+	gw := autoRoutesGateway(ns, name, proxySvc)
+	gw.Annotations[ctrlpkg.AnnotationAutoRoutesNamespaces] = allowlist
+	return gw
+}
+
+// crossNSRoute builds an HTTPRoute in routeNS with an explicit cross-namespace
+// Gateway parentRef into gwNS, one hostname, and the given annotations.
+func crossNSRoute(routeNS, name, gwNS, gwName, host string, ann map[string]string) *gwv1.HTTPRoute {
+	n := gwv1.Namespace(gwNS)
+	return &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Namespace: routeNS, Name: name, Annotations: ann},
+		Spec: gwv1.HTTPRouteSpec{
+			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
+				{Name: gwv1.ObjectName(gwName), Namespace: &n},
+			}},
+			Hostnames: []gwv1.Hostname{gwv1.Hostname(host)},
+		},
+	}
+}
+
+// TestAutoRoutesCrossNamespace verifies #39 end to end: a Gateway in ns A that
+// allowlists ns B auto-tunnels an un-annotated route in B (with the Normal event);
+// an explicit towonel.io/tunnel:"false" route in B is excluded; and removing B from
+// the allowlist releases the route and GCs the auto-created agent.
+func TestAutoRoutesCrossNamespace(t *testing.T) {
+	gwNS := mustNamespace(t)
+	routeNS := mustNamespace(t)
+	tunnel := types.NamespacedName{Namespace: routeNS, Name: "gwtun"}
+
+	proxy := annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443})
+	if err := k8sClient.Create(context.Background(), proxy); err != nil {
+		t.Fatal(err)
+	}
+	gw := autoRoutesGatewayNS(gwNS, "gw", "envoy", routeNS) // allowlist exactly routeNS
+	if err := k8sClient.Create(context.Background(), gw); err != nil {
+		t.Fatal(err)
+	}
+	// un-annotated route in routeNS, explicit cross-ns parentRef into gwNS, tunnel-ref to its own ns.
+	inherit := crossNSRoute(routeNS, "inherit", gwNS, "gw", "inherit.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"})
+	optOut := crossNSRoute(routeNS, "optout", gwNS, "gw", "optout.example", map[string]string{
+		ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: "false",
+	})
+	for _, r := range []*gwv1.HTTPRoute{inherit, optOut} {
+		if err := k8sClient.Create(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// inherited route is tunneled + carries the Normal event.
+	waitFor(t, 60*time.Second, func() bool { return agentHasHostname(t, routeNS, tunnel, "inherit.example") })
+	waitFor(t, 30*time.Second, func() bool { return eventFor(t, routeNS, "inherit", ctrlpkg.ReasonAutoSelectedByGateway) })
+	// opt-out route is never tunneled. inherit is its positive twin — identical setup
+	// (same namespace, Gateway, gateway-service, tunnel-ref), the ONLY difference being
+	// towonel.io/tunnel:"false". Both were created in one batch, so inherit's completed
+	// reconcile is the settle anchor proving the wave covering optout was processed; the
+	// stability window then guards against a vacuous pass before optout reconciled.
+	if agentHasHostname(t, routeNS, tunnel, "optout.example") {
+		t.Fatal("towonel.io/tunnel:false cross-ns route must be excluded")
+	}
+	assertStaysAbsent(t, 1*time.Second, routeNS, tunnel, "optout.example")
+
+	// Remove routeNS from the allowlist → the inherited route must be released and the agent GC'd.
+	var live gwv1.Gateway
+	waitFor(t, 5*time.Second, func() bool {
+		return k8sClient.Get(context.Background(), types.NamespacedName{Namespace: gwNS, Name: "gw"}, &live) == nil
+	})
+	delete(live.Annotations, ctrlpkg.AnnotationAutoRoutesNamespaces)
+	if err := k8sClient.Update(context.Background(), &live); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 45*time.Second, func() bool {
+		var gone towonelv1alpha1.TowonelAgent
+		return k8sClient.Get(context.Background(), defaultAgentNN(routeNS, tunnel), &gone) != nil
+	})
+}
+
+// TestAutoRoutesAllWildcard verifies "all" selects an un-annotated cross-namespace
+// route whose namespace is not explicitly listed.
+func TestAutoRoutesAllWildcard(t *testing.T) {
+	gwNS := mustNamespace(t)
+	routeNS := mustNamespace(t)
+	tunnel := types.NamespacedName{Namespace: routeNS, Name: "gwtun"}
+
+	proxy := annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443})
+	if err := k8sClient.Create(context.Background(), proxy); err != nil {
+		t.Fatal(err)
+	}
+	gw := autoRoutesGatewayNS(gwNS, "gw", "envoy", "all")
+	if err := k8sClient.Create(context.Background(), gw); err != nil {
+		t.Fatal(err)
+	}
+	route := crossNSRoute(routeNS, "any", gwNS, "gw", "any.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"})
+	if err := k8sClient.Create(context.Background(), route); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 60*time.Second, func() bool { return agentHasHostname(t, routeNS, tunnel, "any.example") })
+}
+
+// TestAutoRoutesMultiNamespaceSharedGateway exercises ONE Gateway fronting routes
+// across several namespaces with a PARTIAL allowlist: the allowlisted namespace's
+// route tunnels, the non-allowlisted one never does. It is the watchpoint for the
+// mapper-amplification cost (§4) — every parenting route reconciles on a Gateway
+// change. The negative is non-vacuous: both routes share an identical setup (same
+// Gateway, same gateway-service, valid tunnel-ref); only the namespace differs.
+func TestAutoRoutesMultiNamespaceSharedGateway(t *testing.T) {
+	gwNS := mustNamespace(t)
+	nsAllowed := mustNamespace(t)
+	nsDenied := mustNamespace(t)
+	tunAllowed := types.NamespacedName{Namespace: nsAllowed, Name: "gwtun"}
+	tunDenied := types.NamespacedName{Namespace: nsDenied, Name: "gwtun"}
+
+	proxy := annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443})
+	if err := k8sClient.Create(context.Background(), proxy); err != nil {
+		t.Fatal(err)
+	}
+	gw := autoRoutesGatewayNS(gwNS, "gw", "envoy", nsAllowed) // allowlist only nsAllowed
+	if err := k8sClient.Create(context.Background(), gw); err != nil {
+		t.Fatal(err)
+	}
+	allowed := crossNSRoute(nsAllowed, "r", gwNS, "gw", "allowed.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"})
+	denied := crossNSRoute(nsDenied, "r", gwNS, "gw", "denied.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"})
+	for _, rt := range []*gwv1.HTTPRoute{allowed, denied} {
+		if err := k8sClient.Create(context.Background(), rt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// the allowlisted namespace's route tunnels...
+	waitFor(t, 60*time.Second, func() bool { return agentHasHostname(t, nsAllowed, tunAllowed, "allowed.example") })
+	// ...the non-allowlisted namespace's route never does.
+	if agentHasHostname(t, nsDenied, tunDenied, "denied.example") {
+		t.Fatal("route in a non-allowlisted namespace must NOT be tunneled by the shared Gateway")
+	}
+}
