@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.0](https://github.com/jacaudi/towonel-operator/compare/v1.4.1...v1.5.0) (2026-06-23)
+### Features
+
+* **source:** opt-in cross-namespace auto-routes via towonel.io/auto-routes-namespaces ([#39](https://github.com/jacaudi/towonel-operator/issues/39)) ([#40](https://github.com/jacaudi/towonel-operator/issues/40)) ([f3eb7bd](https://github.com/jacaudi/towonel-operator/commit/f3eb7bd2f089a77036e5bb67a12889729be658ae))
+
 ## [1.4.1](https://github.com/jacaudi/towonel-operator/compare/v1.4.0...v1.4.1) (2026-06-22)
 ### Dependencies
 
