@@ -14,7 +14,7 @@ metadata:
   annotations:
     towonel.io/auto-routes: "true"
     towonel.io/auto-routes-namespaces: "b"     # explicit allowlist — or "all" (see SECURITY above)
-    towonel.io/gateway-service: "a/envoy:443"  # the proxy the routes flow through (required)
+    towonel.io/gateway-service: "a/envoy:443"  # the proxy the routes flow through (required); ns/name:port — bare "envoy:443" also works, defaulting to this Gateway's namespace
 spec:
   gatewayClassName: kgateway
   listeners:

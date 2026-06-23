@@ -815,10 +815,15 @@ func TestAutoRoutesCrossNamespace(t *testing.T) {
 	// inherited route is tunneled + carries the Normal event.
 	waitFor(t, 60*time.Second, func() bool { return agentHasHostname(t, routeNS, tunnel, "inherit.example") })
 	waitFor(t, 30*time.Second, func() bool { return eventFor(t, routeNS, "inherit", ctrlpkg.ReasonAutoSelectedByGateway) })
-	// opt-out route is never tunneled.
+	// opt-out route is never tunneled. inherit is its positive twin — identical setup
+	// (same namespace, Gateway, gateway-service, tunnel-ref), the ONLY difference being
+	// towonel.io/tunnel:"false". Both were created in one batch, so inherit's completed
+	// reconcile is the settle anchor proving the wave covering optout was processed; the
+	// stability window then guards against a vacuous pass before optout reconciled.
 	if agentHasHostname(t, routeNS, tunnel, "optout.example") {
 		t.Fatal("towonel.io/tunnel:false cross-ns route must be excluded")
 	}
+	assertStaysAbsent(t, 1*time.Second, routeNS, tunnel, "optout.example")
 
 	// Remove routeNS from the allowlist → the inherited route must be released and the agent GC'd.
 	var live gwv1.Gateway
