@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -85,6 +87,38 @@ func httpRouteForPredicate() predicate.Predicate {
 		httpRouteSourcePredicate(),
 		predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}),
 	)
+}
+
+// gatewayAllowsRouteNamespace reports whether gw may auto-select a route in
+// routeNS: its OWN namespace always, plus any namespace in
+// towonel.io/auto-routes-namespaces ("all" = any, case-insensitive). An absent
+// annotation means same-namespace only — the Issue #25 default. This is the
+// gateway-owner-side consent gate for cross-namespace auto-routes (#39).
+func gatewayAllowsRouteNamespace(gw *gwv1.Gateway, routeNS string) bool {
+	if gw.Namespace == routeNS {
+		return true // own namespace always — the Issue #25 default
+	}
+	raw := strings.TrimSpace(gw.Annotations[AnnotationAutoRoutesNamespaces])
+	if raw == "" {
+		return false // no allowlist → same-namespace only
+	}
+	if strings.EqualFold(raw, "all") {
+		return true
+	}
+	return slices.Contains(splitNamespaces(raw), routeNS)
+}
+
+// splitNamespaces parses the comma-separated allowlist: trim each entry, drop
+// blanks. n is single-digit, so a plain slice + slices.Contains is the right
+// shape — a map/set would be over-engineering (KISS).
+func splitNamespaces(raw string) []string {
+	var out []string
+	for ns := range strings.SplitSeq(raw, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	return out
 }
 
 // autoSelectedByGateway reports whether an un-annotated HTTPRoute is auto-selected

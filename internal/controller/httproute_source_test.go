@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -355,5 +356,61 @@ func TestParentRefNamespace(t *testing.T) {
 	}
 	if got := parentRefNamespace(gwv1.ParentReference{Name: "gw", Namespace: nsPtr("other")}, "route-ns"); got != "other" {
 		t.Fatalf("explicit namespace must win, got %q", got)
+	}
+}
+
+func TestSplitNamespaces(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{"single", "b", []string{"b"}},
+		{"two", "b,c", []string{"b", "c"}},
+		{"trims and drops blanks", " b , , c ,", []string{"b", "c"}},
+		{"all blank", "  ,  ", nil},
+		{"empty", "", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := splitNamespaces(tc.raw)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("splitNamespaces(%q) = %v, want %v", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGatewayAllowsRouteNamespace(t *testing.T) {
+	gw := func(ann string) *gwv1.Gateway {
+		m := map[string]string{}
+		if ann != "" {
+			m[AnnotationAutoRoutesNamespaces] = ann
+		}
+		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: "a", Annotations: m}}
+	}
+	cases := []struct {
+		name    string
+		ann     string
+		routeNS string
+		want    bool
+	}{
+		{"own namespace, no annotation", "", "a", true},
+		{"own namespace, ignores annotation", "x", "a", true},
+		{"listed", "b,c", "b", true},
+		{"listed second", "b,c", "c", true},
+		{"unlisted", "b,c", "d", false},
+		{"all", "all", "z", true},
+		{"all mixed case", "All", "z", true},
+		{"all whitespace padded", " all ", "z", true},
+		{"absent annotation, cross-ns", "", "b", false},
+		{"whitespace-only annotation, cross-ns", "   ", "b", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gatewayAllowsRouteNamespace(gw(tc.ann), tc.routeNS); got != tc.want {
+				t.Fatalf("gatewayAllowsRouteNamespace(ann=%q, routeNS=%q) = %v, want %v", tc.ann, tc.routeNS, got, tc.want)
+			}
+		})
 	}
 }
