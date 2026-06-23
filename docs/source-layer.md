@@ -116,10 +116,46 @@ spec:
 The operator records a Normal `AutoSelectedByGateway` Event on each inherited route, so you can
 audit what got exposed with `kubectl describe httproute <name>`.
 
+### Cross-namespace auto-routes (`towonel.io/auto-routes-namespaces`)
+
+By default `towonel.io/auto-routes` only auto-selects routes in the Gateway's **own**
+namespace. To extend it across namespaces, add an explicit allowlist on the Gateway:
+
+```yaml
+metadata:
+  annotations:
+    towonel.io/auto-routes: "true"
+    towonel.io/auto-routes-namespaces: "b,c"   # comma-separated — or "all" (any namespace)
+    towonel.io/gateway-service: a/envoy:443
+```
+
+An un-annotated HTTPRoute in `b` or `c` that parents this Gateway is now auto-tunneled,
+exactly like a same-namespace one. Everything else is unchanged: a route's own
+`towonel.io/tunnel` still wins (`"false"` opts out anywhere), and `gateway-service`
+is still required.
+
+> ⚠️ **SECURITY — read before using.** Auto-routes exposes a route to the **public**
+> Towonel edge **without per-route opt-in**. Cross-namespace auto-routes therefore lets
+> a Gateway owner publish **another namespace's** routes to the public internet with
+> **only the Gateway owner's consent** — the target namespace cannot refuse short of
+> setting `towonel.io/tunnel: "false"` on each route. Use it **only in clusters you fully
+> trust** (single-tenant / homelab). **`towonel.io/auto-routes-namespaces: "all"` is a
+> blanket escape hatch:** every un-opted-out HTTPRoute that parents the Gateway, in **any**
+> namespace, is auto-tunneled — a single annotation with cluster-wide blast radius.
+>
+> _Future hardening:_ this is unilateral (gateway-side) consent. A target-namespace
+> consent signal (a Namespace label or ReferenceGrant-style object) is the intended path
+> for multi-tenant clusters and may be added later.
+
+Note (Gateway API): a cross-namespace route only *attaches* to the Gateway if the
+listener's `allowedRoutes.namespaces` admits it; otherwise it 404s at the Gateway. The
+operator does not check this — see the route's own status for attachment.
+
 ### Where auto-routes does NOT apply
 
-- **Cross-namespace routes.** An HTTPRoute in a *different* namespace than the Gateway is **not**
-  auto-selected, even if it parents the enabled Gateway. It still needs its own `towonel.io/tunnel: "true"`.
+- **Cross-namespace routes without an allowlist.** An HTTPRoute in a *different* namespace
+  than the Gateway is **not** auto-selected unless the Gateway allowlists that namespace via
+  `towonel.io/auto-routes-namespaces` (see [Cross-namespace auto-routes](#cross-namespace-auto-routes-towonelioauto-routes-namespaces) above). Without the allowlist it still needs its own `towonel.io/tunnel: "true"`.
 - **Gateway without `towonel.io/gateway-service`.** No origin to forward through → no-op + a
   `GatewayServiceUnspecified` Warning Event on the route.
 - **Gateway API disabled** (`--enable-gateway-api=false`). The HTTPRoute/Gateway controllers don't run.
