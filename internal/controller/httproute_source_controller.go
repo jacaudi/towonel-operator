@@ -316,12 +316,14 @@ func (r *HTTPRouteSourceReconciler) deriveHTTPRouteRouting(ctx context.Context, 
 	return out, true, nil
 }
 
-// routesForGateway enqueues HTTPRoutes affected by a change to the given Gateway:
-// every annotated route whose parentRef targets it (so a gateway-service edit
-// re-flows), plus every SAME-NAMESPACE route (annotated or not) so toggling the
-// Gateway's towonel.io/auto-routes re-flows its un-annotated children (#25, §4.4).
-// Cross-namespace un-annotated routes are skipped (never auto-selectable).
-// Reconcile re-decides opt-in for each enqueued route.
+// routesForGateway enqueues every HTTPRoute whose parentRef targets the changed
+// Gateway — same-namespace or cross-namespace, annotated or not. Reconcile
+// (autoSelectedByGateway) is the single source of truth for select-vs-release.
+// Enqueuing on the stable "parents this Gateway" fact (not the allowlist value)
+// is what makes allowlist-SHRINK release correctly: the mapper has no memory, so
+// a route dropped from towonel.io/auto-routes-namespaces must still re-reconcile
+// to be released (#39 §4). The cost is extra no-op reconciles on cross-ns routes
+// under gateways with no allowlist — accepted for correct release semantics.
 func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj client.Object) []reconcile.Request {
 	gw, ok := obj.(*gwv1.Gateway)
 	if !ok {
@@ -335,7 +337,6 @@ func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj cl
 	var reqs []reconcile.Request
 	for i := range routes.Items {
 		rt := &routes.Items[i]
-		_, annotated := rt.Annotations[AnnotationTunnel]
 		for _, p := range rt.Spec.ParentRefs {
 			if !isGatewayParent(p) {
 				continue
@@ -344,14 +345,7 @@ func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj cl
 			if ns != gw.Namespace || string(p.Name) != gw.Name {
 				continue
 			}
-			// Enqueue if the route is explicitly annotated (apply/release as before)
-			// OR it lives in the Gateway's OWN namespace — only same-namespace routes
-			// can inherit towonel.io/auto-routes (#25, §2), so a cross-namespace
-			// un-annotated route can never be selected and is skipped. Reconcile
-			// re-decides opt-in for everything enqueued.
-			if annotated || rt.Namespace == gw.Namespace {
-				reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
-			}
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
 			break
 		}
 	}

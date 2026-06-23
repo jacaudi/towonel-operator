@@ -19,22 +19,23 @@ func nsPtr(s string) *gwv1.Namespace { n := gwv1.Namespace(s); return &n }
 
 func TestRoutesForGatewayMatchesByDefaultedNamespace(t *testing.T) {
 	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway"}}
-	// route A: parentRef nil-namespace, same namespace as gateway → MUST match (defaults to route ns == kgateway)
+	// route A: parentRef nil-namespace, same namespace as gateway → matches.
 	routeA := &gwv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "kgateway", Annotations: map[string]string{AnnotationTunnel: "enable"}},
 		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external"}}}},
 	}
-	// route B: explicit cross-namespace parentRef → MUST match
+	// route B: annotated, explicit cross-namespace parentRef → matches.
 	routeB := &gwv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"}},
 		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
 	}
-	// route C: un-annotated → MUST NOT match
+	// route C: UN-annotated, cross-namespace parentRef → now MUST enqueue (#39: the
+	// mapper enqueues every route parenting the gateway; Reconcile decides select/release).
 	routeC := &gwv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "immich"},
 		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
 	}
-	// route D: annotated, but parentRef targets a DIFFERENT gateway name → MUST NOT match (locks name/namespace scoping)
+	// route D: parentRef targets a DIFFERENT gateway name → MUST NOT match (locks name scoping).
 	routeD := &gwv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"}},
 		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: nsPtr("kgateway")}}}},
@@ -45,29 +46,38 @@ func TestRoutesForGatewayMatchesByDefaultedNamespace(t *testing.T) {
 	for _, r := range reqs {
 		got[r.NamespacedName.String()] = true
 	}
-	if len(reqs) != 2 || !got["kgateway/a"] || !got["immich/b"] {
-		t.Fatalf("want exactly {kgateway/a, immich/b}, got %v", reqs)
+	if len(reqs) != 3 || !got["kgateway/a"] || !got["immich/b"] || !got["immich/c"] {
+		t.Fatalf("want exactly {kgateway/a, immich/b, immich/c}, got %v", reqs)
 	}
 }
 
-func TestRoutesForGatewayEnqueuesSameNamespaceUnannotatedRoute(t *testing.T) {
+func TestRoutesForGatewayEnqueuesAllParentingRoutes(t *testing.T) {
 	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway"}}
-	// un-annotated route in the GATEWAY's namespace parenting it → MUST enqueue
-	// (candidate for towonel.io/auto-routes inheritance; Reconcile decides).
+	// un-annotated route in the GATEWAY's namespace → enqueue.
 	sameNS := &gwv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{Name: "e", Namespace: "kgateway"},
 		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external"}}}},
 	}
-	// un-annotated route in a DIFFERENT namespace parenting it → MUST NOT enqueue
-	// (cross-namespace routes are never auto-selected).
+	// un-annotated route in ANOTHER namespace → now ALSO enqueue (#39): the mapper
+	// can't read the allowlist coherently across allowlist-shrink, so it enqueues
+	// every parenting route and lets Reconcile select-or-release.
 	crossNS := &gwv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "immich"},
 		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
 	}
-	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(sameNS, crossNS).Build()
+	// route parenting a DIFFERENT gateway → not enqueued.
+	other := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "o", Namespace: "immich"},
+		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: nsPtr("kgateway")}}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(sameNS, crossNS, other).Build()
 	reqs := (&HTTPRouteSourceReconciler{Client: c}).routesForGateway(context.Background(), gw)
-	if len(reqs) != 1 || reqs[0].NamespacedName.String() != "kgateway/e" {
-		t.Fatalf("want exactly {kgateway/e}, got %v", reqs)
+	got := map[string]bool{}
+	for _, r := range reqs {
+		got[r.NamespacedName.String()] = true
+	}
+	if len(reqs) != 2 || !got["kgateway/e"] || !got["immich/x"] {
+		t.Fatalf("want exactly {kgateway/e, immich/x}, got %v", reqs)
 	}
 }
 
