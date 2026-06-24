@@ -1,0 +1,31 @@
+{{- /*
+Opt-in PodMonitor (issue #36) scraping operator-managed Towonel agent pods'
+/metrics across all namespaces. Hand-rolled (not via bjw-s common) because
+common's PodMonitor class hardcodes namespaceSelector/metadata.namespace to the
+release namespace and so cannot select agent pods in other namespaces.
+*/ -}}
+{{- if .Values.observability.metrics.agentPodMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: towonel-operator-agents
+  labels:
+    app.kubernetes.io/part-of: towonel-operator
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- with .Values.observability.metrics.agentPodMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # any:true = ALL namespaces (agents are dynamic & cross-namespace). An empty
+  # `{}` would select only THIS namespace — the Prometheus Operator default.
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: towonel-agent
+      app.kubernetes.io/part-of: towonel-operator
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.observability.metrics.agentPodMonitor.interval }}
+{{- end }}

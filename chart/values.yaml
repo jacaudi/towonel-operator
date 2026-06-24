@@ -52,6 +52,19 @@ observability:
     serviceMonitor:
       enabled: false
       interval: 30s
+    # agentPodMonitor scrapes operator-managed Towonel AGENT pods' /metrics (port
+    # 9090) across ALL namespaces (agents are created dynamically). Opt-in, off by
+    # default. Requires the Prometheus Operator PodMonitor CRD (monitoring.coreos.com/v1):
+    # with this enabled, helm install/upgrade fails on clusters without that CRD.
+    agentPodMonitor:
+      enabled: false
+      interval: 30s
+      # additionalLabels are added to the PodMonitor metadata. MOST Prometheus
+      # installs (e.g. kube-prometheus-stack) only discover PodMonitors carrying a
+      # specific label (podMonitorSelector, usually the release name); WITHOUT it
+      # the PodMonitor is silently ignored — enabled but never scraped. Example:
+      #   additionalLabels: { release: kube-prometheus-stack }
+      additionalLabels: {}
 
 # Source layer (P5).
 gatewayAPI:
