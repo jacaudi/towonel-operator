@@ -81,6 +81,21 @@ tasks:
       # build`, which would need the upstream repo registered (absent in CI).
       - helm lint chart/
 
+  helm-template-test:
+    desc: Render-assert the opt-in agent PodMonitor template (issue #36)
+    cmds:
+      - |
+        set -eu
+        on=$(helm template chart/ --set observability.metrics.agentPodMonitor.enabled=true)
+        echo "$on" | grep -q "kind: PodMonitor"                     || { echo "enabled: PodMonitor not rendered" >&2; exit 1; }
+        echo "$on" | grep -q "app.kubernetes.io/name: towonel-agent" || { echo "enabled: agent name selector missing" >&2; exit 1; }
+        echo "$on" | grep -q "app.kubernetes.io/part-of: towonel-operator" || { echo "enabled: part-of selector missing" >&2; exit 1; }
+        echo "$on" | grep -q "any: true"                            || { echo "enabled: namespaceSelector any:true missing" >&2; exit 1; }
+        echo "$on" | grep -q "port: metrics"                        || { echo "enabled: metrics endpoint port missing" >&2; exit 1; }
+        off=$(helm template chart/)
+        if echo "$off" | grep -q "kind: PodMonitor"; then echo "default: PodMonitor must NOT render when disabled" >&2; exit 1; fi
+        echo "helm-template-test OK"
+
   docker-build:
     desc: Build the operator image (no push)
     cmds:
@@ -108,4 +123,5 @@ tasks:
       - task: build
       - task: test
       - task: helm-lint
+      - task: helm-template-test
       - task: verify-generated

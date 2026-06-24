@@ -87,12 +87,19 @@ func connectivityEnv(ta *towonelv1alpha1.TowonelAgent, p connectivityPlan) []cor
 	return env
 }
 
-// agentContainerPorts declares the UDP iroh port when pinned (design §4/§7).
+// agentContainerPorts declares the agent's container ports: the metrics/health
+// port (9090/TCP, served unconditionally — /metrics + /healthz + /readyz, #36)
+// and the UDP iroh port when pinned (design §4/§7). The metrics port is always
+// present so the chart PodMonitor (towonel.io agent metrics) can scrape it;
+// declaring it is pure pod metadata (the agent already listens on 9090).
 func agentContainerPorts(irohPort int32) []corev1.ContainerPort {
-	if irohPort == 0 {
-		return nil
+	ports := []corev1.ContainerPort{
+		{Name: "metrics", ContainerPort: agentHealthPort, Protocol: corev1.ProtocolTCP},
 	}
-	return []corev1.ContainerPort{{Name: "iroh", ContainerPort: irohPort, Protocol: corev1.ProtocolUDP}}
+	if irohPort != 0 {
+		ports = append(ports, corev1.ContainerPort{Name: "iroh", ContainerPort: irohPort, Protocol: corev1.ProtocolUDP})
+	}
+	return ports
 }
 
 func agentLabels(ta *towonelv1alpha1.TowonelAgent) map[string]string {

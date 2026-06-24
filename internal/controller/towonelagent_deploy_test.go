@@ -119,6 +119,24 @@ func TestBuildDeployment(t *testing.T) {
 	if dep.Spec.Selector.MatchLabels[LabelAppInstance] != "edge-a" {
 		t.Error("selector instance label")
 	}
+	// #36: the agent container always declares the metrics port so the chart
+	// PodMonitor can scrape /metrics on 9090.
+	var hasMetrics bool
+	for _, p := range ctr.Ports {
+		if p.Name == "metrics" && p.ContainerPort == agentHealthPort && p.Protocol == corev1.ProtocolTCP {
+			hasMetrics = true
+		}
+	}
+	if !hasMetrics {
+		t.Errorf("agent container must declare the metrics port (9090/TCP); got %+v", ctr.Ports)
+	}
+	// #36: pod-template labels the chart PodMonitor selects on. Regression guard —
+	// the selector silently depends on these (set by an inline map in buildDeployment,
+	// not agentLabels), so a divergence here would break scraping.
+	if pod.Labels[LabelAppName] != AgentAppName || pod.Labels[LabelPartOf] != PartOfValue {
+		t.Errorf("pod template must carry %s=%s + %s=%s for the PodMonitor selector; got %v",
+			LabelAppName, AgentAppName, LabelPartOf, PartOfValue, pod.Labels)
+	}
 }
 
 func TestBuildDeploymentPartialResources(t *testing.T) {

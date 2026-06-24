@@ -72,6 +72,9 @@ are recommended when tunnels span teams/accounts.
 | `agentNodeRBAC.create` | `true` | Shared node-reader `ClusterRole`/`ClusterRoleBinding` for [direct-path autodiscover](connectivity.md) (inert until used) |
 | `resources` | 100m/128Mi → 500m/512Mi | Operator resource requests/limits |
 | `observability.metrics.serviceMonitor.enabled` | `false` | Emit a Prometheus `ServiceMonitor` |
+| `observability.metrics.agentPodMonitor.enabled` | `false` | Opt-in cluster-wide `PodMonitor` scraping agent pods' `/metrics` (needs the Prometheus Operator CRD) |
+| `observability.metrics.agentPodMonitor.interval` | `30s` | Scrape interval for the agent `PodMonitor` |
+| `observability.metrics.agentPodMonitor.additionalLabels` | `{}` | Labels added to the `PodMonitor` (e.g. `release: kube-prometheus-stack`) so a `podMonitorSelector`-scoped Prometheus discovers it |
 
 ## Manager flags
 

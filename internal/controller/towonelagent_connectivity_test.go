@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -203,6 +204,38 @@ func TestReconcileNodeReaderShellMissing(t *testing.T) {
 	}
 	if !missing {
 		t.Error("expected shellMissing=true when the chart-owned binding is absent")
+	}
+}
+
+func TestAgentContainerPorts(t *testing.T) {
+	cases := []struct {
+		name     string
+		irohPort int32
+		want     []corev1.ContainerPort
+	}{
+		{
+			name:     "no iroh — metrics port only, always present",
+			irohPort: 0,
+			want: []corev1.ContainerPort{
+				{Name: "metrics", ContainerPort: agentHealthPort, Protocol: corev1.ProtocolTCP},
+			},
+		},
+		{
+			name:     "iroh pinned — metrics first, then iroh",
+			irohPort: 12345,
+			want: []corev1.ContainerPort{
+				{Name: "metrics", ContainerPort: agentHealthPort, Protocol: corev1.ProtocolTCP},
+				{Name: "iroh", ContainerPort: 12345, Protocol: corev1.ProtocolUDP},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := agentContainerPorts(tc.irohPort)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("agentContainerPorts(%d) = %+v, want %+v", tc.irohPort, got, tc.want)
+			}
+		})
 	}
 }
 
