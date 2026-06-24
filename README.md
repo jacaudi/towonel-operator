@@ -97,6 +97,25 @@ DNS provider. See [`docs/dns.md`](docs/dns.md).
 kubectl get towoneltunnel app -n towonel-system -o yaml   # inspect status
 ```
 
+## Agent metrics (Prometheus)
+
+Operator-managed Towonel **agent** pods serve Prometheus metrics at `/metrics` on port `9090`. Scraping is **opt-in and off by default**. Enable a single cluster-wide `PodMonitor` (selects all agent pods in every namespace) via the chart:
+
+```yaml
+observability:
+  metrics:
+    agentPodMonitor:
+      enabled: true
+      # Most Prometheus installs only discover PodMonitors carrying a specific label:
+      additionalLabels:
+        release: kube-prometheus-stack
+```
+
+- **Requires the Prometheus Operator `PodMonitor` CRD** (`monitoring.coreos.com/v1`). With the toggle on, `helm install`/`upgrade` fails on clusters without it.
+- **`additionalLabels` is usually required.** kube-prometheus-stack only selects PodMonitors carrying its release label; without it the PodMonitor is silently ignored — enabled but never scraped.
+- **Namespace-scoped Prometheus.** The PodMonitor selects pods in all namespaces (`namespaceSelector.any: true`), but a Prometheus restricted by `podMonitorNamespaceSelector` must be allowed to read it and the agent namespaces.
+- **Existing agents.** The `metrics` port reaches already-running agents only on their next config change; to cover them immediately, run `kubectl rollout restart deploy -l app.kubernetes.io/name=towonel-agent`.
+
 ## Documentation
 
 Full docs live in [`docs/`](docs/):
