@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.6.0](https://github.com/jacaudi/towonel-operator/compare/v1.5.0...v1.6.0) (2026-06-24)
+### Features
+
+* expose operator-managed agent /metrics for Prometheus scraping ([#36](https://github.com/jacaudi/towonel-operator/issues/36)) ([8d8e9af](https://github.com/jacaudi/towonel-operator/commit/8d8e9af40b18e298652004f7f12b1571955e32f8))
+
 ## [1.5.0](https://github.com/jacaudi/towonel-operator/compare/v1.4.1...v1.5.0) (2026-06-23)
 ### Features
 
