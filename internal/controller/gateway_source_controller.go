@@ -26,10 +26,11 @@ import (
 // Service (design §4.1, forward-to-proxy).
 type GatewaySourceReconciler struct {
 	client.Client
-	APIReader      client.Reader // uncached; used for authoritative GC-decision reads
-	Scheme         *runtime.Scheme
-	Recorder       record.EventRecorder
-	AgentNamespace string
+	APIReader            client.Reader // uncached; used for authoritative GC-decision reads
+	Scheme               *runtime.Scheme
+	Recorder             record.EventRecorder
+	AgentNamespace       string
+	DefaultAgentReplicas *int32 // --default-agent-replicas; nil => CRD default (issue #46)
 	sourceBase
 }
 
@@ -62,7 +63,7 @@ func (r *GatewaySourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if !ok {
 		return ctrl.Result{}, nil
 	}
-	return r.applyContribution(ctx, r.Client, r.AgentNamespace, "Gateway", &gw, tunnel, gw.Annotations[AnnotationAgentRef], rt)
+	return r.applyContribution(ctx, r.Client, r.AgentNamespace, r.DefaultAgentReplicas, "Gateway", &gw, tunnel, gw.Annotations[AnnotationAgentRef], rt)
 }
 
 // parseGatewayServiceRef parses "[<ns>/]<name>[:<port>]" (port 0 => first port).
