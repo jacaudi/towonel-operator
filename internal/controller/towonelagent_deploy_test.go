@@ -107,11 +107,11 @@ func TestBuildDeployment(t *testing.T) {
 	if envByName["TOWONEL_AGENT_HEALTH_LISTEN_ADDR"].Value != agentHealthAddr {
 		t.Error("health listen addr")
 	}
-	if ctr.ReadinessProbe == nil || ctr.ReadinessProbe.HTTPGet.Path != "/healthz" {
-		t.Error("readiness probe")
+	if ctr.ReadinessProbe == nil || ctr.ReadinessProbe.HTTPGet.Path != "/readyz" {
+		t.Error("readiness probe must gate on /readyz (issue #42)")
 	}
 	if ctr.LivenessProbe == nil || ctr.LivenessProbe.HTTPGet.Path != "/healthz" {
-		t.Error("liveness probe")
+		t.Error("liveness probe must stay on /healthz")
 	}
 	if ctr.Resources.Requests.Memory().String() != "128Mi" || ctr.Resources.Limits.Memory().String() != "512Mi" {
 		t.Errorf("OOM-safe defaults: %+v", ctr.Resources)
