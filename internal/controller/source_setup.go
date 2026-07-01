@@ -12,6 +12,12 @@ import (
 type SourceConfig struct {
 	AgentNamespace   string // --agent-namespace ("" => tunnel's namespace)
 	EnableGatewayAPI string // "auto" | "true" | "false"
+	// DefaultAgentReplicas sets spec.workload.replicas on the operator-created
+	// default agent (--default-agent-replicas). nil => leave unset so the CRD
+	// default (1) applies. Only the auto-created default agent is affected;
+	// hand-authored TowonelAgents keep full control of their own spec.workload
+	// (issue #46).
+	DefaultAgentReplicas *int32
 }
 
 // gatewayAPISupported reports whether the cluster serves the gateway-api kinds.
@@ -47,11 +53,12 @@ func gatewayEnable(cfg SourceConfig, rm meta.RESTMapper) (bool, error) {
 // only the WATCH is gated here.
 func SetupSourceControllers(mgr ctrl.Manager, cfg SourceConfig) error {
 	if err := (&ServiceSourceReconciler{
-		Client:         mgr.GetClient(),
-		APIReader:      mgr.GetAPIReader(),
-		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorderFor("service-source"),
-		AgentNamespace: cfg.AgentNamespace,
+		Client:               mgr.GetClient(),
+		APIReader:            mgr.GetAPIReader(),
+		Scheme:               mgr.GetScheme(),
+		Recorder:             mgr.GetEventRecorderFor("service-source"),
+		AgentNamespace:       cfg.AgentNamespace,
+		DefaultAgentReplicas: cfg.DefaultAgentReplicas,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup ServiceSource: %w", err)
 	}
@@ -67,20 +74,22 @@ func SetupSourceControllers(mgr ctrl.Manager, cfg SourceConfig) error {
 		return nil
 	}
 	if err := (&GatewaySourceReconciler{
-		Client:         mgr.GetClient(),
-		APIReader:      mgr.GetAPIReader(),
-		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorderFor("gateway-source"),
-		AgentNamespace: cfg.AgentNamespace,
+		Client:               mgr.GetClient(),
+		APIReader:            mgr.GetAPIReader(),
+		Scheme:               mgr.GetScheme(),
+		Recorder:             mgr.GetEventRecorderFor("gateway-source"),
+		AgentNamespace:       cfg.AgentNamespace,
+		DefaultAgentReplicas: cfg.DefaultAgentReplicas,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup GatewaySource: %w", err)
 	}
 	if err := (&HTTPRouteSourceReconciler{
-		Client:         mgr.GetClient(),
-		APIReader:      mgr.GetAPIReader(),
-		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorderFor("httproute-source"),
-		AgentNamespace: cfg.AgentNamespace,
+		Client:               mgr.GetClient(),
+		APIReader:            mgr.GetAPIReader(),
+		Scheme:               mgr.GetScheme(),
+		Recorder:             mgr.GetEventRecorderFor("httproute-source"),
+		AgentNamespace:       cfg.AgentNamespace,
+		DefaultAgentReplicas: cfg.DefaultAgentReplicas,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup HTTPRouteSource: %w", err)
 	}

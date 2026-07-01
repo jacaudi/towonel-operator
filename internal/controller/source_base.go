@@ -84,7 +84,9 @@ func (b *sourceBase) ensure(rec record.EventRecorder) {
 func (b *sourceBase) applyContribution(
 	ctx context.Context,
 	c client.Client,
-	agentNSConfig, kind string,
+	agentNSConfig string,
+	defaultReplicas *int32,
+	kind string,
 	src client.Object,
 	tunnel types.NamespacedName,
 	agentRef string,
@@ -93,7 +95,7 @@ func (b *sourceBase) applyContribution(
 	fieldMgr := srcFieldManager(kind, src.GetNamespace(), src.GetName())
 	emit := func(reason, msg string) { b.dedupe.emit(b.recorder, src, corev1.EventTypeWarning, reason, msg) }
 
-	target, mode, err := resolveTarget(ctx, c, emit, agentNSConfig, tunnel, agentRef)
+	target, mode, err := resolveTarget(ctx, c, emit, agentNSConfig, defaultReplicas, tunnel, agentRef)
 	if err != nil {
 		return reconcile.Result{}, err
 	}

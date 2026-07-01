@@ -151,7 +151,7 @@ func TestResolveTunnelOmissionDefault(t *testing.T) {
 func TestResolveTargetDefaultCreatesOperatorOwned(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", tunnel, "")
+	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", nil, tunnel, "")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v", mode, err)
 	}
@@ -170,7 +170,7 @@ func TestResolveTargetAgentRefUnlabeledDefaultsToWrite(t *testing.T) {
 	mine.Namespace, mine.Name = "net", "home"
 	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", types.NamespacedName{Namespace: "net", Name: "app"}, "home")
+	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", nil, types.NamespacedName{Namespace: "net", Name: "app"}, "home")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v; want write (unlabeled no-mode agent defaults to Managed)", mode, err)
 	}
@@ -186,7 +186,7 @@ func TestResolveTargetAgentRefObserveOnlyMode(t *testing.T) {
 	mine.Spec.Mode = towonelv1alpha1.ModeObserveOnly
 	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
-	_, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", types.NamespacedName{Namespace: "net", Name: "app"}, "mine")
+	_, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", nil, types.NamespacedName{Namespace: "net", Name: "app"}, "mine")
 	if err != nil || mode != modeObserve {
 		t.Fatalf("mode=%v err=%v; want observe (explicit ObserveOnly)", mode, err)
 	}
@@ -206,7 +206,7 @@ func TestAgentModeDefaultsToManaged(t *testing.T) {
 func TestResolveTargetAgentRefNotFoundSkips(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	var reason string
-	_, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", types.NamespacedName{Namespace: "net", Name: "app"}, "ghost")
+	_, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", nil, types.NamespacedName{Namespace: "net", Name: "app"}, "ghost")
 	if err != nil || mode != modeSkip || reason != ReasonAgentRefNotFound {
 		t.Fatalf("mode=%v reason=%q err=%v", mode, reason, err)
 	}
@@ -228,7 +228,7 @@ func TestResolveTargetDefaultSquatSkips(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(squat).Build()
 
 	var reason string
-	ta, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", tunnel, "")
+	ta, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", nil, tunnel, "")
 	if err != nil || mode != modeSkip || reason != ReasonDefaultAgentClash {
 		t.Fatalf("mode=%v reason=%q err=%v; want skip/%s", mode, reason, err, ReasonDefaultAgentClash)
 	}
@@ -247,7 +247,7 @@ func TestResolveTargetAgentRefCrossTunnelConflictSkips(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(other).Build()
 
 	var reason string
-	ta, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", tunnel, "other-agent")
+	ta, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", nil, tunnel, "other-agent")
 	if err != nil || mode != modeSkip || reason != ReasonAgentRefConflict {
 		t.Fatalf("mode=%v reason=%q err=%v; want skip/%s", mode, reason, err, ReasonAgentRefConflict)
 	}
@@ -265,7 +265,7 @@ func TestResolveTargetAgentRefOperatorOwnedSameTunnelWrites(t *testing.T) {
 	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: tunnel.Name, Namespace: tunnel.Namespace}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
 
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", tunnel, "my-agent")
+	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", nil, tunnel, "my-agent")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v; want write", mode, err)
 	}
