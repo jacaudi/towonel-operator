@@ -73,6 +73,16 @@ gatewayAPI:
 # agentNamespace: namespace for auto-created default agents ("" = tunnel's ns).
 agentNamespace: ""
 
+# defaultAgent tunes the auto-created default agent — the one the operator makes
+# when a tunnel's routing comes only from the source layer (annotated
+# Gateway/Service/HTTPRoute) with NO hand-authored TowonelAgent (issue #46).
+defaultAgent:
+  # -- spec.workload.replicas for auto-created default agents. 0 leaves it unset
+  # (CRD default 1). Set to 2+ to run the fully-implicit gateway-as-source
+  # default agent HA without hand-authoring a workload-only TowonelAgent.
+  # Hand-authored TowonelAgents keep full control of their own spec.workload.
+  replicas: 0
+
 # Agent direct-path (spec.connectivity autodiscover) node-read RBAC.
 # Creates a shared ClusterRole + (empty-subjects) ClusterRoleBinding that the
 # operator patches with autodiscover agents' ServiceAccounts. Inert until the

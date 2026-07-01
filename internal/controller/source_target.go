@@ -9,6 +9,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -118,7 +119,14 @@ func sourceTargetsAgent(ann map[string]string, srcNS, agentNSConfig string, ta *
 
 // ensureDefaultAgent create-or-gets the single operator-owned default agent for
 // a tunnel (design §6). NEVER reached via agent-ref.
-func ensureDefaultAgent(ctx context.Context, c client.Client, agentNS string, tunnel types.NamespacedName) (*towonelv1alpha1.TowonelAgent, error) {
+//
+// defaultReplicas (--default-agent-replicas, issue #46) is stamped onto
+// spec.workload.replicas at CREATE time only, so the fully-implicit
+// gateway-as-source path can run the default agent HA (e.g. replicas: 2) with no
+// hand-authored TowonelAgent. nil leaves the field unset (CRD default 1). On the
+// get-existing branch the agent is returned unchanged: the operator sets the
+// initial spec and never fights later edits (consistent with agent-namespace).
+func ensureDefaultAgent(ctx context.Context, c client.Client, agentNS string, defaultReplicas *int32, tunnel types.NamespacedName) (*towonelv1alpha1.TowonelAgent, error) {
 	name := defaultAgentName(tunnel.Namespace, tunnel.Name)
 	key := types.NamespacedName{Namespace: agentNS, Name: name}
 	var existing towonelv1alpha1.TowonelAgent
@@ -143,6 +151,9 @@ func ensureDefaultAgent(ctx context.Context, c client.Client, agentNS string, tu
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: tunnel.Name, Namespace: tunnel.Namespace},
 		},
 	}
+	if defaultReplicas != nil {
+		ta.Spec.Workload.Replicas = ptr.To(*defaultReplicas) // copy: never alias the shared flag value
+	}
 	if err := c.Create(ctx, ta); err != nil {
 		if apierrors.IsAlreadyExists(err) { // lost the create race
 			if gerr := c.Get(ctx, key, &existing); gerr != nil {
@@ -165,12 +176,13 @@ func resolveTarget(
 	c client.Client,
 	emit func(reason, msg string),
 	agentNSConfig string,
+	defaultReplicas *int32,
 	tunnel types.NamespacedName,
 	agentRef string,
 ) (*towonelv1alpha1.TowonelAgent, targetMode, error) {
 	agentNS := agentNamespaceFor(agentNSConfig, tunnel)
 	if agentRef == "" {
-		ta, err := ensureDefaultAgent(ctx, c, agentNS, tunnel)
+		ta, err := ensureDefaultAgent(ctx, c, agentNS, defaultReplicas, tunnel)
 		if err != nil {
 			if errors.Is(err, errDefaultAgentNameClash) {
 				emit(ReasonDefaultAgentClash, err.Error())
