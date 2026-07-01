@@ -30,10 +30,11 @@ import (
 // and exposes the route's hostnames against that single proxy (design §4.1).
 type HTTPRouteSourceReconciler struct {
 	client.Client
-	APIReader      client.Reader // uncached; used for authoritative GC-decision reads
-	Scheme         *runtime.Scheme
-	Recorder       record.EventRecorder
-	AgentNamespace string
+	APIReader            client.Reader // uncached; used for authoritative GC-decision reads
+	Scheme               *runtime.Scheme
+	Recorder             record.EventRecorder
+	AgentNamespace       string
+	DefaultAgentReplicas *int32 // --default-agent-replicas; nil => CRD default (issue #46)
 	sourceBase
 }
 
@@ -209,7 +210,7 @@ func (r *HTTPRouteSourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if !ok {
 		return ctrl.Result{}, nil
 	}
-	return r.applyContribution(ctx, r.Client, r.AgentNamespace, "HTTPRoute", &rtObj, tunnel, rtObj.Annotations[AnnotationAgentRef], rt)
+	return r.applyContribution(ctx, r.Client, r.AgentNamespace, r.DefaultAgentReplicas, "HTTPRoute", &rtObj, tunnel, rtObj.Annotations[AnnotationAgentRef], rt)
 }
 
 // parentRefNamespace returns the effective namespace a parentRef targets: an

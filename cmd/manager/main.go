@@ -57,8 +57,10 @@ func main() {
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.StringVar(&towonelAPIURL, "towonel-api-url", "https://hub.towonel.dev", "Towonel hub base URL")
 	var agentNamespace, enableGatewayAPI string
+	var defaultAgentReplicas int
 	flag.StringVar(&agentNamespace, "agent-namespace", "", "namespace for auto-created default agents (empty = the tunnel's namespace)")
 	flag.StringVar(&enableGatewayAPI, "enable-gateway-api", "auto", "auto|true|false — register Gateway/HTTPRoute source controllers")
+	flag.IntVar(&defaultAgentReplicas, "default-agent-replicas", 0, "spec.workload.replicas for auto-created default agents (0 = leave unset, CRD default 1); e.g. 2 runs the implicit gateway-as-source default agent HA")
 	zapOpts := zap.Options{Development: false}
 	zapOpts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -110,9 +112,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	// --default-agent-replicas: 0 leaves spec.workload.replicas unset (CRD default
+	// 1); a positive value opts the auto-created default agent into that replica
+	// count (issue #46). Negatives are rejected — replicas cannot be negative.
+	var defaultReplicasPtr *int32
+	if defaultAgentReplicas < 0 {
+		setupLog.Error(fmt.Errorf("--default-agent-replicas must be >= 0, got %d", defaultAgentReplicas), "invalid flag")
+		os.Exit(1)
+	}
+	if defaultAgentReplicas > 0 {
+		v := int32(defaultAgentReplicas)
+		defaultReplicasPtr = &v
+	}
+
 	if err := controller.SetupSourceControllers(mgr, controller.SourceConfig{
-		AgentNamespace:   agentNamespace,
-		EnableGatewayAPI: enableGatewayAPI,
+		AgentNamespace:       agentNamespace,
+		EnableGatewayAPI:     enableGatewayAPI,
+		DefaultAgentReplicas: defaultReplicasPtr,
 	}); err != nil {
 		setupLog.Error(err, "unable to set up source controllers")
 		os.Exit(1)

@@ -28,6 +28,9 @@ controllers:
           {{- if .Values.agentNamespace }}
           - --agent-namespace={{ .Values.agentNamespace }}
           {{- end }}
+          {{- if gt (int .Values.defaultAgent.replicas) 0 }}
+          - --default-agent-replicas={{ .Values.defaultAgent.replicas }}
+          {{- end }}
         env:
           POD_NAMESPACE:
             valueFrom:

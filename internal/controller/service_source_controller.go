@@ -24,10 +24,11 @@ import (
 // ServiceSourceReconciler emits routing from annotated Services (design §4.1).
 type ServiceSourceReconciler struct {
 	client.Client
-	APIReader      client.Reader // uncached; used for authoritative GC-decision reads
-	Scheme         *runtime.Scheme
-	Recorder       record.EventRecorder
-	AgentNamespace string // "" => tunnel's namespace
+	APIReader            client.Reader // uncached; used for authoritative GC-decision reads
+	Scheme               *runtime.Scheme
+	Recorder             record.EventRecorder
+	AgentNamespace       string // "" => tunnel's namespace
+	DefaultAgentReplicas *int32 // --default-agent-replicas; nil => CRD default (issue #46)
 	sourceBase
 }
 
@@ -62,7 +63,7 @@ func (r *ServiceSourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if rt.empty() {
 		return releaseResult(r.releaseEverywhere(ctx, r.APIReader, r.Client, "Service", svc.Namespace, svc.Name))
 	}
-	return r.applyContribution(ctx, r.Client, r.AgentNamespace, "Service", &svc, tunnel, svc.Annotations[AnnotationAgentRef], rt)
+	return r.applyContribution(ctx, r.Client, r.AgentNamespace, r.DefaultAgentReplicas, "Service", &svc, tunnel, svc.Annotations[AnnotationAgentRef], rt)
 }
 
 // originOf formats a ClusterIP:port string for a routing entry.
