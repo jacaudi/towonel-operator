@@ -216,8 +216,17 @@ func buildDeployment(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) *appsv1.
 	if _, ok := res.Limits[corev1.ResourceMemory]; !ok { // OOM-safe ceiling
 		res.Limits[corev1.ResourceMemory] = resource.MustParse("512Mi")
 	}
-	probe := &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
+	// Liveness gates on /healthz: is the agent process up? A failure restarts the
+	// container. Readiness gates on /readyz, which returns 503 until the agent has
+	// an active edge session (towonel-agent v1.0.0) — a truer "ready to serve
+	// traffic" signal (issue #42). Because Endpoints/rollout gate on readiness, an
+	// agent with no live session reports NotReady (intended; keep liveness on
+	// /healthz so a session-less-but-healthy agent is NOT restart-looped).
+	livenessProbe := &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
 		HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(agentHealthPort)},
+	}}
+	readinessProbe := &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
+		HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt32(agentHealthPort)},
 	}}
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
@@ -244,8 +253,8 @@ func buildDeployment(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) *appsv1.
 						Env:             agentEnv(ta, cfg),
 						Ports:           agentContainerPorts(cfg.IrohPort),
 						Resources:       res,
-						LivenessProbe:   probe.DeepCopy(),
-						ReadinessProbe:  probe.DeepCopy(),
+						LivenessProbe:   livenessProbe,
+						ReadinessProbe:  readinessProbe,
 					}},
 				},
 			},
