@@ -29,8 +29,13 @@ jobs:
       - uses: azure/setup-helm@v5
         with:
           version: v3.16.0
+      # Direct binary install: `snap install yq` is flaky on hosted runners
+      # (Snap store rate-limits the shared Azure IP range → "too many requests").
       - name: Install yq
-        run: sudo snap install yq
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
       - uses: arduino/setup-task@v2
         with:
           version: 3.x
