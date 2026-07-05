@@ -117,6 +117,26 @@ func sourceTargetsAgent(ann map[string]string, srcNS, agentNSConfig string, ta *
 	return agentNamespaceFor(agentNSConfig, tunnel) == ta.Namespace
 }
 
+// sourceTargetsTunnel reports whether a source carrying the given annotations and
+// namespace would, on reconcile, resolve its tunnel to tunnelNN via resolveTunnel.
+// It mirrors resolveTunnel: explicit tunnel-ref → parse and compare; absent ref →
+// matches (because when exactly one tunnel exists, resolveTunnel returns it).
+// Used by the TowonelTunnel->source watch to re-enqueue sources stranded when they
+// reconciled before their tunnel existed (#52).
+func sourceTargetsTunnel(ann map[string]string, srcNS string, tunnelNN types.NamespacedName) bool {
+	raw := ann[AnnotationTunnelRef]
+	if strings.TrimSpace(raw) != "" {
+		resolved, err := parseTunnelRef(raw, srcNS)
+		if err != nil {
+			return false
+		}
+		return resolved == tunnelNN
+	}
+	// No explicit ref → resolveTunnel returns the sole cluster tunnel. When a tunnel
+	// is created (or becomes the sole one), all no-ref sources would resolve to it.
+	return true
+}
+
 // ensureDefaultAgent create-or-gets the single operator-owned default agent for
 // a tunnel (design §6). NEVER reached via agent-ref.
 //
