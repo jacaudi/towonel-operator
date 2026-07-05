@@ -36,6 +36,34 @@ func TestSourcesForAgentServiceMatchesByAgentRefAndNamespace(t *testing.T) {
 	}
 }
 
+// Issue #52 (PR #53): sourcesForTunnel enqueues every opted-in Service that would
+// resolve to the changed TowonelTunnel — explicit tunnel-ref match OR no ref
+// (sole-tunnel default) — and skips non-opted-in Services and Services pinned to a
+// different tunnel. Unstrands a Service that reconciled before its tunnel existed.
+func TestSourcesForTunnelServiceMatchesRefAndNoRef(t *testing.T) {
+	tunnel := mkTunnel("net", "app")
+	mk := func(name, ns string, ann map[string]string) *corev1.Service {
+		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Annotations: ann}}
+	}
+	// A: opted-in, explicit tunnel-ref → resolves to the changed tunnel → MUST match
+	svcA := mk("a", "app", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/app"})
+	// B: opted-in, no tunnel-ref → sole-tunnel default → MUST match
+	svcB := mk("b", "net", map[string]string{AnnotationTunnel: "enable"})
+	// C: opted-in but tunnel-ref pins a DIFFERENT tunnel → MUST NOT match
+	svcC := mk("c", "app", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/other"})
+	// D: NOT opted in → MUST NOT match even though its ref would
+	svcD := mk("d", "net", map[string]string{AnnotationTunnelRef: "net/app"})
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(svcA, svcB, svcC, svcD).Build()
+	reqs := (&ServiceSourceReconciler{Client: c}).sourcesForTunnel(context.Background(), tunnel)
+	got := map[string]bool{}
+	for _, r := range reqs {
+		got[r.NamespacedName.String()] = true
+	}
+	if len(reqs) != 2 || !got["app/a"] || !got["net/b"] {
+		t.Fatalf("want exactly {app/a, net/b}, got %v", reqs)
+	}
+}
+
 // reflessSvc is a tunnel-opted Service with NO towonel.io/tunnel-ref, exposing a
 // single HTTPS hostname over its ClusterIP:port — exercises the omission default.
 func reflessSvc() *corev1.Service {

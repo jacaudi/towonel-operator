@@ -103,6 +103,64 @@ func TestSourcesForAgentHTTPRouteMatchesByAgentRefAndNamespace(t *testing.T) {
 	}
 }
 
+// Issue #52 (PR #53): the HTTPRoute sourcesForTunnel is the richest of the three —
+// besides explicitly-annotated routes it must also enqueue AUTO-SELECTED routes
+// (no towonel.io/tunnel, parent Gateway carries towonel.io/auto-routes) so that a
+// route auto-tunneled through a Gateway re-flows when the sole tunnel is created.
+// It also honors the #39 cross-namespace allowlist and the generous else-if path
+// (no-annotation route that still pins an explicit tunnel-ref).
+func TestSourcesForTunnelHTTPRouteMatchesExplicitAndAutoSelected(t *testing.T) {
+	tunnel := &towonelv1alpha1.TowonelTunnel{}
+	tunnel.Namespace, tunnel.Name = "net", "app"
+
+	// gwAuto: auto-routes enabled, same-namespace default (#25).
+	gwAuto := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: "app",
+		Annotations: map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "app/proxy:443"}}}
+	// gwPlain: a parent Gateway WITHOUT auto-routes.
+	gwPlain := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "plain", Namespace: "app"}}
+	// gwCross: auto-routes enabled and allowlists namespace "other" (#39).
+	gwCross := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "xgw", Namespace: "app",
+		Annotations: map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "app/proxy:443", AnnotationAutoRoutesNamespaces: "other"}}}
+
+	// A: explicit opt-in + matching tunnel-ref → MUST match.
+	routeA := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/app"}}}
+	// B: auto-selected — no towonel.io/tunnel, no tunnel-ref, parent gwAuto → MUST match (sole-tunnel default).
+	routeB := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "app"},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "gw"}}}}}
+	// C: un-annotated, parent gwPlain has NO auto-routes → MUST NOT match.
+	routeC := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "app"},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "plain"}}}}}
+	// D: explicit opt-in but tunnel-ref pins a DIFFERENT tunnel → MUST NOT match.
+	routeD := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/other"}}}
+	// E: cross-namespace auto-selected — route in "other", parent gwCross allowlists "other" → MUST match.
+	routeE := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "e", Namespace: "other"},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "xgw", Namespace: nsPtr("app")}}}}}
+	// F: no towonel.io/tunnel but an explicit tunnel-ref that matches → the generous
+	// else-if branch enqueues it (Reconcile is authoritative and releases if the
+	// route turns out not to be selected). Locks that branch's behavior.
+	routeF := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "f", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnelRef: "net/app"}}}
+
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).
+		WithObjects(gwAuto, gwPlain, gwCross, routeA, routeB, routeC, routeD, routeE, routeF).Build()
+	reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForTunnel(context.Background(), tunnel)
+	got := map[string]bool{}
+	for _, r := range reqs {
+		got[r.NamespacedName.String()] = true
+	}
+	want := []string{"app/a", "app/b", "other/e", "app/f"}
+	if len(reqs) != len(want) {
+		t.Fatalf("want exactly %v, got %v", want, reqs)
+	}
+	for _, w := range want {
+		if !got[w] {
+			t.Fatalf("want %s enqueued; got %v", w, reqs)
+		}
+	}
+}
+
 func TestDeriveHTTPRouteForwardsToParentGatewayProxy(t *testing.T) {
 	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway",
 		Annotations: map[string]string{AnnotationGatewayService: "kgateway/external:443"}}}

@@ -35,6 +35,36 @@ func TestSourcesForAgentGatewayMatchesByAgentRefAndNamespace(t *testing.T) {
 	}
 }
 
+// Issue #52 (PR #53): when a TowonelTunnel is created, sourcesForTunnel must
+// enqueue every opted-in Gateway that would resolve to it — explicit tunnel-ref
+// match OR no ref (sole-tunnel default) — and skip non-opted-in Gateways and
+// Gateways pinned to a different tunnel. This is what unstrands a Gateway that
+// reconciled before its tunnel existed (emitting TunnelRefMissing).
+func TestSourcesForTunnelGatewayMatchesRefAndNoRef(t *testing.T) {
+	tunnel := &towonelv1alpha1.TowonelTunnel{}
+	tunnel.Namespace, tunnel.Name = "net", "app"
+	mk := func(name, ns string, ann map[string]string) *gwv1.Gateway {
+		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Annotations: ann}}
+	}
+	// A: opted-in, explicit tunnel-ref → resolves to the changed tunnel → MUST match
+	gwA := mk("a", "app", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/app"})
+	// B: opted-in, no tunnel-ref → sole-tunnel default → MUST match
+	gwB := mk("b", "net", map[string]string{AnnotationTunnel: "enable"})
+	// C: opted-in but tunnel-ref pins a DIFFERENT tunnel → MUST NOT match
+	gwC := mk("c", "app", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/other"})
+	// D: NOT opted in (no towonel.io/tunnel) → MUST NOT match even though its ref would
+	gwD := mk("d", "net", map[string]string{AnnotationTunnelRef: "net/app"})
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gwA, gwB, gwC, gwD).Build()
+	reqs := (&GatewaySourceReconciler{Client: c}).sourcesForTunnel(context.Background(), tunnel)
+	got := map[string]bool{}
+	for _, r := range reqs {
+		got[r.NamespacedName.String()] = true
+	}
+	if len(reqs) != 2 || !got["app/a"] || !got["net/b"] {
+		t.Fatalf("want exactly {app/a, net/b}, got %v", reqs)
+	}
+}
+
 func TestDeriveGatewayRoutingForwardsToProxy(t *testing.T) {
 	proxy := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "envoy"},

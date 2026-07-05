@@ -273,3 +273,51 @@ func TestResolveTargetAgentRefOperatorOwnedSameTunnelWrites(t *testing.T) {
 		t.Fatalf("unexpected write target %+v", ta)
 	}
 }
+
+// Issue #52 (PR #53): sourceTargetsTunnel is the shared predicate the three
+// TowonelTunnel->source watches use to decide whether a source would resolve its
+// tunnel to the changed TowonelTunnel. It mirrors resolveTunnel: an explicit
+// tunnel-ref is parsed (bare name resolves in srcNS) and compared; a malformed
+// ref never matches; an absent ref matches (the sole-tunnel default), so a source
+// stranded before its tunnel existed re-flows when the tunnel appears.
+func TestSourceTargetsTunnel(t *testing.T) {
+	target := types.NamespacedName{Namespace: "net", Name: "app"}
+	cases := []struct {
+		name  string
+		ann   map[string]string
+		srcNS string
+		want  bool
+	}{
+		{"bare ref resolves in srcNS and matches", map[string]string{AnnotationTunnelRef: "app"}, "net", true},
+		{"qualified ref matches", map[string]string{AnnotationTunnelRef: "net/app"}, "other", true},
+		{"bare ref in wrong srcNS misses", map[string]string{AnnotationTunnelRef: "app"}, "other", false},
+		{"qualified ref to other tunnel misses", map[string]string{AnnotationTunnelRef: "net/other"}, "net", false},
+		{"malformed ref never matches", map[string]string{AnnotationTunnelRef: "net/"}, "net", false},
+		{"absent ref matches (sole-tunnel default)", map[string]string{}, "net", true},
+		{"blank ref matches (sole-tunnel default)", map[string]string{AnnotationTunnelRef: "   "}, "net", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sourceTargetsTunnel(tc.ann, tc.srcNS, target); got != tc.want {
+				t.Fatalf("sourceTargetsTunnel(%v, %q) = %v, want %v", tc.ann, tc.srcNS, got, tc.want)
+			}
+		})
+	}
+}
+
+// NEGATIVE (type guard): all three sourcesForTunnel map functions must return nil
+// when handed a non-TowonelTunnel object, so a mis-wired watch cannot enqueue
+// garbage. Guarded once for all three siblings (shared shape, single assertion).
+func TestSourcesForTunnelNilOnWrongType(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
+	notATunnel := &corev1.Service{}
+	if reqs := (&GatewaySourceReconciler{Client: c}).sourcesForTunnel(context.Background(), notATunnel); reqs != nil {
+		t.Errorf("gateway sourcesForTunnel(wrong type) = %v, want nil", reqs)
+	}
+	if reqs := (&ServiceSourceReconciler{Client: c}).sourcesForTunnel(context.Background(), notATunnel); reqs != nil {
+		t.Errorf("service sourcesForTunnel(wrong type) = %v, want nil", reqs)
+	}
+	if reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForTunnel(context.Background(), notATunnel); reqs != nil {
+		t.Errorf("httproute sourcesForTunnel(wrong type) = %v, want nil", reqs)
+	}
+}
