@@ -380,11 +380,69 @@ func (r *HTTPRouteSourceReconciler) sourcesForAgent(ctx context.Context, obj cli
 	return reqs
 }
 
+// sourcesForTunnel enqueues HTTPRoutes that would resolve their tunnel to the
+// changed TowonelTunnel, so routes stranded by TunnelRefMissing re-flow when the
+// tunnel appears (#52). Matches: (a) routes with explicit AnnotationTunnel and
+// matching tunnel-ref; (b) auto-selected routes (parent Gateway has
+// AnnotationAutoRoutes) with no tunnel-ref — they'd resolve to the sole tunnel.
+func (r *HTTPRouteSourceReconciler) sourcesForTunnel(ctx context.Context, obj client.Object) []reconcile.Request {
+	tunnel, ok := obj.(*towonelv1alpha1.TowonelTunnel)
+	if !ok {
+		return nil
+	}
+	var routes gwv1.HTTPRouteList
+	if err := r.List(ctx, &routes); err != nil {
+		logf.FromContext(ctx).Error(err, "sourcesForTunnel: list failed", "tunnel", client.ObjectKeyFromObject(tunnel))
+		return nil
+	}
+	tunnelNN := types.NamespacedName{Namespace: tunnel.Namespace, Name: tunnel.Name}
+	var reqs []reconcile.Request
+	for i := range routes.Items {
+		rt := &routes.Items[i]
+		if _, opted := rt.Annotations[AnnotationTunnel]; opted {
+			if sourceTargetsTunnel(rt.Annotations, rt.Namespace, tunnelNN) {
+				reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+			}
+			continue
+		}
+		// Auto-selected path: no AnnotationTunnel — check if any parent Gateway
+		// has auto-routes enabled. If so and the route has no tunnel-ref, it would
+		// resolve to the sole tunnel via resolveTunnel.
+		if rt.Annotations[AnnotationTunnelRef] == "" {
+			for _, p := range rt.Spec.ParentRefs {
+				if !isGatewayParent(p) {
+					continue
+				}
+				gwNS := parentRefNamespace(p, rt.Namespace)
+				var gw gwv1.Gateway
+				if err := r.Get(ctx, types.NamespacedName{Namespace: gwNS, Name: string(p.Name)}, &gw); err != nil {
+					if apierrors.IsNotFound(err) {
+						continue
+					}
+					logf.FromContext(ctx).Error(err, "sourcesForTunnel: gateway get failed", "gateway", client.ObjectKeyFromObject(&gw))
+					continue
+				}
+				if !gatewayAllowsRouteNamespace(&gw, rt.Namespace) {
+					continue
+				}
+				if enabled, _ := ParseTruthy(gw.Annotations[AnnotationAutoRoutes]); enabled {
+					reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+					break
+				}
+			}
+		} else if sourceTargetsTunnel(rt.Annotations, rt.Namespace, tunnelNN) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+		}
+	}
+	return reqs
+}
+
 func (r *HTTPRouteSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gwv1.HTTPRoute{}, builder.WithPredicates(httpRouteForPredicate())).
 		Watches(&gwv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.routesForGateway), builder.WithPredicates(crossWatchPredicate())).
 		Watches(&towonelv1alpha1.TowonelAgent{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForAgent), builder.WithPredicates(crossWatchPredicate())).
+		Watches(&towonelv1alpha1.TowonelTunnel{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForTunnel), builder.WithPredicates(crossWatchPredicate())).
 		Named("httproute-source").
 		Complete(r)
 }

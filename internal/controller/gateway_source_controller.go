@@ -150,10 +150,39 @@ func (r *GatewaySourceReconciler) sourcesForAgent(ctx context.Context, obj clien
 	return reqs
 }
 
+// sourcesForTunnel enqueues tunnel-annotated Gateways that would resolve their
+// tunnel to the changed TowonelTunnel, so Gateways stranded by TunnelRefMissing
+// re-flow when the tunnel appears (#52). Matching mirrors resolveTunnel: explicit
+// tunnel-ref is parsed and compared; absent ref matches (sole-tunnel default).
+func (r *GatewaySourceReconciler) sourcesForTunnel(ctx context.Context, obj client.Object) []reconcile.Request {
+	tunnel, ok := obj.(*towonelv1alpha1.TowonelTunnel)
+	if !ok {
+		return nil
+	}
+	var gws gwv1.GatewayList
+	if err := r.List(ctx, &gws); err != nil {
+		logf.FromContext(ctx).Error(err, "sourcesForTunnel: list failed", "tunnel", client.ObjectKeyFromObject(tunnel))
+		return nil
+	}
+	tunnelNN := types.NamespacedName{Namespace: tunnel.Namespace, Name: tunnel.Name}
+	var reqs []reconcile.Request
+	for i := range gws.Items {
+		gw := &gws.Items[i]
+		if _, opted := gw.Annotations[AnnotationTunnel]; !opted {
+			continue
+		}
+		if sourceTargetsTunnel(gw.Annotations, gw.Namespace, tunnelNN) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: gw.Namespace, Name: gw.Name}})
+		}
+	}
+	return reqs
+}
+
 func (r *GatewaySourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gwv1.Gateway{}, builder.WithPredicates(sourcePredicate())).
 		Watches(&towonelv1alpha1.TowonelAgent{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForAgent), builder.WithPredicates(crossWatchPredicate())).
+		Watches(&towonelv1alpha1.TowonelTunnel{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForTunnel), builder.WithPredicates(crossWatchPredicate())).
 		Named("gateway-source").
 		Complete(r)
 }
