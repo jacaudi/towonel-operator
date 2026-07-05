@@ -226,10 +226,39 @@ func (r *ServiceSourceReconciler) sourcesForAgent(ctx context.Context, obj clien
 	return reqs
 }
 
+// sourcesForTunnel enqueues tunnel-annotated Services that would resolve their
+// tunnel to the changed TowonelTunnel, so Services stranded by TunnelRefMissing
+// re-flow when the tunnel appears (#52). Matching mirrors resolveTunnel: explicit
+// tunnel-ref is parsed and compared; absent ref matches (sole-tunnel default).
+func (r *ServiceSourceReconciler) sourcesForTunnel(ctx context.Context, obj client.Object) []reconcile.Request {
+	tunnel, ok := obj.(*towonelv1alpha1.TowonelTunnel)
+	if !ok {
+		return nil
+	}
+	var svcs corev1.ServiceList
+	if err := r.List(ctx, &svcs); err != nil {
+		logf.FromContext(ctx).Error(err, "sourcesForTunnel: list failed", "tunnel", client.ObjectKeyFromObject(tunnel))
+		return nil
+	}
+	tunnelNN := types.NamespacedName{Namespace: tunnel.Namespace, Name: tunnel.Name}
+	var reqs []reconcile.Request
+	for i := range svcs.Items {
+		svc := &svcs.Items[i]
+		if _, opted := svc.Annotations[AnnotationTunnel]; !opted {
+			continue
+		}
+		if sourceTargetsTunnel(svc.Annotations, svc.Namespace, tunnelNN) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}})
+		}
+	}
+	return reqs
+}
+
 func (r *ServiceSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Service{}, builder.WithPredicates(sourcePredicate())).
 		Watches(&towonelv1alpha1.TowonelAgent{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForAgent), builder.WithPredicates(crossWatchPredicate())).
+		Watches(&towonelv1alpha1.TowonelTunnel{}, handler.EnqueueRequestsFromMapFunc(r.sourcesForTunnel), builder.WithPredicates(crossWatchPredicate())).
 		Named("service-source").
 		Complete(r)
 }
