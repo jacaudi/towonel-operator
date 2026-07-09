@@ -91,6 +91,33 @@ func TestDeriveGatewayRoutingForwardsToProxy(t *testing.T) {
 	}
 }
 
+func TestDeriveGatewayRoutingDedupesSharedHostname(t *testing.T) {
+	proxy := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "envoy"},
+		Spec:       corev1.ServiceSpec{ClusterIP: "10.1.2.3", Ports: []corev1.ServicePort{{Port: 443}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(proxy).Build()
+	// The standard :80-redirect + :443-serve pattern: two listeners share a hostname.
+	// TowonelAgent.spec.services is a list-map keyed by hostname, so they must collapse
+	// to one service; a duplicate key makes server-side apply reject the whole patch.
+	gw := &gwv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "gw", Annotations: map[string]string{
+			AnnotationGatewayService: "infra/envoy:443",
+		}},
+		Spec: gwv1.GatewaySpec{Listeners: []gwv1.Listener{
+			{Name: "http", Hostname: hn("*.jacaudi.dev")},
+			{Name: "https", Hostname: hn("*.jacaudi.dev")},
+		}},
+	}
+	rt, ok := deriveGatewayRouting(context.Background(), c, gw, func(string, string) {})
+	if !ok || len(rt.services) != 1 {
+		t.Fatalf("shared-hostname listeners must collapse to one service: ok=%v rt=%+v", ok, rt)
+	}
+	if rt.services[0]["hostname"] != "*.jacaudi.dev" {
+		t.Fatalf("hostname: %+v", rt.services[0])
+	}
+}
+
 func TestDeriveGatewayRoutingRequiresAnnotation(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "gw"}}

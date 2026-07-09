@@ -111,11 +111,22 @@ func deriveGatewayRouting(ctx context.Context, c client.Client, gw *gwv1.Gateway
 	}
 	origin := originOf(svc.Spec.ClusterIP, port)
 	var rt routing
+	// TowonelAgent.spec.services is a list-map keyed by hostname, and multiple
+	// listeners can legitimately share a hostname (e.g. the :80 HTTP->HTTPS redirect
+	// and the :443 serving listener). Collapse them to a single service, or the
+	// duplicate key makes the server-side apply reject the whole patch. Every
+	// listener forwards to the same proxy origin, so the first wins.
+	seen := make(map[string]bool)
 	for _, l := range gw.Spec.Listeners {
 		if l.Hostname == nil || *l.Hostname == "" {
 			continue
 		}
-		rt.services = append(rt.services, map[string]any{"hostname": string(*l.Hostname), "origin": origin})
+		host := string(*l.Hostname)
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+		rt.services = append(rt.services, map[string]any{"hostname": host, "origin": origin})
 	}
 	if rt.empty() {
 		emit(ReasonInvalidAnnotation, "Gateway has no listener with a hostname to expose")
