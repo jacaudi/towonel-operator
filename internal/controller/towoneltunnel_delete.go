@@ -107,5 +107,11 @@ func (r *TowonelTunnelReconciler) fail(ctx context.Context, tt *towonelv1alpha1.
 	setCond(tt, CondReady, metav1.ConditionFalse, ReasonAPIError, err.Error())
 	tt.Status.Phase = "Error"
 	_ = r.writeStatus(ctx, tt, orig) // defensive; surface the real error
+	// On a hub 429, back off for exactly as long as the hub asked rather than
+	// piling generic exponential backoff onto the shared per-tenant rate budget
+	// (issue #45). The condition above already records the failure.
+	if res, ok := rateLimitRequeue(err); ok {
+		return res, nil
+	}
 	return ctrl.Result{}, err
 }
