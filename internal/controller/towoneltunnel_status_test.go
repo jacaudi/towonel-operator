@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
+	"github.com/jacaudi/towonel-operator/internal/towonel"
 )
 
 func TestTokenExpiringSoon(t *testing.T) {
@@ -174,6 +176,49 @@ func TestTunnelFailPreservesCause(t *testing.T) {
 			}
 			if got := apierrors.IsConflict(err); got != tc.wantConflict {
 				t.Fatalf("IsConflict = %t, want %t (err = %v)", got, tc.wantConflict, err)
+			}
+		})
+	}
+}
+
+func TestTunnelFailHonorsRateLimitHint(t *testing.T) {
+	tunnelGR := towonelv1alpha1.GroupVersion.WithResource("towoneltunnels").GroupResource()
+	conflict := apierrors.NewConflict(tunnelGR, "edge", errors.New("object has been modified"))
+	tests := []struct {
+		name        string
+		statusErr   error
+		wantRequeue time.Duration
+		wantErr     bool
+	}{
+		{name: "status written: requeue after hint", statusErr: nil, wantRequeue: 3 * time.Second, wantErr: false},
+		{name: "status conflict: error escapes", statusErr: conflict, wantRequeue: 0, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			tunnel := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default"}}
+			store := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
+			cl := interceptor.NewClient(store, interceptor.Funcs{
+				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
+					return tc.statusErr
+				},
+			})
+			r := &TowonelTunnelReconciler{Client: cl}
+			cause := &towonel.APIError{StatusCode: http.StatusTooManyRequests, Body: "Too Many Requests! Wait for 3s", RetryAfter: 3 * time.Second}
+
+			res, err := r.fail(t.Context(), tunnel, &towonelv1alpha1.TowonelTunnelStatus{}, cause)
+
+			if res.RequeueAfter != tc.wantRequeue {
+				t.Errorf("RequeueAfter = %v, want %v", res.RequeueAfter, tc.wantRequeue)
+			}
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %t", err, tc.wantErr)
+			}
+			if tc.wantErr && !apierrors.IsConflict(err) {
+				t.Errorf("err = %v, want the status conflict preserved", err)
 			}
 		})
 	}
