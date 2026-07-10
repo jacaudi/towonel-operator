@@ -106,5 +106,15 @@ func (r *TowonelTunnelReconciler) writeStatus(ctx context.Context, tt *towonelv1
 func (r *TowonelTunnelReconciler) fail(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel, orig *towonelv1alpha1.TowonelTunnelStatus, err error) (ctrl.Result, error) {
 	setCond(tt, CondReady, metav1.ConditionFalse, ReasonAPIError, err.Error())
 	tt.Status.Phase = "Error"
-	return ctrl.Result{}, errors.Join(err, r.writeStatus(ctx, tt, orig))
+	if werr := r.writeStatus(ctx, tt, orig); werr != nil {
+		return ctrl.Result{}, errors.Join(err, werr)
+	}
+	// On a hub 429, back off for exactly as long as the hub asked rather than
+	// piling generic exponential backoff onto the shared per-tenant rate budget
+	// (issue #45). Only once status is persisted: a failed write must still
+	// escape so the caller reconciles fresh.
+	if res, ok := rateLimitRequeue(err); ok {
+		return res, nil
+	}
+	return ctrl.Result{}, err
 }
