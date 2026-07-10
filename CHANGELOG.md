@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.7.1](https://github.com/jacaudi/towonel-operator/compare/v1.7.0...v1.7.1) (2026-07-10)
+
 ## [1.7.0](https://github.com/jacaudi/towonel-operator/compare/v1.6.0...v1.7.0) (2026-07-05)
 
 ## [1.6.0](https://github.com/jacaudi/towonel-operator/compare/v1.5.0...v1.6.0) (2026-06-24)
