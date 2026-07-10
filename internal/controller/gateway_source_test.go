@@ -91,6 +91,35 @@ func TestDeriveGatewayRoutingForwardsToProxy(t *testing.T) {
 	}
 }
 
+// A Gateway commonly has both an HTTP and an HTTPS listener on the SAME hostname
+// (e.g. "*.example"). Each listener must NOT produce its own services entry: the
+// agent's spec.services is a listType=map keyed by hostname, so duplicate keys are
+// rejected by server-side apply ("duplicate entries for key [hostname=...]").
+// deriveGatewayRouting must collapse same-hostname listeners into a single entry.
+func TestDeriveGatewayRoutingDedupesListenerHostnames(t *testing.T) {
+	proxy := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "envoy"},
+		Spec:       corev1.ServiceSpec{ClusterIP: "10.1.2.3", Ports: []corev1.ServicePort{{Port: 443}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(proxy).Build()
+	gw := &gwv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "gw", Annotations: map[string]string{
+			AnnotationGatewayService: "infra/envoy:443",
+		}},
+		Spec: gwv1.GatewaySpec{Listeners: []gwv1.Listener{
+			{Name: "http", Hostname: hn("*.example"), Protocol: gwv1.HTTPProtocolType, Port: 80},
+			{Name: "https", Hostname: hn("*.example"), Protocol: gwv1.HTTPSProtocolType, Port: 443},
+		}},
+	}
+	rt, ok := deriveGatewayRouting(context.Background(), c, gw, func(string, string) {})
+	if !ok || len(rt.services) != 1 {
+		t.Fatalf("want exactly 1 deduped service, got ok=%v services=%+v", ok, rt.services)
+	}
+	if rt.services[0]["hostname"] != "*.example" || rt.services[0]["origin"] != "10.1.2.3:443" {
+		t.Fatalf("unexpected service entry: %+v", rt.services[0])
+	}
+}
+
 func TestDeriveGatewayRoutingRequiresAnnotation(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "gw"}}
