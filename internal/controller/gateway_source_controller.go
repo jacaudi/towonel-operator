@@ -111,11 +111,22 @@ func deriveGatewayRouting(ctx context.Context, c client.Client, gw *gwv1.Gateway
 	}
 	origin := originOf(svc.Spec.ClusterIP, port)
 	var rt routing
+	// A Gateway typically has an HTTP and an HTTPS listener on the same hostname.
+	// The agent's spec.services is a listType=map keyed by hostname, so each
+	// hostname must appear once — otherwise the server-side apply rejects the
+	// contribution with "duplicate entries for key [hostname=...]". Every listener
+	// forwards to the same proxy origin, so collapsing duplicates is loss-free.
+	seen := make(map[string]struct{}, len(gw.Spec.Listeners))
 	for _, l := range gw.Spec.Listeners {
 		if l.Hostname == nil || *l.Hostname == "" {
 			continue
 		}
-		rt.services = append(rt.services, map[string]any{"hostname": string(*l.Hostname), "origin": origin})
+		host := string(*l.Hostname)
+		if _, dup := seen[host]; dup {
+			continue
+		}
+		seen[host] = struct{}{}
+		rt.services = append(rt.services, map[string]any{"hostname": host, "origin": origin})
 	}
 	if rt.empty() {
 		emit(ReasonInvalidAnnotation, "Gateway has no listener with a hostname to expose")
