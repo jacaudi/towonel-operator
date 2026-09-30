@@ -78,14 +78,6 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return err
 		}
 		if gate != nil {
-			if tunnel != nil {
-				if err := r.checkTunnelUnchanged(ctx, tunnel); err != nil {
-					return err
-				}
-			}
-			if err := r.checkAgentUnchanged(ctx, &ta); err != nil {
-				return err
-			}
 			// Other conditions remain at last-known state while the children wait.
 			setAgentCond(&ta, CondTunnelReady, metav1.ConditionFalse, gate.reason, gate.message)
 			markAgentWaiting(&ta)
@@ -98,24 +90,12 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		setAgentCond(&ta, CondTunnelReady, metav1.ConditionTrue, ReasonReady, "tunnel token available")
 
-		if err := r.checkAgentUnchanged(ctx, &ta); err != nil {
-			return err
-		}
-		if err := r.checkTunnelUnchanged(ctx, tunnel); err != nil {
-			return err
-		}
 		if err := r.ensureAgentSecret(ctx, &ta, token, tunnel.Status.InviteID); err != nil {
 			if !errors.Is(err, errSecretClash) {
-				_, failure := r.fail(ctx, &ta, tunnel, orig, err)
+				_, failure := r.failStatus(ctx, &ta, orig, err)
 				return failure
 			}
 			if errors.Is(err, errSecretClash) {
-				if err := r.checkAgentUnchanged(ctx, &ta); err != nil {
-					return err
-				}
-				if err := r.checkTunnelUnchanged(ctx, tunnel); err != nil {
-					return err
-				}
 				setAgentCond(&ta, CondConfigRendered, metav1.ConditionFalse, ReasonSecretClash, err.Error())
 				ta.Status.Phase = "Pending"
 				if r.Recorder != nil {
@@ -135,7 +115,7 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		plan := planConnectivity(&ta)
 		shellMissing, cErr := r.ensureConnectivity(ctx, &ta, plan)
 		if cErr != nil {
-			_, failure := r.fail(ctx, &ta, tunnel, orig, cErr)
+			_, failure := r.failStatus(ctx, &ta, orig, cErr)
 			return failure
 		}
 		setConnectivityCond(&ta, plan, connectivityRequested(&ta), shellMissing)
@@ -153,9 +133,10 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		cfg, err := renderConfig(&ta, tunnel.Status.PortAllocations, tunnel.Status.InviteID)
 		if err != nil {
-			_, failure := r.fail(ctx, &ta, tunnel, orig, err)
+			_, failure := r.failStatus(ctx, &ta, orig, err)
 			return failure
 		}
+		// Deployment SSA has no lock on its inputs; status writes are resourceVersion-locked.
 		if err := r.checkAgentUnchanged(ctx, &ta); err != nil {
 			return err
 		}
@@ -164,18 +145,12 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		dep, err := r.ensureDeployment(ctx, &ta, cfg)
 		if err != nil {
-			_, failure := r.fail(ctx, &ta, tunnel, orig, err)
+			_, failure := r.failStatus(ctx, &ta, orig, err)
 			return failure
 		}
 		setAgentCond(&ta, CondConfigRendered, metav1.ConditionTrue, ReasonRendered, "secret and deployment rendered")
 		rollupAgentStatus(&ta, cfg, dep)
 
-		if err := r.checkAgentUnchanged(ctx, &ta); err != nil {
-			return err
-		}
-		if err := r.checkTunnelUnchanged(ctx, tunnel); err != nil {
-			return err
-		}
 		if err := r.writeStatus(ctx, &ta, orig); err != nil {
 			return err
 		}
@@ -197,18 +172,6 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		log.Info("reconciled", "phase", reconciled.Status.Phase, "configHash", reconciled.Status.ObservedConfigHash)
 	}
 	return result, nil
-}
-
-func (r *TowonelAgentReconciler) fail(ctx context.Context, agent *towonelv1alpha1.TowonelAgent, tunnel *towonelv1alpha1.TowonelTunnel, orig *towonelv1alpha1.TowonelAgentStatus, cause error) (ctrl.Result, error) {
-	if err := r.checkAgentUnchanged(ctx, agent); err != nil {
-		return ctrl.Result{}, err
-	}
-	if tunnel != nil {
-		if err := r.checkTunnelUnchanged(ctx, tunnel); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-	return r.failStatus(ctx, agent, orig, cause)
 }
 
 func (r *TowonelAgentReconciler) checkAgentUnchanged(ctx context.Context, agent *towonelv1alpha1.TowonelAgent) error {
