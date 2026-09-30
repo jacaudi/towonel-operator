@@ -89,6 +89,9 @@ type WorkloadSpec struct {
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// Affinity defines scheduling constraints for agent pods.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 	// PodSecurityContext sets the agent pod's securityContext. When unset, the
 	// operator applies a least-privilege default (runAsNonRoot, uid/gid/fsGroup
 	// 10001, seccompProfile RuntimeDefault) that satisfies restricted Pod Security

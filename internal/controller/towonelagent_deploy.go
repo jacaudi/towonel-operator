@@ -246,6 +246,7 @@ func buildDeployment(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) *appsv1.
 					SecurityContext:    agentPodSecurityContext(ta),
 					NodeSelector:       ta.Spec.Workload.NodeSelector,
 					Tolerations:        ta.Spec.Workload.Tolerations,
+					Affinity:           ta.Spec.Workload.Affinity,
 					Containers: []corev1.Container{{
 						Name:            AgentAppName,
 						Image:           cfg.Image,
@@ -275,6 +276,7 @@ func deploymentNeedsWrite(current, desired *appsv1.Deployment) bool {
 		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.Containers[0].Resources, desired.Spec.Template.Spec.Containers[0].Resources) ||
 		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.NodeSelector, desired.Spec.Template.Spec.NodeSelector) ||
 		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.Tolerations, desired.Spec.Template.Spec.Tolerations) ||
+		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.Affinity, desired.Spec.Template.Spec.Affinity) ||
 		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.SecurityContext, desired.Spec.Template.Spec.SecurityContext) ||
 		!equality.Semantic.DeepEqual(current.Spec.Template.Spec.Containers[0].SecurityContext, desired.Spec.Template.Spec.Containers[0].SecurityContext)
 }
