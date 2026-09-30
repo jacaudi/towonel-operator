@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.8.0](https://github.com/jacaudi/towonel-operator/compare/v1.7.1...v1.8.0) (2026-09-30)
+
+
+### Features
+
+* **agent:** add udp gso control ([#71](https://github.com/jacaudi/towonel-operator/issues/71)) ([32d92cb](https://github.com/jacaudi/towonel-operator/commit/32d92cb632cc3828e5acf79ecd473228afe8545a))
+* **towonelagent:** add workload affinity support ([#70](https://github.com/jacaudi/towonel-operator/issues/70)) ([0287f92](https://github.com/jacaudi/towonel-operator/commit/0287f928b6974fcc902aa2822bda1a3f60f2eb1d))
+
+
+### Bug Fixes
+
+* **controller:** recompute config after conflicts ([#72](https://github.com/jacaudi/towonel-operator/issues/72)) ([35deafa](https://github.com/jacaudi/towonel-operator/commit/35deafa2dc99fbf37b7151a7093117dfd28aaa5f))
+* **hub-client:** honor 429 Retry-After to back off politely ([#45](https://github.com/jacaudi/towonel-operator/issues/45)) ([597fc83](https://github.com/jacaudi/towonel-operator/commit/597fc8389127d7f076aca81168f380b26902dbe7))
+* **renovate:** group k8s tooling and regenerate artifacts after upgrades ([b4c995c](https://github.com/jacaudi/towonel-operator/commit/b4c995cec2325e8f5c9c429985ca194f1c63a464))
+* **renovate:** use deps: commit type so release-please lists dependency bumps ([fda71b3](https://github.com/jacaudi/towonel-operator/commit/fda71b35cf22d163afad5d44e494181116ddc49e))
+
+
+### Dependencies
+
+* regenerate CRDs for controller-tools v0.22.0 ([242058d](https://github.com/jacaudi/towonel-operator/commit/242058d9b2cbfa693331189a07bfbbeccc96086c))
+* regenerate CRDs for k8s 0.37 ([80f4adc](https://github.com/jacaudi/towonel-operator/commit/80f4adcdfb3bf7803ace1330685675e31364e547))
+* Update kubernetes-client-libraries ([737b574](https://github.com/jacaudi/towonel-operator/commit/737b574c05042448cad0b067d73dce70e20b6071))
+* Update module sigs.k8s.io/controller-runtime/tools/setup-envtest to v0.25.1 ([4f34473](https://github.com/jacaudi/towonel-operator/commit/4f3447343dfbae1e0f692ff79872649f80b09dc9))
+* Update module sigs.k8s.io/controller-tools to v0.22.0 ([8113e0b](https://github.com/jacaudi/towonel-operator/commit/8113e0bc7f2d1de823869ec192fd5c6d31a95ff3))
+
 ## [1.7.1](https://github.com/jacaudi/towonel-operator/compare/v1.7.0...v1.7.1) (2026-07-10)
 
 ## [1.7.0](https://github.com/jacaudi/towonel-operator/compare/v1.6.0...v1.7.0) (2026-07-05)
