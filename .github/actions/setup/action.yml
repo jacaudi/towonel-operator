@@ -1,0 +1,124 @@
+# Installs the toolchains AND lint tools this repo needs; shared by ci-test and ci-artifact. Rationale: github-actions-align/templates/README.md#composite-action
+name: Set up toolchains
+description: Install the language toolchains and lint tools present in this repo, plus Task.
+
+inputs:
+  repo-token:
+    description: GITHUB_TOKEN — an input because `secrets` is unavailable inside a composite action.
+    required: false
+    default: ''
+  lint-tools:
+    description: Install linters. Set false for jobs that only build artefacts.
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    # Detection is a shell step, not inline hashFiles(), for two reasons found by
+    # running it against real repos:
+    #   - NOTHING is guaranteed to be at the repo root, Go included. A root-only
+    #     check silently skips setup for a module in a subdirectory.
+    #   - `**/Dockerfile*` matches junk like <tool-dir>/Dockerfile.json, which
+    #     would install hadolint and then lint a JSON file.
+    # Detection lives in detect.sh so tests/detect-test.sh exercises the SAME
+    # code that ships here. Three fail-silent find traps are documented there.
+    - name: Detect repo shape
+      id: d
+      shell: bash
+      run: |
+        set -euo pipefail
+        out=$(bash "${{ github.action_path }}/detect.sh")
+        printf '%s\n' "${out}"
+        printf '%s\n' "${out}" >> "$GITHUB_OUTPUT"
+
+    - name: Set up Go
+      if: ${{ steps.d.outputs.go == 'true' }}
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: ${{ steps.d.outputs.gomod }}
+
+    # A lockfile must exist or setup-node throws on an empty cache hash.
+    - name: Set up Node
+      if: ${{ steps.d.outputs.node == 'true' && steps.d.outputs.nodelock == 'true' }}
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version-file: .node-version
+        cache: npm
+        cache-dependency-path: '**/package-lock.json'
+
+    - name: Set up Node (no lockfile — cache disabled)
+      if: ${{ steps.d.outputs.node == 'true' && steps.d.outputs.nodelock != 'true' }}
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version-file: .node-version
+
+    - name: Set up Python (uv)
+      if: ${{ steps.d.outputs.python == 'true' }}
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      with:
+        enable-cache: true
+
+    - name: Set up Rust
+      if: ${{ steps.d.outputs.rust == 'true' }}
+      shell: bash
+      run: rustup component add clippy rustfmt
+
+    - name: Set up Task
+      uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      with:
+        version: 3.x
+        repo-token: ${{ inputs.repo-token }}
+
+    # NONE of the linters below ship on ubuntu-latest — `task ci` cannot pass
+    # without them. Pinned release tarballs, not a piped install script.
+    # yamllint IS preinstalled; do not reach for it through uvx (uv is not).
+    - name: Install actionlint
+      if: ${{ inputs.lint-tools == 'true' && steps.d.outputs.workflows == 'true' }}
+      shell: bash
+      env:
+        # renovate: datasource=github-releases depName=rhysd/actionlint
+        VERSION: 1.7.12
+      run: |
+        set -euo pipefail
+        curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz" \
+          | sudo tar xz -C /usr/local/bin actionlint
+        actionlint --version
+
+    - name: Install golangci-lint
+      if: ${{ inputs.lint-tools == 'true' && steps.d.outputs.go == 'true' }}
+      shell: bash
+      env:
+        # renovate: datasource=github-releases depName=golangci/golangci-lint
+        VERSION: 2.13.2
+      run: |
+        set -euo pipefail
+        curl -sSfL "https://github.com/golangci/golangci-lint/releases/download/v${VERSION}/golangci-lint-${VERSION}-linux-amd64.tar.gz" \
+          | sudo tar xz --strip-components=1 -C /usr/local/bin "golangci-lint-${VERSION}-linux-amd64/golangci-lint"
+        golangci-lint --version
+
+    - name: Install govulncheck
+      if: ${{ inputs.lint-tools == 'true' && steps.d.outputs.go == 'true' }}
+      shell: bash
+      env:
+        # renovate: datasource=go depName=golang.org/x/vuln
+        VERSION: v1.8.0
+      run: go install "golang.org/x/vuln/cmd/govulncheck@${VERSION}"
+
+    - name: Install hadolint
+      if: ${{ inputs.lint-tools == 'true' && steps.d.outputs.docker == 'true' }}
+      shell: bash
+      env:
+        # renovate: datasource=github-releases depName=hadolint/hadolint
+        VERSION: 2.15.1
+      run: |
+        set -euo pipefail
+        sudo curl -sSfLo /usr/local/bin/hadolint \
+          "https://github.com/hadolint/hadolint/releases/download/v${VERSION}/hadolint-Linux-x86_64"
+        sudo chmod +x /usr/local/bin/hadolint
+        hadolint --version
+
+    - name: Install cargo-audit
+      if: ${{ inputs.lint-tools == 'true' && steps.d.outputs.rust == 'true' }}
+      shell: bash
+      run: cargo install --locked cargo-audit

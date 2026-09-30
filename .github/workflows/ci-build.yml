@@ -1,0 +1,164 @@
+# Stage c — multi-arch image to GHCR, output pinned by digest; `version`+`ref` drive release builds. Rationale: github-actions-align/templates/README.md#ci-buildyml
+name: ci-build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release tag to derive semver image tags from (e.g. v1.2.3). Empty for non-release builds.
+        required: false
+        default: ''
+        type: string
+      ref:
+        description: Git ref to build. Empty builds the triggering commit; a release build must pass its tag.
+        required: false
+        default: ''
+        type: string
+      image:
+        description: Image name. Defaults to ghcr.io/<owner>/<repo>.
+        required: false
+        default: ''
+        type: string
+      platforms:
+        description: Build platforms.
+        required: false
+        default: linux/amd64,linux/arm64
+        type: string
+      context:
+        description: Docker build context.
+        required: false
+        default: .
+        type: string
+      file:
+        description: Dockerfile path. Empty uses <context>/Dockerfile.
+        required: false
+        default: ''
+        type: string
+    secrets:
+      APP_ID:
+        description: GitHub App id. Required only to push outside this repo's own GHCR namespace.
+        required: false
+      APP_PRIVATE_KEY:
+        description: Private key for the above App
+        required: false
+    outputs:
+      image:
+        description: Pushed image reference, pinned by digest
+        value: ${{ jobs.build.outputs.image }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: build + push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.ref.outputs.image }}
+    env:
+      APP_ID: ${{ secrets.APP_ID }}
+      # GHCR rejects uppercase refs; owner/repo casing is not guaranteed.
+      IMAGE: ${{ inputs.image != '' && inputs.image || format('ghcr.io/{0}', github.repository) }}
+    steps:
+      - name: Normalise the image name to lowercase
+        run: echo "IMAGE=$(printf '%s' "${IMAGE}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Verify the checkout matches the release being stamped
+        if: ${{ inputs.version != '' }}
+        env:
+          WANT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ ! -f .release-please-manifest.json ]; then
+            echo "::error::.release-please-manifest.json missing — cannot verify ${WANT}"
+            exit 1
+          fi
+          have="v$(jq -r '.["."]' .release-please-manifest.json)"
+          echo "tag being stamped: ${WANT}"
+          echo "manifest reports:  ${have}"
+          [ "${WANT}" = "${have}" ] || { echo "::error::refusing to publish ${WANT} from a checkout that reports ${have}"; exit 1; }
+
+      # M1 — local modification. The template passes no build-args, so a
+      # released image would report v0.0.0-dev. Derived HERE rather than in each
+      # of the four calling jobs: four callers restating how the version is
+      # computed is duplicated knowledge with one change-driver.
+      # Safe with provenance: mode=min, which the template already uses.
+      - name: Derive build args
+        id: stamp
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version }}"
+          [ -n "${version}" ] || version="v0.0.0-dev"
+          {
+            echo "version=${version}"
+            echo "commit=$(git rev-parse --short HEAD)"
+            echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate a GitHub App token
+        id: app-token
+        if: ${{ env.APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=sha
+            type=raw,priority=1000,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern=v{{version}},value=${{ inputs.version }}
+            type=semver,pattern=v{{major}}.{{minor}},value=${{ inputs.version }}
+            type=semver,pattern=v{{major}},value=${{ inputs.version }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ steps.app-token.outputs.token && 'x-access-token' || github.actor }}
+          password: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.file }}
+          pull: true
+          push: true
+          platforms: ${{ inputs.platforms }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          provenance: mode=min   # NOT max — embeds build-args/secrets. See README#ci-buildyml
+          build-args: |
+            VERSION=${{ steps.stamp.outputs.version }}
+            COMMIT=${{ steps.stamp.outputs.commit }}
+            DATE=${{ steps.stamp.outputs.date }}
+
+      - name: Expose image reference (by digest)
+        id: ref
+        run: echo "image=${IMAGE}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,40 @@
+# Stage a — lint, format, static analysis, tests, vuln scan. Body is always `task ci`. Rationale: github-actions-align/templates/README.md#ci-testyml
+name: ci-test
+
+on:
+  workflow_call:
+    inputs:
+      task:
+        description: Task target to run. Override for stricter scheduled runs.
+        required: false
+        default: ci
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ inputs.task }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # 0, not 2: `task lint` diffs against BASE_REF to decide whether to run
+          # actionlint. Depth 2 only sees the last commit, so a push whose
+          # workflow edit was not the final commit silently skipped the lint.
+          fetch-depth: 0
+
+      - name: Set up toolchains
+        uses: ./.github/actions/setup
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run task ${{ inputs.task }}
+        env:
+          # The real base for this run: the PR's merge base, or the previous tip
+          # on a push. Falls back to HEAD~1 inside the task when unset.
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: task ${{ inputs.task }}

@@ -1,5 +1,8 @@
 /bin/
 /dist/
+
+# chart dependencies — built from Chart.lock by `task repo:chart:deps`
+/chart/charts/
 *.swp
 .DS_Store
 

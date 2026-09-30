@@ -1,0 +1,67 @@
+# Stage d — thin harness: runs `task smoke` with IMAGE set; the repo owns what smoke means. Rationale: github-actions-align/templates/README.md#ci-smokeyml
+name: ci-smoke
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Image reference to smoke test (digest-pinned)
+        required: true
+        type: string
+      task:
+        description: Task target to run. `smoke` boots a service; `smoke:client` runs a one-shot check.
+        required: false
+        default: smoke
+        type: string
+    secrets:
+      APP_ID:
+        description: GitHub App id. Only needed to pull from another namespace.
+        required: false
+      APP_PRIVATE_KEY:
+        description: Private key for the above App
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  smoke:
+    name: smoke test image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      APP_ID: ${{ secrets.APP_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Generate a GitHub App token
+        id: app-token
+        if: ${{ env.APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ steps.app-token.outputs.token && 'x-access-token' || github.actor }}
+          password: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Set up Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run the smoke task
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: task ${{ inputs.task }}

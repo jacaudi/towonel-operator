@@ -41,8 +41,8 @@ type podMonitorSelector struct {
 // renderAgentPodMonitor shells out to `helm template` with the agent PodMonitor
 // enabled and returns the decoded PodMonitor selector document. It skips (not
 // fails) when the helm binary is unavailable so `go test ./...` stays green in
-// sandboxes without helm; the maintainer's CI has helm (it runs helm-lint /
-// helm-template-test), so the guard executes there.
+// sandboxes without helm; the maintainer's CI has helm (it runs `task ci`),
+// so the guard executes there.
 func renderAgentPodMonitor(t *testing.T) podMonitorSelector {
 	t.Helper()
 	if _, err := exec.LookPath("helm"); err != nil {

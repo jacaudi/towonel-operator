@@ -1,0 +1,135 @@
+# Helm chart → ghcr.io/<owner>/charts/<name>; appVersion is committed, not computed, and its image is verified. Rationale: github-actions-align/templates/README.md#ci-chartyml
+name: ci-chart
+
+on:
+  workflow_call:
+    inputs:
+      chart-path:
+        description: Path to the chart directory. Fleet convention is charts/.
+        required: false
+        default: charts
+        type: string
+      version:
+        description: Chart version to publish (from release-please's chart package).
+        required: true
+        type: string
+      ref:
+        description: Git ref to package. Empty packages the triggering commit; a release must pass its tag.
+        required: false
+        default: ''
+        type: string
+      registry:
+        description: OCI registry namespace to push into.
+        required: false
+        default: ''
+        type: string
+      image:
+        description: Image repo that appVersion refers to. Defaults to ghcr.io/<owner>/<repo>.
+        required: false
+        default: ''
+        type: string
+    secrets:
+      APP_ID:
+        description: GitHub App id. Needed to push to the shared charts namespace.
+        required: false
+      APP_PRIVATE_KEY:
+        description: Private key for the above App
+        required: false
+    outputs:
+      chart:
+        description: Pushed chart reference
+        value: ${{ jobs.chart.outputs.chart }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  chart:
+    name: package + push chart
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      chart: ${{ steps.push.outputs.chart }}
+    env:
+      APP_ID: ${{ secrets.APP_ID }}
+      CHART_PATH: ${{ inputs.chart-path }}
+      REGISTRY: ${{ inputs.registry != '' && inputs.registry || format('oci://ghcr.io/{0}/charts', github.repository_owner) }}
+      IMAGE: ${{ inputs.image != '' && inputs.image || format('ghcr.io/{0}', github.repository) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Normalise the image name to lowercase
+        run: echo "IMAGE=$(printf '%s' "${IMAGE}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.22.0
+
+      - name: Generate a GitHub App token
+        id: app-token
+        if: ${{ env.APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ steps.app-token.outputs.token && 'x-access-token' || github.actor }}
+          password: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Set up Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Register repos and build chart dependencies
+        run: task repo:chart:deps   # same resolution `task ci` uses locally
+
+      - name: Verify the image named by appVersion exists
+        run: |
+          set -euo pipefail
+          app=$(yq '.appVersion' "${CHART_PATH}/Chart.yaml")
+          if [ -z "${app}" ] || [ "${app}" = "null" ]; then
+            echo "::error::${CHART_PATH}/Chart.yaml has no appVersion"
+            exit 1
+          fi
+          # ci-build tags releases v<semver>; appVersion is conventionally bare.
+          # Normalise so a bare 1.2.3 still resolves to the :v1.2.3 that exists.
+          case "${app}" in v*) ref="${IMAGE}:${app}" ;; *) ref="${IMAGE}:v${app}" ;; esac
+          echo "chart appVersion: ${app}"
+          echo "checking ${ref}"
+          docker buildx imagetools inspect "${ref}" >/dev/null 2>&1 || {
+            echo "::error::${ref} does not exist — refusing to publish a chart pointing at a missing image"
+            exit 1
+          }
+          echo "ok: ${ref} exists"
+
+      - name: Lint and template
+        run: |
+          set -euo pipefail
+          helm lint "${CHART_PATH}"
+          helm template release-test "${CHART_PATH}" >/dev/null
+
+      - name: Package and push
+        id: push
+        env:
+          CHART_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          name=$(yq '.name' "${CHART_PATH}/Chart.yaml")
+          helm package "${CHART_PATH}" --version "${CHART_VERSION}" --destination /tmp
+          helm push "/tmp/${name}-${CHART_VERSION}.tgz" "${REGISTRY}"
+          echo "chart=${REGISTRY}/${name}:${CHART_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "pushed ${REGISTRY}/${name}:${CHART_VERSION}"

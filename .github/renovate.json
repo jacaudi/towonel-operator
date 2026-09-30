@@ -41,23 +41,15 @@
       "recreateWhen": "always"
     },
     {
-      "description": "Default towonel-agent image bumps -> chore(towonel-agent) so the operator gets a patch release. Track tagged semver only (latest + sha-* are ignored by docker versioning).",
+      "description": "Default towonel-agent image bumps -> deps(towonel-agent) so release-please cuts a patch release (deps is a visible changelog section; chore is hidden). Track tagged semver only (latest + sha-* are ignored by docker versioning).",
       "matchDepNames": ["codeberg.org/towonel/towonel-agent"],
-      "commitMessagePrefix": "chore(towonel-agent):",
-      "semanticCommitType": "chore",
+      "commitMessagePrefix": "deps(towonel-agent):",
+      "semanticCommitType": "deps",
       "semanticCommitScope": "towonel-agent",
       "recreateWhen": "always"
     }
   ],
   "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Match go-version inputs to reusable workflows (native github-actions manager only matches direct setup-go usage)",
-      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
-      "matchStrings": ["go-version:\\s*['\"]?(?<currentValue>[0-9.]+)['\"]?"],
-      "depNameTemplate": "go",
-      "datasourceTemplate": "golang-version"
-    },
     {
       "customType": "regex",
       "description": "Default agent image pinned in the operator (used when a TowonelAgent omits spec.workload.image)",
