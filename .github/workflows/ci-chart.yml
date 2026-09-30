@@ -97,12 +97,19 @@ jobs:
       - name: Register repos and build chart dependencies
         run: task repo:chart:deps   # same resolution `task ci` uses locally
 
-      - name: Verify the image named by appVersion exists
+      - name: Verify appVersion matches the release and its image exists
+        env:
+          CHART_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           app=$(yq '.appVersion' "${CHART_PATH}/Chart.yaml")
           if [ -z "${app}" ] || [ "${app}" = "null" ]; then
             echo "::error::${CHART_PATH}/Chart.yaml has no appVersion"
+            exit 1
+          fi
+          # Lockstep: chart version = tag, so a stale appVersion would ship the previous image under the new chart version.
+          if [ "${app#v}" != "${CHART_VERSION#v}" ]; then
+            echo "::error::appVersion ${app} != release ${CHART_VERSION}; refusing to publish a chart that renders the wrong image"
             exit 1
           fi
           # ci-build tags releases v<semver>; appVersion is conventionally bare.
