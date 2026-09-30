@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -139,6 +140,40 @@ func TestBuildDeployment(t *testing.T) {
 	}
 }
 
+func TestBuildDeploymentAffinity(t *testing.T) {
+	affinity := &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key: "kubernetes.io/arch", Operator: corev1.NodeSelectorOpIn, Values: []string{"amd64"},
+					}},
+				}},
+			},
+		},
+		PodAffinity: &corev1.PodAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "cache"}},
+				TopologyKey:   "kubernetes.io/hostname",
+			}},
+		},
+		PodAntiAffinity: &corev1.PodAntiAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{LabelAppInstance: "edge-a"}},
+				TopologyKey:   "kubernetes.io/hostname",
+			}},
+		},
+	}
+	ta := renderAgent()
+	ta.Spec.Workload.Affinity = affinity
+	want := affinity.DeepCopy()
+	cfg, _ := renderConfig(ta, allocsFor(), "inv-1")
+	dep := buildDeployment(ta, cfg)
+	if !equality.Semantic.DeepEqual(dep.Spec.Template.Spec.Affinity, want) {
+		t.Errorf("pod affinity = %+v, want %+v", dep.Spec.Template.Spec.Affinity, affinity)
+	}
+}
+
 func TestBuildDeploymentPartialResources(t *testing.T) {
 	ta := renderAgent()
 	ta.Spec.Workload.Resources = corev1.ResourceRequirements{
@@ -175,6 +210,35 @@ func TestDeploymentNeedsWrite(t *testing.T) {
 	scaled.Spec.Replicas = new(int32(5)) // outside the hash -> still a write
 	if !deploymentNeedsWrite(scaled, desired) {
 		t.Error("replica change must need a write")
+	}
+}
+
+func TestDeploymentNeedsWriteAffinityChange(t *testing.T) {
+	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "ns"}}
+	base := buildDeployment(ta, agentConfig{Image: "img", SAName: "agent-a"})
+	if deploymentNeedsWrite(base.DeepCopy(), base) {
+		t.Fatal("both nil affinities must not need a write")
+	}
+
+	withAffinity := base.DeepCopy()
+	withAffinity.Spec.Template.Spec.Affinity = &corev1.Affinity{
+		PodAntiAffinity: &corev1.PodAntiAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+				TopologyKey: "kubernetes.io/hostname",
+			}},
+		},
+	}
+	if !deploymentNeedsWrite(base, withAffinity) {
+		t.Fatal("nil to set affinity change must trigger a write")
+	}
+	if deploymentNeedsWrite(withAffinity.DeepCopy(), withAffinity) {
+		t.Fatal("identical affinity must not need a write")
+	}
+
+	modified := withAffinity.DeepCopy()
+	modified.Spec.Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].TopologyKey = "topology.kubernetes.io/zone"
+	if !deploymentNeedsWrite(withAffinity, modified) {
+		t.Fatal("modified affinity must trigger a write")
 	}
 }
 

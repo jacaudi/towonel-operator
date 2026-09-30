@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -77,8 +78,8 @@ func rollupAgentStatus(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig, dep *a
 	}
 }
 
-// writeStatus persists agent status via read-modify-write, gated on a
-// semantic diff (mirrors the tunnel's writeStatus).
+// writeStatus uses the original reconcile snapshot. A conflict must escape to
+// Reconcile so its retry recomputes status from current inputs.
 func (r *TowonelAgentReconciler) writeStatus(ctx context.Context, ta *towonelv1alpha1.TowonelAgent, orig *towonelv1alpha1.TowonelAgentStatus) error {
 	ta.Status.ObservedGeneration = ta.Generation
 	if equality.Semantic.DeepEqual(orig, &ta.Status) {
@@ -105,12 +106,11 @@ func setConnectivityCond(ta *towonelv1alpha1.TowonelAgent, p connectivityPlan, r
 	}
 }
 
-// fail sets ConfigRendered=False and persists status defensively.
-// ReasonReconciling, not APIError: this controller makes zero hub calls —
-// errors here are kube-API/render failures.
-func (r *TowonelAgentReconciler) fail(ctx context.Context, ta *towonelv1alpha1.TowonelAgent, orig *towonelv1alpha1.TowonelAgentStatus, err error) (ctrl.Result, error) {
+// failStatus sets ConfigRendered=False, persists status, and returns the cause
+// joined with any status-write error. ReasonReconciling, not APIError: this
+// controller makes zero hub calls — errors are kube-API/render failures.
+func (r *TowonelAgentReconciler) failStatus(ctx context.Context, ta *towonelv1alpha1.TowonelAgent, orig *towonelv1alpha1.TowonelAgentStatus, err error) (ctrl.Result, error) {
 	setAgentCond(ta, CondConfigRendered, metav1.ConditionFalse, ReasonReconciling, err.Error())
 	ta.Status.Phase = "Pending"
-	_ = r.writeStatus(ctx, ta, orig) // defensive; surface the real error
-	return ctrl.Result{}, err
+	return ctrl.Result{}, errors.Join(err, r.writeStatus(ctx, ta, orig))
 }

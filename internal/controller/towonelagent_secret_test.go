@@ -90,7 +90,7 @@ func TestReadTunnelTokenGates(t *testing.T) {
 			}
 			c := builder.Build()
 			r := &TowonelAgentReconciler{Client: c, Scheme: agentScheme(t)}
-			_, token, gate, err := r.readTunnelToken(t.Context(), ta)
+			tunnel, token, gate, err := r.readTunnelToken(t.Context(), ta)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -105,6 +105,12 @@ func TestReadTunnelTokenGates(t *testing.T) {
 			}
 			if gate == nil || gate.reason != tc.wantReason {
 				t.Fatalf("gate = %+v, want reason %s", gate, tc.wantReason)
+			}
+			if tc.name == "tunnel missing" && tunnel != nil {
+				t.Fatal("missing tunnel returned a tunnel object")
+			}
+			if tc.name != "tunnel missing" && tunnel == nil {
+				t.Fatal("found tunnel was lost alongside readiness gate")
 			}
 		})
 	}

@@ -1,0 +1,126 @@
+# Cross-cutting repo checks; each is a no-op when its subject is absent. Rationale: github-actions-align/templates/README.md#repoyml
+version: '3'
+
+tasks:
+  ci:
+    desc: All repo-level checks
+    cmds:
+      - task: actions
+      - task: yaml
+      - task: docker
+      - task: helm
+
+  actions:
+    desc: Lint GitHub Actions workflows (only when they changed)
+    cmds:
+      - task: actions:local-refs
+      - |
+        set -eu
+        [ -d .github/workflows ] || { echo "no workflows — skipping actionlint"; exit 0; }
+        base="${BASE_REF:-HEAD~1}"
+        if git rev-parse --verify --quiet "${base}^{commit}" >/dev/null; then
+          if [ -z "$(git diff --name-only "${base}" HEAD -- .github/workflows)" ]; then
+            echo "no workflow changes since ${base} — skipping actionlint"
+            exit 0
+          fi
+        fi
+        command -v actionlint >/dev/null \
+          || { echo "actionlint not installed: go install github.com/rhysd/actionlint/cmd/actionlint@latest" >&2; exit 1; }
+        actionlint
+
+  actions:local-refs:
+    desc: "Assert every local `uses:` reference actually exists"
+    cmds:
+      # `find -print0 | xargs -0` and NOT a bare `*.yml *.yaml` glob pair: when one
+      # glob has no match, awk dies on the literal argument, 2>/dev/null hides it,
+      # and the pipe swallows the status — so an all-.yaml repo silently passed.
+      - |
+        set -eu
+        [ -d .github/workflows ] || exit 0
+        files=$(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \))
+        [ -n "${files}" ] || { echo "no workflow files — nothing to check"; exit 0; }
+        fail=0
+        # shellcheck disable=SC2086  # deliberate word split over the file list
+        refs=$(awk '/uses:[[:space:]]*\.\//{
+                 sub(/.*uses:[[:space:]]*/,""); sub(/[[:space:]]*#.*/,""); sub(/[[:space:]]*$/,""); print
+               }' ${files} | sort -u)
+        for ref in ${refs}; do
+          case "${ref}" in
+            *.yml|*.yaml)
+              [ -f "${ref#./}" ] || { echo "MISSING workflow: ${ref}"; fail=1; } ;;
+            *)
+              d="${ref#./}"
+              if [ ! -f "${d}/action.yml" ] && [ ! -f "${d}/action.yaml" ]; then
+                echo "MISSING action:   ${ref} (no action.yml)"; fail=1
+              fi ;;
+          esac
+        done
+        [ "${fail}" = "0" ] || { echo "::error::a local uses: reference points at nothing"; exit 1; }
+        echo "local uses: references ok"
+
+  yaml:
+    desc: yamllint, when a config is present
+    cmds:
+      # yamllint, NOT `uvx yamllint` — yamllint ships on the runner and uv does not.
+      - |
+        set -eu
+        if [ ! -f .yamllint.yml ] && [ ! -f .yamllint.yaml ]; then
+          echo "no .yamllint config — skipping"; exit 0
+        fi
+        command -v yamllint >/dev/null \
+          || { echo "yamllint not installed: uv tool install yamllint" >&2; exit 1; }
+        yamllint .
+
+  docker:
+    desc: hadolint every Dockerfile
+    cmds:
+      - |
+        set -eu
+        files=$(find . -name 'Dockerfile*' -not -path './.git/*' -not -path '*/node_modules/*' -not -path '*/vendor/*')
+        [ -n "${files}" ] || { echo "no Dockerfile — skipping hadolint"; exit 0; }
+        command -v hadolint >/dev/null \
+          || { echo "hadolint not installed: brew install hadolint" >&2; exit 1; }
+        echo "${files}" | xargs hadolint
+
+  chart:deps:
+    desc: Register classic dependency repos and build chart dependencies
+    cmds:
+      # Single source of truth for dependency resolution — ci-chart.yml calls this
+      # too. Without it `helm template` fails once the vendored .tgz is deleted, as
+      # the migration instructs.
+      - |
+        set -eu
+        for c in $(find . -name Chart.yaml -not -path './.git/*' -not -path '*/charts/*'); do
+          d=$(dirname "${c}")
+          count=$(yq '.dependencies | length // 0' "${c}")
+          [ "${count}" -gt 0 ] || continue
+          i=0
+          while [ "${i}" -lt "${count}" ]; do
+            name=$(yq ".dependencies[${i}].name" "${c}")
+            repo=$(yq ".dependencies[${i}].repository" "${c}")
+            case "${repo}" in
+              oci://*|""|null) : ;;
+              *) echo "helm repo add ${name} ${repo}"; helm repo add "${name}" "${repo}" >/dev/null ;;
+            esac
+            i=$((i + 1))
+          done
+          echo "helm dependency build ${d}"
+          helm dependency build "${d}"   # build, NOT update — honours Chart.lock
+        done
+
+  helm:
+    desc: helm lint + template, when a chart is present
+    cmds:
+      - task: chart:deps
+      - |
+        set -eu
+        charts=$(find . -name Chart.yaml -not -path './.git/*' -not -path '*/charts/*')
+        [ -n "${charts}" ] || { echo "no chart — skipping helm lint"; exit 0; }
+        command -v helm >/dev/null \
+          || { echo "helm not installed: brew install helm" >&2; exit 1; }
+        for c in ${charts}; do
+          d=$(dirname "${c}")
+          echo "linting ${d}"
+          helm lint "${d}"
+          helm template release-test "${d}" >/dev/null
+        done

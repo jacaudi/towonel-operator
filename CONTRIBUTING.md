@@ -6,21 +6,31 @@ that the release tooling and CI depend on.
 ## Commit convention
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/). The release
-pipeline (`.releaserc.json`, semantic-release) derives the next version and the changelog
-from commit types:
+pipeline (release-please, `release-please-config.json`) maintains a release PR from commit
+types on `main`; merging that PR tags the release and publishes the image and chart:
 
 - `feat:` — a new feature (minor release)
-- `fix:` — a bug fix (patch release)
+- `fix:` / `perf:` — a bug fix or performance improvement (patch release)
 - `refactor:` — internal change, no behavior change (patch release)
-- `chore(deps):` / `chore(towonel-agent):` — dependency bumps (patch release)
+- `deps(towonel-agent):` — default agent image bump from Renovate (patch release)
+- `chore:`, `chore(deps):`, `docs:`, `ci:`, `test:`, `build:`, `style:` — no release on their own
 
 ## Versioning (alpha)
 
 This project is in **alpha**. Breaking changes are expected and warrant only a **minor**
-version bump — they ship as `feat:` commits. The release pipeline (`.releaserc.json`) maps
-`breaking → minor`, so even a `!`/`BREAKING CHANGE`-marked commit still produces a minor
-release. Do **not** treat API or behavior changes as major while in alpha. This policy will
-be revisited when the project leaves alpha.
+version bump — they ship as `feat:` commits. release-please has no `breaking → minor` rule
+for versions ≥ 1.0, so a `!`/`BREAKING CHANGE`-marked commit **would** propose a major
+release: do not use those markers while in alpha. If one lands anyway, push a commit with a
+`Release-As: x.y.0` footer to override the proposed version. This policy will be revisited
+when the project leaves alpha.
+
+## Pull requests from forks
+
+CI runs on `pull_request` for fork PRs so they report the required `ci` check, but fork runs
+are **test only**: `task ci` (lint, tests, drift gate) with a read-only token and no
+secrets. No image is built or smoke-tested and nothing is published; a maintainer's branch
+covers that before release. A maintainer may need to approve the first run for a
+first-time contributor.
 
 ## Generated artifacts
 

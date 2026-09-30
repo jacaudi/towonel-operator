@@ -1,6 +1,7 @@
 package envtest_test
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -8,9 +9,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -33,6 +36,11 @@ func markDeploymentAvailable(t *testing.T, c client.Client, nn types.NamespacedN
 		dep.Status.Replicas, dep.Status.ReadyReplicas = 1, 1
 		return c.Status().Update(t.Context(), &dep) == nil
 	})
+}
+
+func agentEnvValueString(dep *appsv1.Deployment, name string) string {
+	value, _ := agentEnvValue(dep, name)
+	return value
 }
 
 func agentEnvValue(dep *appsv1.Deployment, name string) (string, bool) {
@@ -103,6 +111,95 @@ func TestAgentRoundTrip(t *testing.T) {
 	}
 	if metav1.GetControllerOf(&dep) == nil || metav1.GetControllerOf(&agentSec) == nil {
 		t.Fatal("children must be controller-owned by the agent")
+	}
+}
+
+func TestAgentConvergesAfterSpecBurst(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManager(t)
+	defer stop()
+	ctx := t.Context()
+
+	tunnel := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "burst", Namespace: "default"}}
+	if err := c.Create(ctx, tunnel); err != nil {
+		t.Fatal(err)
+	}
+	key := types.NamespacedName{Name: "burst-edge", Namespace: "default"}
+	agent := &towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+		Spec: towonelv1alpha1.TowonelAgentSpec{
+			TunnelRef: towonelv1alpha1.TunnelReference{Name: "burst"},
+			Services:  []towonelv1alpha1.AgentService{{Hostname: "one.example", Origin: "one:80"}},
+		},
+	}
+	if err := c.Create(ctx, agent); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 20*time.Second, func() bool {
+		var got towonelv1alpha1.TowonelAgent
+		return c.Get(ctx, key, &got) == nil && got.Status.ObservedConfigHash != ""
+	})
+	markDeploymentAvailable(t, c, key)
+	waitFor(t, 15*time.Second, func() bool {
+		var got towonelv1alpha1.TowonelAgent
+		return c.Get(ctx, key, &got) == nil && got.Status.Phase == "Ready"
+	})
+
+	for i := 0; i < 20; i++ {
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			var got towonelv1alpha1.TowonelAgent
+			if err := c.Get(ctx, key, &got); err != nil {
+				return err
+			}
+			if i%2 == 0 {
+				got.Spec.Services = []towonelv1alpha1.AgentService{
+					{Hostname: "one.example", Origin: "one:80", EdgeTLSMode: "passthrough"},
+					{Hostname: "two.example", Origin: "two:80", EdgeTLSMode: "passthrough"},
+				}
+			} else {
+				got.Spec.Services = []towonelv1alpha1.AgentService{{Hostname: "one.example", Origin: "one:80", EdgeTLSMode: "passthrough"}}
+			}
+			return c.Update(ctx, &got)
+		}); err != nil {
+			t.Fatalf("spec update %d: %v", i, err)
+		}
+	}
+
+	finalServices := []towonelv1alpha1.AgentService{{Hostname: "one.example", Origin: "one:80", EdgeTLSMode: "passthrough"}}
+	converged := false
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		var got towonelv1alpha1.TowonelAgent
+		if c.Get(ctx, key, &got) == nil && reflect.DeepEqual(got.Spec.Services, finalServices) {
+			var dep appsv1.Deployment
+			if c.Get(ctx, key, &dep) == nil {
+				servicesJSON, ok := agentEnvValue(&dep, "TOWONEL_AGENT_SERVICES")
+				if ok && strings.Contains(servicesJSON, `"one.example"`) && !strings.Contains(servicesJSON, `"two.example"`) &&
+					got.Status.ObservedConfigHash == dep.Spec.Template.Annotations[controller.AnnotationConfigHash] {
+					converged = true
+					break
+				}
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !converged {
+		var agentState towonelv1alpha1.TowonelAgent
+		var depState appsv1.Deployment
+		_ = c.Get(ctx, key, &agentState)
+		_ = c.Get(ctx, key, &depState)
+		t.Fatalf("final spec/config did not converge: services=%+v statusHash=%q deploymentHash=%q env=%q", agentState.Spec.Services, agentState.Status.ObservedConfigHash, depState.Spec.Template.Annotations[controller.AnnotationConfigHash], agentEnvValueString(&depState, "TOWONEL_AGENT_SERVICES"))
+	}
+	var got towonelv1alpha1.TowonelAgent
+	if err := c.Get(ctx, key, &got); err != nil {
+		t.Fatal(err)
+	}
+	var dep appsv1.Deployment
+	if err := c.Get(ctx, key, &dep); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.ObservedConfigHash == "" || got.Status.ObservedConfigHash != dep.Spec.Template.Annotations[controller.AnnotationConfigHash] {
+		t.Fatalf("status hash %q does not match deployment hash %q", got.Status.ObservedConfigHash, dep.Spec.Template.Annotations[controller.AnnotationConfigHash])
 	}
 }
 
@@ -258,6 +355,57 @@ func TestAgentRotationRollsDeployment(t *testing.T) {
 		var got towonelv1alpha1.TowonelAgent
 		return c.Get(ctx, types.NamespacedName{Name: "rot-edge", Namespace: "default"}, &got) == nil &&
 			got.Status.ObservedConfigHash != hashBefore
+	})
+}
+
+func TestAgentAffinityChangeRollsDeployment(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManager(t)
+	defer stop()
+	ctx := t.Context()
+
+	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "aff", Namespace: "default"}}
+	if err := c.Create(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	ta := &towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "aff-edge", Namespace: "default"},
+		Spec: towonelv1alpha1.TowonelAgentSpec{
+			TunnelRef: towonelv1alpha1.TunnelReference{Name: "aff"},
+			Services:  []towonelv1alpha1.AgentService{{Hostname: "aff.example", Origin: "aff:80"}},
+		},
+	}
+	if err := c.Create(ctx, ta); err != nil {
+		t.Fatal(err)
+	}
+
+	depNN := types.NamespacedName{Name: "aff-edge", Namespace: "default"}
+	waitFor(t, 20*time.Second, func() bool {
+		var dep appsv1.Deployment
+		return c.Get(ctx, depNN, &dep) == nil && dep.Spec.Template.Spec.Affinity == nil
+	})
+
+	affinity := &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+			LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+				"app.kubernetes.io/name":     "towonel-agent",
+				"app.kubernetes.io/instance": "aff-edge",
+				"app.kubernetes.io/part-of":  "towonel-operator",
+			}},
+			TopologyKey: "kubernetes.io/hostname",
+		}},
+	}}
+	waitFor(t, 15*time.Second, func() bool {
+		var current towonelv1alpha1.TowonelAgent
+		if c.Get(ctx, types.NamespacedName{Name: "aff-edge", Namespace: "default"}, &current) != nil {
+			return false
+		}
+		current.Spec.Workload.Affinity = affinity
+		return c.Update(ctx, &current) == nil
+	})
+	waitFor(t, 20*time.Second, func() bool {
+		var dep appsv1.Deployment
+		return c.Get(ctx, depNN, &dep) == nil && equality.Semantic.DeepEqual(dep.Spec.Template.Spec.Affinity, affinity)
 	})
 }
 

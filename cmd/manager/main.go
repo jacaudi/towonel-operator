@@ -95,6 +95,7 @@ func main() {
 
 	if err := (&controller.TowonelTunnelReconciler{
 		Client:     mgr.GetClient(),
+		APIReader:  mgr.GetAPIReader(),
 		Scheme:     mgr.GetScheme(),
 		Recorder:   mgr.GetEventRecorderFor("towoneltunnel"),
 		BaseURL:    towonelAPIURL,
@@ -104,9 +105,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.TowonelAgentReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("towonelagent"),
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		Recorder:  mgr.GetEventRecorderFor("towonelagent"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TowonelAgent")
 		os.Exit(1)

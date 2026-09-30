@@ -1,0 +1,19 @@
+# Fleet baseline for Dockerfile linting. Rationale: github-actions-align/templates/README.md#hadolintyaml
+failure-threshold: warning
+
+ignored:
+  - DL3008  # pin apt versions — Renovate does not manage them
+  - DL3018  # pin apk versions — same
+
+trustedRegistries:
+  - ghcr.io
+  - docker.io
+  - gcr.io
+  - registry.k8s.io
+  - quay.io
+
+override:
+  error:
+    - DL3006  # always tag the base image explicitly
+    - DL3007  # never :latest
+    - DL3020  # COPY, not ADD
