@@ -65,6 +65,19 @@ spec:
 
 The scheduler will not place two pods matching that selector on the same node. `matchLabelKeys: [pod-template-hash]` scopes the rule to pods of the same Deployment revision; without it, a rollout deadlocks when no spare node exists, because the new pod is repelled by the old pods and, at `replicas: 2`, the default rolling update removes no old pod until a new one is ready. If only one eligible node exists, the second replica stays `Pending`; `kubectl get pods` shows it as `Pending`, and `kubectl describe pod` reports that it is unschedulable because of the anti-affinity rule. That is expected, not a malfunction. Replicas provide tunnel failover, but do not promise uninterrupted existing connections or increased streaming throughput.
 
+**`workload.disableUDPGSO`** (optional, default `false`): renders
+`TOWONEL_DISABLE_UDP_GSO=true` to disable UDP segmentation offload in the agent's
+QUIC transport. Use this opt-in
+workaround for datapaths that silently drop GSO segments, such as affected Cilium
+netkit configurations. Changing the setting rolls the agent Deployment; omitting
+it or setting it to `false` preserves the agent's default behavior.
+
+```yaml
+spec:
+  workload:
+    disableUDPGSO: true
+```
+
 ## Status (operator-written)
 
 | Field | Description |

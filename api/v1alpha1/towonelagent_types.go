@@ -78,6 +78,12 @@ type ConnectivitySpec struct {
 
 // WorkloadSpec are the agent connector knobs.
 type WorkloadSpec struct {
+	// DisableUDPGSO disables UDP segmentation offload in the agent's QUIC
+	// transport. Enable for datapaths that silently drop GSO segments, such as
+	// affected Cilium netkit configurations.
+	// When omitted or false, the agent's default offload behavior is preserved.
+	// +optional
+	DisableUDPGSO bool `json:"disableUDPGSO,omitempty"`
 	// +kubebuilder:default=1
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`

@@ -47,13 +47,14 @@ type agentL4JSON struct {
 
 // agentConfig is the fully-rendered env payload for one agent.
 type agentConfig struct {
-	ServicesJSON string
-	TCPJSON      string
-	UDPJSON      string
-	RelayURL     string
-	InviteID     string // token identity stand-in: rotation rolls the hash (§4.F)
-	Image        string
-	Pending      []string // "proto/name" entries awaiting allocation (§4.E)
+	DisableUDPGSO bool
+	ServicesJSON  string
+	TCPJSON       string
+	UDPJSON       string
+	RelayURL      string
+	InviteID      string // token identity stand-in: rotation rolls the hash (§4.F)
+	Image         string
+	Pending       []string // "proto/name" entries awaiting allocation (§4.E)
 	// connectivity (P6, design §7)
 	SAName      string          // pod serviceAccountName (always set)
 	IrohPort    int32           // UDP containerPort when >0
@@ -67,6 +68,11 @@ func (c agentConfig) hash() string {
 	h := sha256.New()
 	for _, s := range []string{c.Image, c.InviteID, c.ServicesJSON, c.TCPJSON, c.UDPJSON, c.RelayURL, c.SAName, c.ConnEnvHash} {
 		h.Write([]byte(s))
+		h.Write([]byte{0})
+	}
+	// Preserve existing hashes when the opt-in workaround is disabled.
+	if c.DisableUDPGSO {
+		h.Write([]byte("TOWONEL_DISABLE_UDP_GSO=true"))
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -95,9 +101,10 @@ func marshalL4(entries []towonelv1alpha1.AgentL4Service, protocol string, allocs
 // renderConfig renders the agent env from spec + the tunnel's allocations.
 func renderConfig(ta *towonelv1alpha1.TowonelAgent, allocations []towonelv1alpha1.PortAllocation, inviteID string) (agentConfig, error) {
 	cfg := agentConfig{
-		RelayURL: ta.Spec.RelayURL,
-		InviteID: inviteID,
-		Image:    cmp.Or(ta.Spec.Workload.Image, defaultAgentImage),
+		DisableUDPGSO: ta.Spec.Workload.DisableUDPGSO,
+		RelayURL:      ta.Spec.RelayURL,
+		InviteID:      inviteID,
+		Image:         cmp.Or(ta.Spec.Workload.Image, defaultAgentImage),
 	}
 	if len(ta.Spec.Services) > 0 {
 		svcs := make([]agentHTTPSService, 0, len(ta.Spec.Services))
@@ -157,6 +164,9 @@ func agentEnv(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) []corev1.EnvVar
 	add("TOWONEL_AGENT_TCP_SERVICES", cfg.TCPJSON)
 	add("TOWONEL_AGENT_UDP_SERVICES", cfg.UDPJSON)
 	add("TOWONEL_AGENT_RELAY_URL", cfg.RelayURL)
+	if cfg.DisableUDPGSO {
+		add("TOWONEL_DISABLE_UDP_GSO", "true")
+	}
 	env = append(env, cfg.ConnEnv...)
 	env = append(env, corev1.EnvVar{Name: "TOWONEL_AGENT_HEALTH_LISTEN_ADDR", Value: agentHealthAddr})
 	return env

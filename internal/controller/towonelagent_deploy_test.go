@@ -310,3 +310,71 @@ func TestDeploymentNeedsWriteSecurityContextChange(t *testing.T) {
 		t.Fatal("pod securityContext change must trigger a write")
 	}
 }
+
+func TestDisableUDPGSO(t *testing.T) {
+	base := renderAgent()
+	baseCfg, err := renderConfig(base, allocsFor(), "inv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := buildDeployment(base, baseCfg)
+	const envName = "TOWONEL_DISABLE_UDP_GSO"
+	for _, env := range original.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == envName {
+			t.Fatal("omitted setting must preserve the agent default")
+		}
+	}
+
+	enabled := base.DeepCopy()
+	enabled.Spec.Workload.DisableUDPGSO = true
+	enabledCfg, err := renderConfig(enabled, allocsFor(), "inv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired := buildDeployment(enabled, enabledCfg)
+	count := 0
+	for _, env := range desired.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == envName {
+			count++
+			if env.Value != "true" || env.ValueFrom != nil {
+				t.Fatalf("unexpected GSO override: %+v", env)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("GSO override count = %d, want 1", count)
+	}
+	if baseCfg.hash() == enabledCfg.hash() {
+		t.Fatal("enabling the setting must change the rollout hash")
+	}
+	if !deploymentNeedsWrite(original, desired) {
+		t.Fatal("enabling the setting must trigger reconciliation")
+	}
+
+	enabled.Spec.Workload.DisableUDPGSO = false
+	disabledCfg, err := renderConfig(enabled, allocsFor(), "inv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := buildDeployment(enabled, disabledCfg)
+	if disabledCfg.hash() != baseCfg.hash() || deploymentNeedsWrite(original, restored) {
+		t.Fatal("false must restore the original Deployment and hash")
+	}
+	if !deploymentNeedsWrite(desired, restored) {
+		t.Fatal("disabling the setting must trigger reconciliation")
+	}
+}
+
+func TestConfigHashMatchesPreviousRelease(t *testing.T) {
+	// Computed on main before disableUDPGSO; changing it re-rolls every existing agent, so update only for a deliberate hash-contract change.
+	const want = "a14a6002cbdd6c7045bc5c4846f6b9e4c942120d6cd05fe70e169b2f689375b4"
+	ta := renderAgent()
+	ta.Spec.Workload.Image = "example.test/towonel-agent:pinned" // decouple from defaultAgentImage bumps
+	cfg, err := renderConfig(ta, allocsFor(), "inv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.hash(); got != want {
+		t.Errorf("config hash = %s, want %s", got, want)
+	}
+}
