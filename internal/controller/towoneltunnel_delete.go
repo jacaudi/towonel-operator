@@ -93,8 +93,8 @@ func (r *TowonelTunnelReconciler) releasePorts(ctx context.Context, tc *towonel.
 	return nil
 }
 
-// writeStatus persists status via read-modify-write, gated on a semantic diff.
-// A conflict is returned (not swallowed) so the caller requeues promptly.
+// writeStatus uses the original reconcile snapshot; conflicts escape to the
+// caller for a fresh reconcile.
 func (r *TowonelTunnelReconciler) writeStatus(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel, orig *towonelv1alpha1.TowonelTunnelStatus) error {
 	tt.Status.ObservedGeneration = tt.Generation
 	if equality.Semantic.DeepEqual(orig, &tt.Status) {
@@ -106,6 +106,8 @@ func (r *TowonelTunnelReconciler) writeStatus(ctx context.Context, tt *towonelv1
 func (r *TowonelTunnelReconciler) fail(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel, orig *towonelv1alpha1.TowonelTunnelStatus, err error) (ctrl.Result, error) {
 	setCond(tt, CondReady, metav1.ConditionFalse, ReasonAPIError, err.Error())
 	tt.Status.Phase = "Error"
-	_ = r.writeStatus(ctx, tt, orig) // defensive; surface the real error
+	if statusErr := r.writeStatus(ctx, tt, orig); statusErr != nil {
+		return ctrl.Result{}, statusErr
+	}
 	return ctrl.Result{}, err
 }

@@ -29,12 +29,16 @@ type tunnelGate struct {
 // readTunnelToken gates on ARTIFACTS, not conditions (design §4.C): tunnel
 // exists, tokenSecretRef set, Secret readable with a non-empty token, and the
 // Secret's invite-id annotation matches status.inviteId (rotation consistency).
-// Returns (tunnel, token, nil, nil) on success; (nil, "", gate, nil) when
-// semantically not-ready; (nil, "", nil, err) for transient faults.
+// Returns (tunnel, token, nil, nil) on success; (tunnel-or-nil, "", gate, nil)
+// when semantically not-ready; (nil, "", nil, err) for transient faults.
 func (r *TowonelAgentReconciler) readTunnelToken(ctx context.Context, ta *towonelv1alpha1.TowonelAgent) (*towonelv1alpha1.TowonelTunnel, secret, *tunnelGate, error) {
 	nn := resolvedTunnelRef(ta)
 	var tt towonelv1alpha1.TowonelTunnel
-	if err := r.Get(ctx, nn, &tt); err != nil {
+	reader := client.Reader(r.Client)
+	if r.APIReader != nil {
+		reader = r.APIReader
+	}
+	if err := reader.Get(ctx, nn, &tt); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, "", &tunnelGate{ReasonTunnelNotFound, fmt.Sprintf("tunnel %s not found", nn)}, nil
 		}
@@ -42,7 +46,7 @@ func (r *TowonelAgentReconciler) readTunnelToken(ctx context.Context, ta *towone
 	}
 	ref := tt.Status.TokenSecretRef
 	if ref == nil || ref.Name == "" {
-		return nil, "", &tunnelGate{ReasonTokenSecretMissing, fmt.Sprintf("tunnel %s has no token secret yet", nn)}, nil
+		return &tt, "", &tunnelGate{ReasonTokenSecretMissing, fmt.Sprintf("tunnel %s has no token secret yet", nn)}, nil
 	}
 	secNS := ref.Namespace
 	if secNS == "" {
@@ -51,16 +55,16 @@ func (r *TowonelAgentReconciler) readTunnelToken(ctx context.Context, ta *towone
 	var sec corev1.Secret
 	if err := r.Get(ctx, types.NamespacedName{Namespace: secNS, Name: ref.Name}, &sec); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, "", &tunnelGate{ReasonTokenSecretMissing, fmt.Sprintf("token secret %s/%s not found", secNS, ref.Name)}, nil
+			return &tt, "", &tunnelGate{ReasonTokenSecretMissing, fmt.Sprintf("token secret %s/%s not found", secNS, ref.Name)}, nil
 		}
 		return nil, "", nil, fmt.Errorf("get token secret %s/%s: %w", secNS, ref.Name, err)
 	}
 	tok := sec.Data[tokenDataKey]
 	if len(tok) == 0 {
-		return nil, "", &tunnelGate{ReasonTokenSecretMissing, fmt.Sprintf("token secret %s/%s has no token", secNS, ref.Name)}, nil
+		return &tt, "", &tunnelGate{ReasonTokenSecretMissing, fmt.Sprintf("token secret %s/%s has no token", secNS, ref.Name)}, nil
 	}
 	if sec.Annotations[AnnotationInviteID] != tt.Status.InviteID {
-		return nil, "", &tunnelGate{ReasonTokenStale, "token secret invite-id lags tunnel status (rotation in flight)"}, nil
+		return &tt, "", &tunnelGate{ReasonTokenStale, "token secret invite-id lags tunnel status (rotation in flight)"}, nil
 	}
 	return &tt, secret(tok), nil, nil
 }
