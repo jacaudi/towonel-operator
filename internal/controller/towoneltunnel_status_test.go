@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,7 +11,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -131,5 +135,46 @@ func TestTunnelStatusWriteConflictPreservesNewerStatus(t *testing.T) {
 	}
 	if got.Status.Phase != "Ready" || got.Status.ObservedGeneration != 2 {
 		t.Fatalf("status = %+v, want concurrent Ready at generation 2", got.Status)
+	}
+}
+
+func TestTunnelFailPreservesCause(t *testing.T) {
+	tunnelGR := towonelv1alpha1.GroupVersion.WithResource("towoneltunnels").GroupResource()
+	tests := []struct {
+		name         string
+		statusErr    error
+		wantConflict bool
+	}{
+		{name: "status conflict", statusErr: apierrors.NewConflict(tunnelGR, "edge", errors.New("object has been modified")), wantConflict: true},
+		{name: "status write error", statusErr: apierrors.NewInternalError(errors.New("etcd timeout")), wantConflict: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			tunnel := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default"}}
+			store := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
+			cl := interceptor.NewClient(store, interceptor.Funcs{
+				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
+					return tc.statusErr
+				},
+			})
+			r := &TowonelTunnelReconciler{Client: cl}
+			cause := errors.New("converge hostnames: hub returned 429 (rate_limited)")
+
+			_, err := r.fail(t.Context(), tunnel, &towonelv1alpha1.TowonelTunnelStatus{}, cause)
+
+			if !errors.Is(err, cause) {
+				t.Fatalf("fail error = %v; want the original cause preserved", err)
+			}
+			if !errors.Is(err, tc.statusErr) {
+				t.Fatalf("fail error = %v; want the status write error preserved", err)
+			}
+			if got := apierrors.IsConflict(err); got != tc.wantConflict {
+				t.Fatalf("IsConflict = %t, want %t (err = %v)", got, tc.wantConflict, err)
+			}
+		})
 	}
 }

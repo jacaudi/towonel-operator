@@ -106,8 +106,5 @@ func (r *TowonelTunnelReconciler) writeStatus(ctx context.Context, tt *towonelv1
 func (r *TowonelTunnelReconciler) fail(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel, orig *towonelv1alpha1.TowonelTunnelStatus, err error) (ctrl.Result, error) {
 	setCond(tt, CondReady, metav1.ConditionFalse, ReasonAPIError, err.Error())
 	tt.Status.Phase = "Error"
-	if statusErr := r.writeStatus(ctx, tt, orig); statusErr != nil {
-		return ctrl.Result{}, statusErr
-	}
-	return ctrl.Result{}, err
+	return ctrl.Result{}, errors.Join(err, r.writeStatus(ctx, tt, orig))
 }

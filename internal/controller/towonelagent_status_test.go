@@ -244,3 +244,40 @@ func TestConnectivityCondAbsentWhenUnrequested(t *testing.T) {
 		t.Error("condition must be absent when connectivity is unrequested")
 	}
 }
+
+func TestAgentFailStatusPreservesCause(t *testing.T) {
+	agentGR := towonelv1alpha1.GroupVersion.WithResource("towonelagents").GroupResource()
+	tests := []struct {
+		name         string
+		statusErr    error
+		wantConflict bool
+	}{
+		{name: "status conflict", statusErr: apierrors.NewConflict(agentGR, "edge", errors.New("object has been modified")), wantConflict: true},
+		{name: "status write error", statusErr: apierrors.NewInternalError(errors.New("etcd timeout")), wantConflict: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			agent := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default"}}
+			store := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithStatusSubresource(agent).WithObjects(agent).Build()
+			cl := interceptor.NewClient(store, interceptor.Funcs{
+				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
+					return tc.statusErr
+				},
+			})
+			r := &TowonelAgentReconciler{Client: cl}
+			cause := errors.New("apply deployment default/edge: boom")
+
+			_, err := r.failStatus(t.Context(), agent, &towonelv1alpha1.TowonelAgentStatus{}, cause)
+
+			if !errors.Is(err, cause) {
+				t.Fatalf("failStatus error = %v; want the original cause preserved", err)
+			}
+			if !errors.Is(err, tc.statusErr) {
+				t.Fatalf("failStatus error = %v; want the status write error preserved", err)
+			}
+			if got := apierrors.IsConflict(err); got != tc.wantConflict {
+				t.Fatalf("IsConflict = %t, want %t (err = %v)", got, tc.wantConflict, err)
+			}
+		})
+	}
+}

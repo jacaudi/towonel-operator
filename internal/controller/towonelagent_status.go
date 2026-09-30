@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -105,14 +106,11 @@ func setConnectivityCond(ta *towonelv1alpha1.TowonelAgent, p connectivityPlan, r
 	}
 }
 
-// failStatus sets ConfigRendered=False and persists status after the reconcile
-// has confirmed its input snapshots are still current. ReasonReconciling, not
-// APIError: this controller makes zero hub calls — errors are kube-API/render failures.
+// failStatus sets ConfigRendered=False, persists status, and returns the cause
+// joined with any status-write error. ReasonReconciling, not APIError: this
+// controller makes zero hub calls — errors are kube-API/render failures.
 func (r *TowonelAgentReconciler) failStatus(ctx context.Context, ta *towonelv1alpha1.TowonelAgent, orig *towonelv1alpha1.TowonelAgentStatus, err error) (ctrl.Result, error) {
 	setAgentCond(ta, CondConfigRendered, metav1.ConditionFalse, ReasonReconciling, err.Error())
 	ta.Status.Phase = "Pending"
-	if statusErr := r.writeStatus(ctx, ta, orig); statusErr != nil {
-		return ctrl.Result{}, statusErr
-	}
-	return ctrl.Result{}, err
+	return ctrl.Result{}, errors.Join(err, r.writeStatus(ctx, ta, orig))
 }
