@@ -9,6 +9,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -354,6 +355,57 @@ func TestAgentRotationRollsDeployment(t *testing.T) {
 		var got towonelv1alpha1.TowonelAgent
 		return c.Get(ctx, types.NamespacedName{Name: "rot-edge", Namespace: "default"}, &got) == nil &&
 			got.Status.ObservedConfigHash != hashBefore
+	})
+}
+
+func TestAgentAffinityChangeRollsDeployment(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManager(t)
+	defer stop()
+	ctx := t.Context()
+
+	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "aff", Namespace: "default"}}
+	if err := c.Create(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	ta := &towonelv1alpha1.TowonelAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "aff-edge", Namespace: "default"},
+		Spec: towonelv1alpha1.TowonelAgentSpec{
+			TunnelRef: towonelv1alpha1.TunnelReference{Name: "aff"},
+			Services:  []towonelv1alpha1.AgentService{{Hostname: "aff.example", Origin: "aff:80"}},
+		},
+	}
+	if err := c.Create(ctx, ta); err != nil {
+		t.Fatal(err)
+	}
+
+	depNN := types.NamespacedName{Name: "aff-edge", Namespace: "default"}
+	waitFor(t, 20*time.Second, func() bool {
+		var dep appsv1.Deployment
+		return c.Get(ctx, depNN, &dep) == nil && dep.Spec.Template.Spec.Affinity == nil
+	})
+
+	affinity := &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+			LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+				"app.kubernetes.io/name":     "towonel-agent",
+				"app.kubernetes.io/instance": "aff-edge",
+				"app.kubernetes.io/part-of":  "towonel-operator",
+			}},
+			TopologyKey: "kubernetes.io/hostname",
+		}},
+	}}
+	waitFor(t, 15*time.Second, func() bool {
+		var current towonelv1alpha1.TowonelAgent
+		if c.Get(ctx, types.NamespacedName{Name: "aff-edge", Namespace: "default"}, &current) != nil {
+			return false
+		}
+		current.Spec.Workload.Affinity = affinity
+		return c.Update(ctx, &current) == nil
+	})
+	waitFor(t, 20*time.Second, func() bool {
+		var dep appsv1.Deployment
+		return c.Get(ctx, depNN, &dep) == nil && equality.Semantic.DeepEqual(dep.Spec.Template.Spec.Affinity, affinity)
 	})
 }
 

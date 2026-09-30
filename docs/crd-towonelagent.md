@@ -20,7 +20,7 @@ See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
 | `udp` | []AgentL4Service | — | Raw UDP services → `TOWONEL_AGENT_UDP_SERVICES` (list keyed by `name`). |
 | `relayUrl` | string | — | Optional `TOWONEL_AGENT_RELAY_URL` override. |
 | `connectivity` | object | off | Optional iroh direct-path — see [connectivity.md](connectivity.md). |
-| `workload` | object | — | Connector knobs (below). |
+| `workload` | object | — | Connector knobs (below), including native Kubernetes pod `affinity`. |
 
 > **`mode` vs the `managed-by` label.** `spec.mode` is *routing intent* (does the operator
 > write routing here?). The `app.kubernetes.io/managed-by: towonel-operator` label is *lifecycle
@@ -33,7 +33,35 @@ See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
 
 **`AgentL4Service`** (tcp/udp): `name` (unique within the list), `origin` (internal host:port), `preferredPort` (optional — pin the *public* listen port; honored if free), `hostname` (optional — intended for the future DNS handoff; currently informational).
 
-**`workload`**: `replicas` (default `1`), `image` (default: the operator's built-in `codeberg.org/towonel/towonel-agent` tag — override to pick your own), `resources` (OOM-safe memory floor/ceiling applied if unset), `nodeSelector`, `tolerations`.
+**`workload`**: `replicas` (default `1`), `image` (default: the operator's built-in `codeberg.org/towonel/towonel-agent` tag — override to pick your own), `resources` (OOM-safe memory floor/ceiling applied if unset), `nodeSelector`, `tolerations`, and native Kubernetes `affinity`.
+
+### Spread replicas across nodes
+
+Use required pod anti-affinity when two replicas must not share a node. The selector below matches the labels that the operator puts on this agent's pods: `app.kubernetes.io/name: towonel-agent`, `app.kubernetes.io/instance: edge-a`, and `app.kubernetes.io/part-of: towonel-operator`.
+
+```yaml
+apiVersion: towonel.io/v1alpha1
+kind: TowonelAgent
+metadata:
+  name: edge-a
+  namespace: default
+spec:
+  tunnelRef:
+    name: my-tunnel
+  workload:
+    replicas: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: towonel-agent
+                app.kubernetes.io/instance: edge-a
+                app.kubernetes.io/part-of: towonel-operator
+            topologyKey: kubernetes.io/hostname
+```
+
+The scheduler will not place two pods matching that selector on the same node. If only one eligible node exists, the second replica stays `Pending`; `kubectl get pods` shows it as `Pending`, and `kubectl describe pod` reports that it is unschedulable because of the anti-affinity rule. That is expected, not a malfunction. Replicas provide tunnel failover, but do not promise uninterrupted existing connections or increased streaming throughput.
 
 ## Status (operator-written)
 
