@@ -300,3 +300,17 @@ func TestDisableUDPGSO(t *testing.T) {
 		t.Fatal("disabling the setting must trigger reconciliation")
 	}
 }
+
+func TestConfigHashMatchesPreviousRelease(t *testing.T) {
+	// Computed on main before disableUDPGSO; changing it re-rolls every existing agent, so update only for a deliberate hash-contract change.
+	const want = "a14a6002cbdd6c7045bc5c4846f6b9e4c942120d6cd05fe70e169b2f689375b4"
+	ta := renderAgent()
+	ta.Spec.Workload.Image = "example.test/towonel-agent:pinned" // decouple from defaultAgentImage bumps
+	cfg, err := renderConfig(ta, allocsFor(), "inv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.hash(); got != want {
+		t.Errorf("config hash = %s, want %s", got, want)
+	}
+}
