@@ -1,5 +1,9 @@
-# https://taskfile.dev
+# THE CI CONTRACT — `task ci` is what CI runs and what you run locally.
 version: '3'
+
+includes:
+  repo:
+    taskfile: .taskfiles/repo.yml
 
 vars:
   COVERAGE_FILE: coverage.out
@@ -48,6 +52,7 @@ tasks:
 
   test:
     desc: Run tests with the race detector (envtest assets via setup-envtest)
+    deps: [repo:chart:deps]
     vars:
       ENVTEST_K8S_VERSION: '1.33.0'
     cmds:
@@ -73,16 +78,9 @@ tasks:
     cmds:
       - ./hack/sync-helm-crds.sh
 
-  helm-lint:
-    desc: Lint the chart using the vendored bjw-s common dependency (chart/charts/)
-    cmds:
-      # The bjw-s common dependency is vendored (chart/charts/common-5.0.1.tgz +
-      # Chart.lock), so lint runs offline/hermetically — no `helm dependency
-      # build`, which would need the upstream repo registered (absent in CI).
-      - helm lint chart/
-
   helm-template-test:
     desc: Render-assert the opt-in agent PodMonitor template (issue #36)
+    deps: [repo:chart:deps]
     cmds:
       - |
         set -eu
@@ -116,12 +114,32 @@ tasks:
         fi
 
   ci:
-    desc: Checks run in CI (fmt, vet, build, test, helm-lint, drift)
+    desc: Everything CI runs. Run this before pushing.
     cmds:
-      - task: fmt
-      - task: vet
+      - task: lint
       - task: build
       - task: test
-      - task: helm-lint
       - task: helm-template-test
       - task: verify-generated
+
+  lint:
+    desc: Static checks only (repo checks incl. helm lint, gofmt, go vet)
+    cmds:
+      - task: repo:ci
+      - task: fmt
+      - task: vet
+
+  # Runs locally: IMAGE=ghcr.io/jacaudi/towonel-operator:sha-abc1234 task smoke
+  smoke:
+    desc: Assert the image starts and reports its version
+    requires:
+      vars: [IMAGE]
+    env:
+      IMAGE: '{{.IMAGE}}'
+    cmds:
+      - |
+        set -eu
+        echo "smoke testing ${IMAGE}"
+        out=$(docker run --rm "${IMAGE}" --version)
+        echo "${out}"
+        case "${out}" in towonel-operator\ *) ;; *) echo "::error::unexpected --version output"; exit 1 ;; esac
