@@ -80,7 +80,7 @@ type ConnectivitySpec struct {
 type WorkloadSpec struct {
 	// DisableUDPGSO disables UDP segmentation offload in the agent's QUIC
 	// transport. Enable for datapaths that silently drop GSO segments, such as
-	// affected Cilium netkit configurations. Requires towonel-agent >=1.11.0.
+	// affected Cilium netkit configurations.
 	// When omitted or false, the agent's default offload behavior is preserved.
 	// +optional
 	DisableUDPGSO bool `json:"disableUDPGSO,omitempty"`

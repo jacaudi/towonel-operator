@@ -37,7 +37,7 @@ See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
 
 **`workload.disableUDPGSO`** (optional, default `false`): renders
 `TOWONEL_DISABLE_UDP_GSO=true` to disable UDP segmentation offload in the agent's
-QUIC transport. Requires `towonel-agent` **1.11.0 or later**. Use this opt-in
+QUIC transport. Use this opt-in
 workaround for datapaths that silently drop GSO segments, such as affected Cilium
 netkit configurations. Changing the setting rolls the agent Deployment; omitting
 it or setting it to `false` preserves the agent's default behavior.
