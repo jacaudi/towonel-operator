@@ -205,6 +205,13 @@ spec:
               workload:
                 description: WorkloadSpec are the agent connector knobs.
                 properties:
+                  disableUDPGSO:
+                    description: |-
+                      DisableUDPGSO disables UDP segmentation offload in the agent's QUIC
+                      transport. Enable for datapaths that silently drop GSO segments, such as
+                      affected Cilium netkit configurations. Requires towonel-agent >=1.11.0.
+                      When omitted or false, the agent's default offload behavior is preserved.
+                    type: boolean
                   image:
                     type: string
                   nodeSelector:
