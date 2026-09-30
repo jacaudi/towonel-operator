@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	record "k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	handler "sigs.k8s.io/controller-runtime/pkg/handler"
@@ -29,6 +30,7 @@ import (
 // TowonelTunnelReconciler reconciles a TowonelTunnel object.
 type TowonelTunnelReconciler struct {
 	client.Client
+	APIReader  client.Reader
 	Scheme     *runtime.Scheme
 	Recorder   record.EventRecorder
 	BaseURL    string
@@ -46,8 +48,12 @@ type TowonelTunnelReconciler struct {
 // Reconcile drives a TowonelTunnel toward its desired state.
 func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+	reader := client.Reader(r.Client)
+	if r.APIReader != nil {
+		reader = r.APIReader
+	}
 	var tt towonelv1alpha1.TowonelTunnel
-	if err := r.Get(ctx, req.NamespacedName, &tt); err != nil {
+	if err := reader.Get(ctx, req.NamespacedName, &tt); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !tt.DeletionTimestamp.IsZero() {
@@ -135,18 +141,29 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{RequeueAfter: 30 * time.Minute}, nil
 }
 
-// listReferencingAgents returns agents whose resolved tunnelRef is this tunnel,
-// sorted by ns/name (deterministic aggregation, design §4.B).
+// listReferencingAgents uses an authoritative all-namespace list because agents
+// may reference tunnels across namespaces, then filters resolved refs in code.
+// Results are sorted by ns/name for deterministic aggregation (design §4.B).
 func (r *TowonelTunnelReconciler) listReferencingAgents(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel) ([]towonelv1alpha1.TowonelAgent, error) {
 	var list towonelv1alpha1.TowonelAgentList
-	key := types.NamespacedName{Namespace: tt.Namespace, Name: tt.Name}.String()
-	if err := r.List(ctx, &list, client.MatchingFields{agentTunnelRefIndex: key}); err != nil {
+	reader := client.Reader(r.Client)
+	if r.APIReader != nil {
+		reader = r.APIReader
+	}
+	if err := reader.List(ctx, &list); err != nil {
 		return nil, fmt.Errorf("list referencing agents: %w", err)
 	}
-	slices.SortFunc(list.Items, func(a, b towonelv1alpha1.TowonelAgent) int {
+	key := types.NamespacedName{Namespace: tt.Namespace, Name: tt.Name}
+	agents := make([]towonelv1alpha1.TowonelAgent, 0, len(list.Items))
+	for i := range list.Items {
+		if list.Items[i].Spec.TunnelRef.Name != "" && resolvedTunnelRef(&list.Items[i]) == key {
+			agents = append(agents, list.Items[i])
+		}
+	}
+	slices.SortFunc(agents, func(a, b towonelv1alpha1.TowonelAgent) int {
 		return cmp.Compare(a.Namespace+"/"+a.Name, b.Namespace+"/"+b.Name)
 	})
-	return list.Items, nil
+	return agents, nil
 }
 
 // SetupWithManager wires the reconciler to the manager.
@@ -161,7 +178,7 @@ func (r *TowonelTunnelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return nil
 				}
 				return []reconcile.Request{{NamespacedName: resolvedTunnelRef(ta)}}
-			})).
+			}), builder.WithPredicates(crossWatchPredicate())).
 		Named("towoneltunnel").
 		Complete(r)
 }

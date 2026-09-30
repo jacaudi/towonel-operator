@@ -46,6 +46,7 @@ func startManager(t *testing.T) (client.Client, *towoneltest.Hub, func()) {
 	}
 	r := &controller.TowonelTunnelReconciler{
 		Client:     mgr.GetClient(),
+		APIReader:  mgr.GetAPIReader(),
 		Scheme:     mgr.GetScheme(),
 		Recorder:   mgr.GetEventRecorderFor("towoneltunnel-" + t.Name()),
 		BaseURL:    srv.URL,
@@ -55,9 +56,10 @@ func startManager(t *testing.T) (client.Client, *towoneltest.Hub, func()) {
 		t.Fatal(err)
 	}
 	ar := &controller.TowonelAgentReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("towonelagent-" + t.Name()),
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		Recorder:  mgr.GetEventRecorderFor("towonelagent-" + t.Name()),
 	}
 	if err := ar.SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
