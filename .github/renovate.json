@@ -11,9 +11,9 @@
   "assignees": ["jacaudi"],
   "labels": ["renovate"],
   "suppressNotifications": ["prEditedNotification", "prIgnoreNotification"],
-  "semanticCommitType": "chore",
-  "semanticCommitScope": "deps",
-  "commitMessagePrefix": "chore(deps):",
+  "semanticCommitType": "deps",
+  "semanticCommitScope": null,
+  "commitMessagePrefix": "deps:",
   "branchPrefix": "renovate/",
   "postUpdateOptions": ["gomodTidy"],
   "packageRules": [
