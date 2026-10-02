@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single source for code/manifest generation. Needs only go (and yq for the RBAC step).
+# Single source for code/manifest generation. Needs only go; controller-gen and yq are pinned go tools.
 # Usage: hack/regenerate.sh [deepcopy|manifests|all]   (default: all)
 # Called by taskfile.yml and by Renovate's postUpgradeTasks (.github/renovate.json).
 set -euo pipefail
