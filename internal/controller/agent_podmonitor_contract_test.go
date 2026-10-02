@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -32,6 +34,7 @@ type podMonitorSelector struct {
 		Name string `json:"name"`
 	} `json:"metadata"`
 	Spec struct {
+		JobLabel string `json:"jobLabel"`
 		Selector struct {
 			MatchLabels map[string]string `json:"matchLabels"`
 		} `json:"selector"`
@@ -117,6 +120,41 @@ func TestAgentPodMonitorSelectorIsExactlyTheStampedLabels(t *testing.T) {
 		}
 		if v != want {
 			t.Errorf("PodMonitor selector %s=%q, but agent pods carry %s=%q", k, v, k, want)
+		}
+	}
+}
+
+// agentDashboardJobRE matches the job="…" literals inside the dashboard's
+// JSON-escaped PromQL (job=\"towonel-agent\").
+var agentDashboardJobRE = regexp.MustCompile(`job=\\"([^"\\]*)\\"`)
+
+// TestAgentDashboardJobMatchesPodMonitorJob guards the third side of the same
+// contract: the bundled Grafana dashboard (chart/dashboards/towonel-agent.json,
+// copied verbatim from upstream) filters its process panels on a hardcoded
+// job="towonel-agent". The PodMonitor must therefore name the scrape job after
+// the pod's app.kubernetes.io/name label (jobLabel), and that label's value
+// (AgentAppName) must equal the dashboard's literal — otherwise those panels
+// render empty while everything else stays green.
+func TestAgentDashboardJobMatchesPodMonitorJob(t *testing.T) {
+	pm := renderAgentPodMonitor(t)
+	if pm.Spec.JobLabel != LabelAppName {
+		t.Errorf("chart PodMonitor jobLabel=%q, want %q; without it the scrape job is "+
+			"<namespace>/<podmonitor-name> and the dashboard's job filter matches nothing",
+			pm.Spec.JobLabel, LabelAppName)
+	}
+
+	dashboard, err := os.ReadFile("../../chart/dashboards/towonel-agent.json")
+	if err != nil {
+		t.Fatalf("read bundled agent dashboard: %v", err)
+	}
+	jobs := agentDashboardJobRE.FindAllStringSubmatch(string(dashboard), -1)
+	if len(jobs) == 0 {
+		t.Fatal("no job=\"…\" filter found in the agent dashboard; this guard no longer checks anything")
+	}
+	for _, m := range jobs {
+		if m[1] != AgentAppName {
+			t.Errorf("agent dashboard filters on job=%q, but agent pods are scraped as job=%q (AgentAppName)",
+				m[1], AgentAppName)
 		}
 	}
 }

@@ -16,6 +16,10 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
+  # job = the pod's app.kubernetes.io/name value ("towonel-agent"), NOT the
+  # default <namespace>/<podmonitor-name>: the bundled Grafana dashboard
+  # (agent-dashboard.yaml) filters its process panels on job="towonel-agent".
+  jobLabel: app.kubernetes.io/name
   # any:true = ALL namespaces (agents are dynamic & cross-namespace). An empty
   # `{}` would select only THIS namespace — the Prometheus Operator default.
   namespaceSelector:
