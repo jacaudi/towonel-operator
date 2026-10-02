@@ -115,6 +115,24 @@ observability:
 - **`additionalLabels` is usually required.** kube-prometheus-stack only selects PodMonitors carrying its release label; without it the PodMonitor is silently ignored — enabled but never scraped.
 - **Namespace-scoped Prometheus.** The PodMonitor selects pods in all namespaces (`namespaceSelector.any: true`), but a Prometheus restricted by `podMonitorNamespaceSelector` must be allowed to read it and the agent namespaces.
 - **Existing agents.** The `metrics` port reaches already-running agents only on their next config change; to cover them immediately, run `kubectl rollout restart deploy -l app.kubernetes.io/name=towonel-agent`.
+- **Job label.** Agent series carry `job="towonel-agent"` (the PodMonitor sets `jobLabel: app.kubernetes.io/name`). Before the dashboard was added they carried `job="<release-namespace>/towonel-operator-agents"`; update any alert or query that matched the old value.
+
+## Agent dashboard (Grafana)
+
+The chart bundles the upstream [Towonel agent dashboard](https://codeberg.org/towonel/towonel/src/branch/main/deploy/grafana) (streams, errors, throughput, edge sessions, process stats), unmodified. It is **opt-in and off by default**, and charts the series the agent `PodMonitor` above scrapes, so enable both:
+
+```yaml
+observability:
+  metrics:
+    agentPodMonitor:
+      enabled: true
+  dashboards:
+    enabled: true
+```
+
+- **Grafana sidecar (default).** Renders a ConfigMap labelled `grafana_dashboard: "1"`, which the kube-prometheus-stack / Grafana chart sidecar loads automatically. If the sidecar only watches Grafana's own namespace, set `observability.dashboards.namespace` to it.
+- **grafana-operator.** Set `observability.dashboards.grafanaOperator.enabled: true` and `grafanaOperator.matchLabels` to your `Grafana` instance's labels. The chart then renders a `GrafanaDashboard` CR (`grafana.integreatly.org/v1beta1`) referencing the ConfigMap and drops the sidecar label. `helm install`/`upgrade` fails without that CRD, or if `matchLabels` is empty.
+- **Scraping agents yourself.** Without the bundled `PodMonitor`, give the agent series `job="towonel-agent"`, or the process panels stay empty.
 
 ## Documentation
 

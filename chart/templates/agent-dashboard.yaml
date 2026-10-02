@@ -1,0 +1,62 @@
+{{- /*
+Opt-in Grafana dashboard for operator-managed Towonel agents. The JSON is the
+upstream towonel-agent dashboard, copied verbatim (see dashboards/NOTICE); it
+charts the series the agent PodMonitor (agent-podmonitor.yaml) scrapes.
+
+Two delivery modes, mirroring the upstream towonel-agent chart:
+  - default: a ConfigMap labelled grafana_dashboard: "1" for the Grafana sidecar
+    (kube-prometheus-stack / the grafana chart).
+  - grafanaOperator.enabled: the same ConfigMap WITHOUT the sidecar label, plus
+    a GrafanaDashboard CR that references it — so it is never loaded twice.
+*/ -}}
+{{- $dash := .Values.observability.dashboards }}
+{{- if $dash.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: towonel-operator-agent-dashboard
+  namespace: {{ $dash.namespace | default .Release.Namespace }}
+  {{- with $dash.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    app.kubernetes.io/part-of: towonel-operator
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- if not $dash.grafanaOperator.enabled }}
+    grafana_dashboard: "1"
+    {{- end }}
+    {{- with $dash.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  towonel-agent.json: |
+{{ .Files.Get "dashboards/towonel-agent.json" | nindent 4 }}
+{{- if $dash.grafanaOperator.enabled }}
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: towonel-operator-agent-dashboard
+  namespace: {{ $dash.namespace | default .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: towonel-operator
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  allowCrossNamespaceImport: {{ $dash.grafanaOperator.allowCrossNamespaceImport }}
+  resyncPeriod: {{ $dash.grafanaOperator.resyncPeriod | default "10m" | quote }}
+  {{- with $dash.grafanaOperator.folder }}
+  folder: {{ . | quote }}
+  {{- end }}
+  instanceSelector:
+    matchLabels:
+    {{- if $dash.grafanaOperator.matchLabels }}
+      {{- toYaml $dash.grafanaOperator.matchLabels | nindent 6 }}
+    {{- else }}
+      {{- fail "observability.dashboards.grafanaOperator.matchLabels must be set when grafanaOperator is enabled" }}
+    {{- end }}
+  configMapRef:
+    name: towonel-operator-agent-dashboard
+    key: towonel-agent.json
+{{- end }}
+{{- end }}

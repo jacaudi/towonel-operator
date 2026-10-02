@@ -75,6 +75,15 @@ are recommended when tunnels span teams/accounts.
 | `observability.metrics.agentPodMonitor.enabled` | `false` | Opt-in cluster-wide `PodMonitor` scraping agent pods' `/metrics` (needs the Prometheus Operator CRD) |
 | `observability.metrics.agentPodMonitor.interval` | `30s` | Scrape interval for the agent `PodMonitor` |
 | `observability.metrics.agentPodMonitor.additionalLabels` | `{}` | Labels added to the `PodMonitor` (e.g. `release: kube-prometheus-stack`) so a `podMonitorSelector`-scoped Prometheus discovers it |
+| `observability.dashboards.enabled` | `false` | Opt-in ConfigMap carrying the upstream Towonel agent Grafana dashboard, labelled `grafana_dashboard: "1"` for the Grafana sidecar (see [Agent dashboard](../README.md#agent-dashboard-grafana)) |
+| `observability.dashboards.namespace` | `""` | Namespace for the dashboard objects (`""` = the release namespace) |
+| `observability.dashboards.annotations` | `{}` | Annotations added to the dashboard ConfigMap |
+| `observability.dashboards.labels` | `{}` | Labels added to the dashboard ConfigMap |
+| `observability.dashboards.grafanaOperator.enabled` | `false` | Render a `GrafanaDashboard` CR referencing the ConfigMap instead of the sidecar label (needs the grafana-operator CRD) |
+| `observability.dashboards.grafanaOperator.matchLabels` | `{}` | Selector labels for the `Grafana` instance; required when `grafanaOperator.enabled` |
+| `observability.dashboards.grafanaOperator.folder` | `""` | Grafana folder for the dashboard |
+| `observability.dashboards.grafanaOperator.resyncPeriod` | `10m` | How often grafana-operator re-checks the dashboard |
+| `observability.dashboards.grafanaOperator.allowCrossNamespaceImport` | `true` | Let a `Grafana` in another namespace import the dashboard |
 
 ## Manager flags
 

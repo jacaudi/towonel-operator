@@ -65,6 +65,35 @@ observability:
       # the PodMonitor is silently ignored — enabled but never scraped. Example:
       #   additionalLabels: { release: kube-prometheus-stack }
       additionalLabels: {}
+  # dashboards ships the upstream Towonel AGENT Grafana dashboard (uid
+  # towonel-agent). Opt-in, off by default. It charts the series scraped by
+  # agentPodMonitor above, so enable that too (or scrape agents yourself with
+  # job="towonel-agent") — otherwise the dashboard loads but stays empty.
+  dashboards:
+    # -- Render the dashboard ConfigMap, labelled grafana_dashboard: "1" for the
+    # Grafana sidecar (kube-prometheus-stack / the grafana chart).
+    enabled: false
+    # -- Namespace for the dashboard objects; defaults to the release namespace.
+    # Set it when the sidecar only watches Grafana's own namespace.
+    namespace: ""
+    # -- Annotations added to the dashboard ConfigMap (e.g. grafana_folder).
+    annotations: {}
+    # -- Labels added to the dashboard ConfigMap.
+    labels: {}
+    grafanaOperator:
+      # -- Render a GrafanaDashboard CR (grafana-operator) referencing the
+      # ConfigMap, instead of the sidecar label. Requires the GrafanaDashboard
+      # CRD (grafana.integreatly.org/v1beta1): with this enabled, helm
+      # install/upgrade fails on clusters without it.
+      enabled: false
+      # -- Allow a Grafana in any namespace to import this GrafanaDashboard.
+      allowCrossNamespaceImport: true
+      # -- Folder to create the dashboard in.
+      folder: ""
+      # -- How often grafana-operator re-checks the dashboard for changes.
+      resyncPeriod: "10m"
+      # -- Selector labels for the Grafana instance. Must be set when enabled.
+      matchLabels: {}
 
 # Source layer (P5).
 gatewayAPI:

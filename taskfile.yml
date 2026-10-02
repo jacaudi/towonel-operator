@@ -79,7 +79,7 @@ tasks:
       - ./hack/sync-helm-crds.sh
 
   helm-template-test:
-    desc: Render-assert the opt-in agent PodMonitor template (issue #36)
+    desc: Render-assert the opt-in agent PodMonitor (issue #36) and Grafana dashboard templates
     deps: [repo:chart:deps]
     cmds:
       - |
@@ -90,8 +90,32 @@ tasks:
         echo "$on" | grep -q "app.kubernetes.io/part-of: towonel-operator" || { echo "enabled: part-of selector missing" >&2; exit 1; }
         echo "$on" | grep -q "any: true"                            || { echo "enabled: namespaceSelector any:true missing" >&2; exit 1; }
         echo "$on" | grep -q "port: metrics"                        || { echo "enabled: metrics endpoint port missing" >&2; exit 1; }
+        echo "$on" | grep -q "jobLabel: app.kubernetes.io/name"     || { echo "enabled: jobLabel missing (dashboard filters on job=towonel-agent)" >&2; exit 1; }
         off=$(helm template chart/)
         if echo "$off" | grep -q "kind: PodMonitor"; then echo "default: PodMonitor must NOT render when disabled" >&2; exit 1; fi
+        if echo "$off" | grep -q "towonel-agent.json"; then echo "default: dashboard must NOT render when disabled" >&2; exit 1; fi
+        if echo "$off" | grep -q "kind: GrafanaDashboard"; then echo "default: GrafanaDashboard must NOT render when disabled" >&2; exit 1; fi
+
+        # Sidecar mode: a labelled ConfigMap carrying the dashboard JSON, no CR.
+        dash=$(helm template chart/ --set observability.dashboards.enabled=true)
+        echo "$dash" | grep -q "name: towonel-operator-agent-dashboard" || { echo "dashboards: ConfigMap not rendered" >&2; exit 1; }
+        echo "$dash" | grep -q 'grafana_dashboard: "1"'             || { echo "dashboards: sidecar label missing" >&2; exit 1; }
+        echo "$dash" | grep -q '"uid": "towonel-agent"'             || { echo "dashboards: dashboard JSON missing from ConfigMap" >&2; exit 1; }
+        if echo "$dash" | grep -q "kind: GrafanaDashboard"; then echo "dashboards: GrafanaDashboard must NOT render without grafanaOperator.enabled" >&2; exit 1; fi
+
+        # grafana-operator mode: a GrafanaDashboard CR references the ConfigMap,
+        # which drops the sidecar label so the dashboard is not loaded twice.
+        gop=$(helm template chart/ --set observability.dashboards.enabled=true \
+          --set observability.dashboards.grafanaOperator.enabled=true \
+          --set observability.dashboards.grafanaOperator.matchLabels.dashboards=grafana)
+        echo "$gop" | grep -q "kind: GrafanaDashboard"              || { echo "grafanaOperator: GrafanaDashboard not rendered" >&2; exit 1; }
+        echo "$gop" | grep -q "key: towonel-agent.json"             || { echo "grafanaOperator: configMapRef key missing" >&2; exit 1; }
+        echo "$gop" | grep -q "dashboards: grafana"                 || { echo "grafanaOperator: instanceSelector labels missing" >&2; exit 1; }
+        if echo "$gop" | grep -q 'grafana_dashboard: "1"'; then echo "grafanaOperator: sidecar label must be dropped" >&2; exit 1; fi
+        if helm template chart/ --set observability.dashboards.enabled=true \
+          --set observability.dashboards.grafanaOperator.enabled=true >/dev/null 2>&1; then
+          echo "grafanaOperator: render must fail when matchLabels is unset" >&2; exit 1
+        fi
         echo "helm-template-test OK"
 
   docker-build:
