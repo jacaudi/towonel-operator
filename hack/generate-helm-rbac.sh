@@ -13,10 +13,6 @@ if [[ ! -f "${INPUT_FILE}" ]]; then
   echo "Error: ${INPUT_FILE} not found. Run 'task manifests' first." >&2
   exit 1
 fi
-if ! command -v yq &>/dev/null; then
-  echo "Error: yq is required (brew install yq)." >&2
-  exit 1
-fi
 
 cat > "${OUTPUT_FILE}" << 'HEADER'
 {{/*
@@ -34,7 +30,7 @@ rbac:
       rules:
 HEADER
 
-yq eval '.rules' "${INPUT_FILE}" | sed 's/^/        /' >> "${OUTPUT_FILE}"
+go -C "${REPO_ROOT}" tool yq eval '.rules' "${INPUT_FILE}" | sed 's/^/        /' >> "${OUTPUT_FILE}"
 
 cat >> "${OUTPUT_FILE}" << 'FOOTER'
   bindings:
