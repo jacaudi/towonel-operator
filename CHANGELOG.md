@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.9.0](https://github.com/jacaudi/towonel-operator/compare/v1.8.0...v1.9.0) (2026-10-02)
+
+
+### Features
+
+* **agent:** add operator-wide agentEnv for every agent pod ([651cfe0](https://github.com/jacaudi/towonel-operator/commit/651cfe0283c4198e2dfa7a703bce192e637d1a4b))
+* **chart:** bundle the upstream agent Grafana dashboard ([d59909e](https://github.com/jacaudi/towonel-operator/commit/d59909e0457ad0ddb20834bbed1bde771b547add))
+
+
+### Dependencies
+
+* **towonel-agent:** Update codeberg.org/towonel/towonel-agent Docker tag to v1.11.1 ([bae5c7c](https://github.com/jacaudi/towonel-operator/commit/bae5c7c9bffac84476399ad742a514ef204725d5))
+
 ## [1.8.0](https://github.com/jacaudi/towonel-operator/compare/v1.7.1...v1.8.0) (2026-09-30)
 
 
