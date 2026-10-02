@@ -75,6 +75,8 @@ const (
 	ReasonConnectivitySkipped  = "ConnectivitySkipped"  // invalid combo, non-wedging (design §4)
 	ReasonNodeRBACShellMissing = "NodeRBACShellMissing" // chart shell absent (design §5.3)
 	ReasonPortIgnored          = "NodePortPortIgnored"  // port set without create (design §4)
+	// ReasonEnvIgnored: an --agent-env entry reuses an operator-managed name.
+	ReasonEnvIgnored = "EnvIgnored"
 
 	// nodeReaderName is the fixed name of the chart-owned shared node-reader
 	// ClusterRole + ClusterRoleBinding (design §5.3/§5.4).

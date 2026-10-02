@@ -97,6 +97,20 @@ DNS provider. See [`docs/dns.md`](docs/dns.md).
 kubectl get towoneltunnel app -n towonel-system -o yaml   # inspect status
 ```
 
+## Agent environment variables
+
+To pass settings the operator does not model to the Towonel agent — log verbosity, for example — set `agentEnv` in the chart. The variables are added to **every** operator-managed agent pod, hand-authored `TowonelAgent`s and auto-created default agents alike:
+
+```yaml
+agentEnv:
+  RUST_LOG: info,iroh::socket::transports=trace
+```
+
+- **Operator-wide, plain values.** There is no per-agent override and no `valueFrom`; each entry is a `name: value` pair.
+- **Changing it rolls every agent.** All agent Deployments restart with the new environment.
+- **Operator-managed names win.** A name the operator sets itself (invite token, rendered services, relay URL, connectivity, health address) cannot be overridden: the entry is ignored and each affected agent gets an `EnvIgnored` Warning event.
+- **Bad entries stop the operator.** An invalid or duplicate name fails the manager at startup rather than being dropped silently.
+
 ## Agent metrics (Prometheus)
 
 Operator-managed Towonel **agent** pods serve Prometheus metrics at `/metrics` on port `9090`. Scraping is **opt-in and off by default**. Enable a single cluster-wide `PodMonitor` (selects all agent pods in every namespace) via the chart:

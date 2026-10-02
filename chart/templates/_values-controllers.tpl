@@ -31,6 +31,9 @@ controllers:
           {{- if gt (int .Values.defaultAgent.replicas) 0 }}
           - --default-agent-replicas={{ .Values.defaultAgent.replicas }}
           {{- end }}
+          {{- range $name, $value := .Values.agentEnv }}
+          - {{ printf "--agent-env=%s=%s" $name (toString $value) | quote }}
+          {{- end }}
         env:
           POD_NAMESPACE:
             valueFrom:

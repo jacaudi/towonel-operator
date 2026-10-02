@@ -61,6 +61,11 @@ func main() {
 	flag.StringVar(&agentNamespace, "agent-namespace", "", "namespace for auto-created default agents (empty = the tunnel's namespace)")
 	flag.StringVar(&enableGatewayAPI, "enable-gateway-api", "auto", "auto|true|false — register Gateway/HTTPRoute source controllers")
 	flag.IntVar(&defaultAgentReplicas, "default-agent-replicas", 0, "spec.workload.replicas for auto-created default agents (0 = leave unset, CRD default 1); e.g. 2 runs the implicit gateway-as-source default agent HA")
+	var agentEnvFlags []string
+	flag.Func("agent-env", "NAME=VALUE environment variable added to every agent pod (repeatable); e.g. RUST_LOG=debug. Operator-managed names cannot be overridden", func(s string) error {
+		agentEnvFlags = append(agentEnvFlags, s)
+		return nil
+	})
 	zapOpts := zap.Options{Development: false}
 	zapOpts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -71,6 +76,14 @@ func main() {
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
+
+	// --agent-env: validated up front so a malformed entry stops the manager
+	// instead of being silently dropped from every agent.
+	agentEnv, err := controller.ParseAgentEnv(agentEnvFlags)
+	if err != nil {
+		setupLog.Error(err, "invalid flag")
+		os.Exit(1)
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -109,6 +122,7 @@ func main() {
 		APIReader: mgr.GetAPIReader(),
 		Scheme:    mgr.GetScheme(),
 		Recorder:  mgr.GetEventRecorderFor("towonelagent"),
+		AgentEnv:  agentEnv,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TowonelAgent")
 		os.Exit(1)

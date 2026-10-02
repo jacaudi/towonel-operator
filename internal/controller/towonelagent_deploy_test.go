@@ -378,3 +378,135 @@ func TestConfigHashMatchesPreviousRelease(t *testing.T) {
 		t.Errorf("config hash = %s, want %s", got, want)
 	}
 }
+
+func TestParseAgentEnv(t *testing.T) {
+	got, err := ParseAgentEnv([]string{
+		"RUST_LOG=info,iroh::socket::transports=trace", // value keeps its own '=' and ','
+		"EMPTY=",
+		"A_FIRST=1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []corev1.EnvVar{ // sorted by name: flag order must not change the rollout hash
+		{Name: "A_FIRST", Value: "1"},
+		{Name: "EMPTY", Value: ""},
+		{Name: "RUST_LOG", Value: "info,iroh::socket::transports=trace"},
+	}
+	if !equality.Semantic.DeepEqual(got, want) {
+		t.Fatalf("ParseAgentEnv = %+v, want %+v", got, want)
+	}
+	if got, err := ParseAgentEnv(nil); err != nil || got != nil {
+		t.Fatalf("no entries must yield nil, nil; got %+v, %v", got, err)
+	}
+	for name, in := range map[string][]string{
+		"missing '='":    {"RUST_LOG"},
+		"empty name":     {"=value"},
+		"invalid name":   {"BAD NAME=1"},
+		"duplicate name": {"RUST_LOG=a", "RUST_LOG=b"},
+	} {
+		if _, err := ParseAgentEnv(in); err == nil {
+			t.Errorf("%s: %q must be rejected so a misconfigured manager never starts", name, in)
+		}
+	}
+}
+
+func TestAgentExtraEnv(t *testing.T) {
+	ta := renderAgent()
+	baseCfg, err := renderConfig(ta, allocsFor(), "inv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := buildDeployment(ta, baseCfg)
+
+	extra := []corev1.EnvVar{{Name: "A_FIRST", Value: "1"}, {Name: "RUST_LOG", Value: "debug"}}
+	cfg, err := baseCfg.withExtraEnv(ta, extra)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.IgnoredEnv) != 0 {
+		t.Fatalf("no entry collides with an operator-managed name, got ignored %v", cfg.IgnoredEnv)
+	}
+	desired := buildDeployment(ta, cfg)
+	env := desired.Spec.Template.Spec.Containers[0].Env
+	// Extra entries follow every operator-managed one.
+	if got := env[len(env)-2:]; !equality.Semantic.DeepEqual(got, extra) {
+		t.Fatalf("extra env not appended verbatim: %+v", got)
+	}
+	if baseCfg.hash() == cfg.hash() {
+		t.Fatal("adding agent env must change the rollout hash")
+	}
+	if !deploymentNeedsWrite(original, desired) {
+		t.Fatal("adding agent env must trigger reconciliation")
+	}
+
+	changed, err := baseCfg.withExtraEnv(ta, []corev1.EnvVar{{Name: "A_FIRST", Value: "1"}, {Name: "RUST_LOG", Value: "trace"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.hash() == cfg.hash() {
+		t.Fatal("changing an agent env value must change the rollout hash")
+	}
+
+	// No operator-wide env: existing agents keep their hash across the upgrade.
+	none, err := baseCfg.withExtraEnv(ta, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if none.hash() != baseCfg.hash() {
+		t.Fatal("no agent env must leave the rollout hash unchanged")
+	}
+}
+
+// The Deployment is server-side applied and containers[].env is a name-keyed
+// list, so a duplicate name fails the apply outright. Operator-managed names
+// therefore win and the colliding entry is dropped and reported.
+func TestAgentExtraEnvCannotOverrideOperatorManaged(t *testing.T) {
+	ta := renderAgent()
+	ta.Spec.RelayURL = "https://relay.example"
+	base, err := renderConfig(ta, allocsFor(), "inv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := base.withExtraEnv(ta, []corev1.EnvVar{
+		{Name: "RUST_LOG", Value: "debug"},
+		{Name: "TOWONEL_AGENT_HEALTH_LISTEN_ADDR", Value: "0.0.0.0:1"},
+		{Name: "TOWONEL_AGENT_RELAY_URL", Value: "https://other.example"},
+		{Name: "TOWONEL_INVITE_TOKEN", Value: "hijack"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIgnored := []string{"TOWONEL_AGENT_HEALTH_LISTEN_ADDR", "TOWONEL_AGENT_RELAY_URL", "TOWONEL_INVITE_TOKEN"}
+	if !equality.Semantic.DeepEqual(cfg.IgnoredEnv, wantIgnored) {
+		t.Fatalf("IgnoredEnv = %v, want %v", cfg.IgnoredEnv, wantIgnored)
+	}
+	seen := map[string]corev1.EnvVar{}
+	for _, e := range buildDeployment(ta, cfg).Spec.Template.Spec.Containers[0].Env {
+		if _, dup := seen[e.Name]; dup {
+			t.Fatalf("duplicate env name %q would fail the server-side apply", e.Name)
+		}
+		seen[e.Name] = e
+	}
+	if e := seen["TOWONEL_INVITE_TOKEN"]; e.Value != "" || e.ValueFrom == nil {
+		t.Fatalf("invite token must stay the operator's secret ref, got %+v", e)
+	}
+	if got := seen["TOWONEL_AGENT_RELAY_URL"].Value; got != "https://relay.example" {
+		t.Fatalf("relay URL = %q, want the spec.relayURL value", got)
+	}
+	if got := seen["TOWONEL_AGENT_HEALTH_LISTEN_ADDR"].Value; got != agentHealthAddr {
+		t.Fatalf("health addr = %q, want %q (probes depend on it)", got, agentHealthAddr)
+	}
+	if got := seen["RUST_LOG"].Value; got != "debug" {
+		t.Fatalf("non-colliding entry must survive, RUST_LOG = %q", got)
+	}
+
+	// Dropped entries are not part of the rendered pod, so they must not roll it.
+	only, err := base.withExtraEnv(ta, []corev1.EnvVar{{Name: "RUST_LOG", Value: "debug"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if only.hash() != cfg.hash() {
+		t.Fatal("ignored entries must not affect the rollout hash")
+	}
+}

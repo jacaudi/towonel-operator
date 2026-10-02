@@ -72,6 +72,16 @@ gatewayAPI:
   enabled: auto
 # agentNamespace: namespace for auto-created default agents ("" = tunnel's ns).
 agentNamespace: ""
+# agentEnv: extra environment variables (name: value) added to EVERY agent pod
+# the operator manages, hand-authored and auto-created alike — for agent
+# settings the operator does not model, e.g.
+#   agentEnv:
+#     RUST_LOG: info,iroh::socket::transports=trace
+# Plain values only. Changing it rolls every agent Deployment. A name the
+# operator sets itself (invite token, services, relay URL, connectivity, health
+# address) cannot be overridden: the entry is ignored and each affected agent
+# gets an EnvIgnored Warning event.
+agentEnv: {}
 
 # defaultAgent tunes the auto-created default agent — the one the operator makes
 # when a tunnel's routing comes only from the source layer (annotated

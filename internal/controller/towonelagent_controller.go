@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +31,9 @@ type TowonelAgentReconciler struct {
 	APIReader client.Reader
 	Scheme    *runtime.Scheme
 	Recorder  record.EventRecorder
+	// AgentEnv is the operator-wide extra env (--agent-env, parsed by
+	// ParseAgentEnv) added to every agent pod, hand-authored or auto-created.
+	AgentEnv []corev1.EnvVar
 }
 
 //+kubebuilder:rbac:groups=towonel.io,resources=towonelagents,verbs=get;list;watch;create;update;patch;delete
@@ -135,6 +139,14 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err != nil {
 			_, failure := r.failStatus(ctx, &ta, orig, err)
 			return failure
+		}
+		if cfg, err = cfg.withExtraEnv(&ta, r.AgentEnv); err != nil {
+			_, failure := r.failStatus(ctx, &ta, orig, err)
+			return failure
+		}
+		if r.Recorder != nil && len(cfg.IgnoredEnv) > 0 {
+			r.Recorder.Eventf(&ta, corev1.EventTypeWarning, ReasonEnvIgnored,
+				"--agent-env entries ignored (operator-managed names): %s", strings.Join(cfg.IgnoredEnv, ", "))
 		}
 		// Deployment SSA has no lock on its inputs; status writes are resourceVersion-locked.
 		if err := r.checkAgentUnchanged(ctx, &ta); err != nil {

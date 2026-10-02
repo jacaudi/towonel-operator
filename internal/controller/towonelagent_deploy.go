@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -16,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -60,6 +63,10 @@ type agentConfig struct {
 	IrohPort    int32           // UDP containerPort when >0
 	ConnEnv     []corev1.EnvVar // connectivity env vars, appended to the container
 	ConnEnvHash string          // deterministic digest of ConnEnv for hash()
+	// operator-wide extra env (--agent-env), see withExtraEnv
+	ExtraEnv     []corev1.EnvVar // entries kept, appended after the operator's
+	ExtraEnvHash string          // deterministic digest of ExtraEnv for hash()
+	IgnoredEnv   []string        // names dropped for colliding with an operator-managed var
 }
 
 // hash is the single rollout trigger (design §4.F). The token VALUE is never
@@ -73,6 +80,11 @@ func (c agentConfig) hash() string {
 	// Preserve existing hashes when the opt-in workaround is disabled.
 	if c.DisableUDPGSO {
 		h.Write([]byte("TOWONEL_DISABLE_UDP_GSO=true"))
+		h.Write([]byte{0})
+	}
+	// Likewise: with no --agent-env, agents keep their existing hash.
+	if c.ExtraEnvHash != "" {
+		h.Write([]byte(c.ExtraEnvHash))
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -147,7 +159,63 @@ func renderConfig(ta *towonelv1alpha1.TowonelAgent, allocations []towonelv1alpha
 	return cfg, nil
 }
 
+// ParseAgentEnv turns the manager's repeated --agent-env=NAME=VALUE flags into
+// the operator-wide extra env for every agent pod. Each entry splits on its
+// FIRST '=', so values may themselves contain '=' and ',' (e.g. RUST_LOG
+// directives). It rejects malformed, invalid and duplicate names so a
+// misconfigured manager fails at startup, and sorts by name so flag order can
+// never change an agent's rollout hash.
+func ParseAgentEnv(entries []string) ([]corev1.EnvVar, error) {
+	var env []corev1.EnvVar
+	for _, entry := range entries {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			return nil, fmt.Errorf("agent env %q: want NAME=VALUE", entry)
+		}
+		if errs := validation.IsEnvVarName(name); len(errs) > 0 {
+			return nil, fmt.Errorf("agent env %q: invalid name: %s", entry, strings.Join(errs, "; "))
+		}
+		if slices.ContainsFunc(env, func(e corev1.EnvVar) bool { return e.Name == name }) {
+			return nil, fmt.Errorf("agent env %q: name set more than once", name)
+		}
+		env = append(env, corev1.EnvVar{Name: name, Value: value})
+	}
+	slices.SortFunc(env, func(a, b corev1.EnvVar) int { return cmp.Compare(a.Name, b.Name) })
+	return env, nil
+}
+
+// withExtraEnv returns c with the operator-wide extra env (--agent-env) folded
+// in. The Deployment is server-side applied and containers[].env is a
+// name-keyed list, so a duplicate name fails the apply: an entry colliding with
+// a variable the operator renders for this agent is dropped (the operator's
+// value wins) and surfaced via IgnoredEnv.
+func (c agentConfig) withExtraEnv(ta *towonelv1alpha1.TowonelAgent, extra []corev1.EnvVar) (agentConfig, error) {
+	managed := operatorEnv(ta, c)
+	for _, e := range extra {
+		if slices.ContainsFunc(managed, func(m corev1.EnvVar) bool { return m.Name == e.Name }) {
+			c.IgnoredEnv = append(c.IgnoredEnv, e.Name)
+			continue
+		}
+		c.ExtraEnv = append(c.ExtraEnv, e)
+	}
+	if len(c.ExtraEnv) > 0 {
+		b, err := json.Marshal(c.ExtraEnv) // deterministic: fixed field + slice order
+		if err != nil {
+			return c, fmt.Errorf("marshal agent env: %w", err)
+		}
+		c.ExtraEnvHash = string(b)
+	}
+	return c, nil
+}
+
+// agentEnv is the full container env: the operator-managed variables, then the
+// operator-wide extra entries that do not collide with them.
 func agentEnv(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) []corev1.EnvVar {
+	return append(operatorEnv(ta, cfg), cfg.ExtraEnv...)
+}
+
+// operatorEnv renders the variables the operator owns.
+func operatorEnv(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) []corev1.EnvVar {
 	env := []corev1.EnvVar{{
 		Name: "TOWONEL_INVITE_TOKEN",
 		ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{

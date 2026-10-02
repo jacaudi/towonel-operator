@@ -35,6 +35,8 @@ See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
 
 **`workload`**: `replicas` (default `1`), `image` (default: the operator's built-in `codeberg.org/towonel/towonel-agent` tag — override to pick your own), `resources` (OOM-safe memory floor/ceiling applied if unset), `nodeSelector`, `tolerations`, and native Kubernetes `affinity`.
 
+Extra agent environment variables (e.g. `RUST_LOG`) are not a per-agent field: set them operator-wide with the chart's [`agentEnv`](installation.md#chart-values) value, which applies to every agent pod.
+
 ### Spread replicas across nodes
 
 Use required pod anti-affinity when two replicas must not share a node. The selector below matches the labels that the operator puts on this agent's pods: `app.kubernetes.io/name: towonel-agent`, `app.kubernetes.io/instance: edge-a`, and `app.kubernetes.io/part-of: towonel-operator`.
