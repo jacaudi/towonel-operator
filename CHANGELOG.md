@@ -12,6 +12,7 @@
 ### Dependencies
 
 * **towonel-agent:** Update codeberg.org/towonel/towonel-agent Docker tag to v1.11.1 ([bae5c7c](https://github.com/jacaudi/towonel-operator/commit/bae5c7c9bffac84476399ad742a514ef204725d5))
+* Update kubernetes-client-libraries to v0.25.2 ([f7e3ebb](https://github.com/jacaudi/towonel-operator/commit/f7e3ebbcaf58e1d2d69fd7f213e5492baeda6cf8))
 
 ## [1.8.0](https://github.com/jacaudi/towonel-operator/compare/v1.7.1...v1.8.0) (2026-09-30)
 
