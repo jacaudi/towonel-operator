@@ -69,6 +69,7 @@ are recommended when tunnels span teams/accounts.
 | `credentials.tokenKey` | `token` | Key within that Secret |
 | `gatewayAPI.enabled` | `auto` | `auto` probes for Gateway API CRDs; `true`/`false` force the source controllers |
 | `agentNamespace` | `""` | Namespace for auto-created default agents (`""` = the tunnel's namespace) |
+| `agentEnv` | `{}` | Extra `name: value` environment variables for **every** agent pod, hand-authored and auto-created (e.g. `RUST_LOG`). Plain values only; changing it rolls every agent. Operator-managed names are ignored with an `EnvIgnored` Warning event |
 | `agentNodeRBAC.create` | `true` | Shared node-reader `ClusterRole`/`ClusterRoleBinding` for [direct-path autodiscover](connectivity.md) (inert until used) |
 | `resources` | 100m/128Mi → 500m/512Mi | Operator resource requests/limits |
 | `observability.metrics.serviceMonitor.enabled` | `false` | Emit a Prometheus `ServiceMonitor` |
@@ -93,6 +94,7 @@ The chart wires these; set them directly if you run the binary yourself:
 |---|---|---|
 | `--towonel-api-url` | `https://hub.towonel.dev` | Towonel hub base URL |
 | `--agent-namespace` | `""` | Namespace for auto-created default agents |
+| `--agent-env` | — | `NAME=VALUE` environment variable added to every agent pod (repeatable); a malformed, invalid or duplicate entry stops the manager at startup |
 | `--enable-gateway-api` | `auto` | `auto\|true\|false` — register Gateway/HTTPRoute source controllers |
 | `--leader-elect` | `true` | Leader election |
 | `--metrics-bind-address` | `:8080` | Metrics endpoint |
