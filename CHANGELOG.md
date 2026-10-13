@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/jacaudi/towonel-operator/compare/v1.9.0...v1.9.1) (2026-10-13)
+
+
+### Dependencies
+
+* **towonel-agent:** Update codeberg.org/towonel/towonel-agent Docker tag to v1.13.0 ([928c76d](https://github.com/jacaudi/towonel-operator/commit/928c76d7d5752a3396538894682d95bbc2444a73))
+
 ## [1.9.0](https://github.com/jacaudi/towonel-operator/compare/v1.8.0...v1.9.0) (2026-10-02)
 
 
