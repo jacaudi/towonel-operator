@@ -20,16 +20,50 @@ const (
 	DeletionPolicyRetain DeletionPolicy = "Retain"
 )
 
-// TunnelDNSSpec configures vendor-neutral DNS automation (emits external-dns DNSEndpoints).
+// DNSProviderProperty is one provider-specific setting copied onto every emitted
+// endpoint (external-dns ProviderSpecificProperty), e.g.
+// {name: "cloudflare/proxied", value: "false"}.
+type DNSProviderProperty struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+	// +kubebuilder:validation:MaxLength=4096
+	// +optional
+	Value string `json:"value,omitempty"`
+}
+
+// TunnelDNSSpec configures vendor-neutral DNS automation (emits an external-dns DNSEndpoint).
 type TunnelDNSSpec struct {
 	// +kubebuilder:default=Disabled
 	// +optional
 	Mode DNSMode `json:"mode,omitempty"`
 	// +kubebuilder:default=300
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	DefaultTTL int32 `json:"defaultTTL,omitempty"`
+	// Namespace for the emitted DNSEndpoint; defaults to the tunnel's namespace.
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
+	// CNAMETarget overrides the operator's region→edge-name map for this tunnel.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.?$`
+	// +optional
+	CNAMETarget string `json:"cnameTarget,omitempty"`
+	// IncludeWildcards emits records for wildcard hostnames (*.example.com). Default false.
+	// +optional
+	IncludeWildcards bool `json:"includeWildcards,omitempty"`
+	// Labels are copied onto the emitted DNSEndpoint (pair with external-dns --label-filter).
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// Annotations are copied onto the emitted DNSEndpoint (pair with --annotation-filter).
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// ProviderSpecific entries are copied onto every emitted endpoint.
+	// +kubebuilder:validation:MaxItems=100
+	// +optional
+	ProviderSpecific []DNSProviderProperty `json:"providerSpecific,omitempty"`
 }
 
 // TowonelTunnelSpec defines the desired tunnel (invite + authorization).
@@ -75,7 +109,7 @@ type PortAllocation struct {
 	Edge EdgeRef `json:"edge,omitempty"`
 }
 
-// DNSRecord is computed DNS intent (observability; not an integration contract).
+// DNSRecord is computed DNS intent (observability; not an integration contract), populated whenever an edge target resolves, in both DNS modes.
 type DNSRecord struct {
 	Hostname string `json:"hostname"`
 	// +kubebuilder:validation:Enum=A;AAAA;CNAME
@@ -85,6 +119,19 @@ type DNSRecord struct {
 	Port int32 `json:"port,omitempty"`
 	// +optional
 	Protocol string `json:"protocol,omitempty"`
+}
+
+// RegionEndpoint is the live serving state for one configured region (#38).
+type RegionEndpoint struct {
+	// Region is the configured region code, e.g. "EU" or "CA".
+	Region string `json:"region"`
+	// Role is "primary" or "secondary" (the hub's "failover" is mapped);
+	// unknown hub roles pass through verbatim.
+	Role string `json:"role"`
+	// Addresses is the sorted, deduplicated union of live edge public IPs
+	// serving this region. Empty means configured but no live edge right now.
+	// +optional
+	Addresses []string `json:"addresses,omitempty"`
 }
 
 // TowonelTunnelStatus is the observed tunnel state.
@@ -106,6 +153,11 @@ type TowonelTunnelStatus struct {
 	Edges []string `json:"edges,omitempty"`
 	// +optional
 	DNSRecords []DNSRecord `json:"dnsRecords,omitempty"`
+	// RegionEndpoints is the live serving state per configured region, from the
+	// hub's GET /v1/invites/{id}/status (#38): primary first, then failover.
+	// +listType=atomic
+	// +optional
+	RegionEndpoints []RegionEndpoint `json:"regionEndpoints,omitempty"`
 	// +listType=map
 	// +listMapKey=type
 	// +optional

@@ -82,12 +82,35 @@ spec:
                 type: string
               dns:
                 description: TunnelDNSSpec configures vendor-neutral DNS automation
-                  (emits external-dns DNSEndpoints).
+                  (emits an external-dns DNSEndpoint).
                 properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations are copied onto the emitted DNSEndpoint
+                      (pair with --annotation-filter).
+                    type: object
+                  cnameTarget:
+                    description: CNAMETarget overrides the operator's region→edge-name
+                      map for this tunnel.
+                    maxLength: 253
+                    pattern: ^([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.?$
+                    type: string
                   defaultTTL:
                     default: 300
                     format: int32
+                    minimum: 1
                     type: integer
+                  includeWildcards:
+                    description: IncludeWildcards emits records for wildcard hostnames
+                      (*.example.com). Default false.
+                    type: boolean
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels are copied onto the emitted DNSEndpoint (pair
+                      with external-dns --label-filter).
+                    type: object
                   mode:
                     default: Disabled
                     description: DNSMode selects DNS automation behavior for a tunnel.
@@ -96,7 +119,32 @@ spec:
                     - DNSEndpoint
                     type: string
                   namespace:
+                    description: Namespace for the emitted DNSEndpoint; defaults to
+                      the tunnel's namespace.
+                    maxLength: 63
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                     type: string
+                  providerSpecific:
+                    description: ProviderSpecific entries are copied onto every emitted
+                      endpoint.
+                    items:
+                      description: |-
+                        DNSProviderProperty is one provider-specific setting copied onto every emitted
+                        endpoint (external-dns ProviderSpecificProperty), e.g.
+                        {name: "cloudflare/proxied", value: "false"}.
+                      properties:
+                        name:
+                          maxLength: 253
+                          minLength: 1
+                          type: string
+                        value:
+                          maxLength: 4096
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    maxItems: 100
+                    type: array
                 type: object
               extraHostnames:
                 description: ExtraHostnames authorizes hostnames no agent serves yet
@@ -193,7 +241,8 @@ spec:
               dnsRecords:
                 items:
                   description: DNSRecord is computed DNS intent (observability; not
-                    an integration contract).
+                    an integration contract), populated whenever an edge target resolves,
+                    in both DNS modes.
                   properties:
                     hostname:
                       type: string
@@ -271,6 +320,36 @@ spec:
                   - protocol
                   type: object
                 type: array
+              regionEndpoints:
+                description: |-
+                  RegionEndpoints is the live serving state per configured region, from the
+                  hub's GET /v1/invites/{id}/status (#38): primary first, then failover.
+                items:
+                  description: RegionEndpoint is the live serving state for one configured
+                    region (#38).
+                  properties:
+                    addresses:
+                      description: |-
+                        Addresses is the sorted, deduplicated union of live edge public IPs
+                        serving this region. Empty means configured but no live edge right now.
+                      items:
+                        type: string
+                      type: array
+                    region:
+                      description: Region is the configured region code, e.g. "EU"
+                        or "CA".
+                      type: string
+                    role:
+                      description: |-
+                        Role is "primary" or "secondary" (the hub's "failover" is mapped);
+                        unknown hub roles pass through verbatim.
+                      type: string
+                  required:
+                  - region
+                  - role
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               tenantId:
                 type: string
               tokenSecretRef:
