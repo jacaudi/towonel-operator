@@ -39,6 +39,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(towonelv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(controller.AddExternalDNSToScheme(scheme))
 	utilruntime.Must(gwv1.Install(scheme))
 	utilruntime.Must(gwv1beta1.Install(scheme))
 }
