@@ -123,7 +123,7 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	hostCtx, cancelHost := context.WithTimeout(ctx, hubCallTimeout)
-	err = r.convergeHostnames(hostCtx, tc, &tt, desired)
+	_, err = r.convergeHostnames(hostCtx, tc, &tt, desired)
 	cancelHost()
 	if err != nil {
 		setCond(&tt, CondHostnamesSynced, metav1.ConditionFalse, ReasonAPIError, err.Error())
