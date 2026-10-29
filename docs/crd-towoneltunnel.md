@@ -29,7 +29,7 @@ See [`examples/01-tunnel.yaml`](examples/01-tunnel.yaml).
 | `authorizedHostnames` | Aggregated from referencing agents + `extraHostnames`. |
 | `portAllocations` | One per agent tcp/udp service: `{name, protocol, listenPort, edge{nodeId, addresses}}`. |
 | `edges` | Union of edge addresses (TCP/UDP). |
-| `httpsEdgeTarget` / `dnsRecords` | **Reserved** — populated only by the (unimplemented) DNS handoff. |
+| `dnsRecords` | **Reserved** — populated only by the (unimplemented) DNS handoff. |
 | `phase` | Coarse rollup: `Pending` / `Ready` / `Error`. |
 | `observedGeneration` | Last reconciled generation. |
 

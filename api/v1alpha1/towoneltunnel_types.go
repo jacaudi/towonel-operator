@@ -105,8 +105,6 @@ type TowonelTunnelStatus struct {
 	// +optional
 	Edges []string `json:"edges,omitempty"`
 	// +optional
-	HTTPSEdgeTarget string `json:"httpsEdgeTarget,omitempty"`
-	// +optional
 	DNSRecords []DNSRecord `json:"dnsRecords,omitempty"`
 	// +listType=map
 	// +listMapKey=type
