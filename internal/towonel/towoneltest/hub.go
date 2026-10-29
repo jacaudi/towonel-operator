@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/jacaudi/towonel-operator/internal/towonel"
 )
@@ -26,7 +27,18 @@ type Hub struct {
 	nextPort int32
 
 	reservedHosts map[string]string // hostname -> owning inviteID
+
+	statuses          map[string]towonel.InviteStatus // inviteID -> seeded /status response
+	statusUnavailable bool                            // true -> /status 404s (hub predates v1.1.0)
+	idPrefix          string                          // per-Hub invite-ID prefix (see hubSeq)
 }
+
+// hubSeq gives every Hub a distinct invite-ID prefix. envtest has no GC
+// between tests, so tunnels left over from an earlier test (whose
+// status.inviteId came from an earlier Hub) must never resolve to a later
+// Hub's sequential invite IDs — with DNS that would publish or sweep the
+// wrong tunnel's records.
+var hubSeq atomic.Int64
 
 func NewHub() *Hub {
 	return &Hub{
@@ -37,6 +49,8 @@ func NewHub() *Hub {
 		nextPort: 30000,
 
 		reservedHosts: map[string]string{},
+		statuses:      map[string]towonel.InviteStatus{},
+		idPrefix:      fmt.Sprintf("h%d-", hubSeq.Add(1)),
 	}
 }
 
@@ -48,6 +62,30 @@ func (h *Hub) Seed(inv towonel.Invite) {
 	h.invites[inv.InviteID] = &cp
 	for _, hn := range cp.Hostnames {
 		h.reservedHosts[hn] = cp.InviteID
+	}
+}
+
+// SeedInviteStatus sets the GET /v1/invites/{id}/status response for st.InviteID.
+func (h *Hub) SeedInviteStatus(st towonel.InviteStatus) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.statuses[st.InviteID] = st
+}
+
+// SetStatusUnavailable makes /status 404 for every invite (a hub older than v1.1.0).
+func (h *Hub) SetStatusUnavailable(v bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.statusUnavailable = v
+}
+
+// Revoke marks an invite revoked as an out-of-band revoke does hub-side: GET
+// still returns it, hostnames included (hub v1.13.4 db/invites.rs:49-60).
+func (h *Hub) Revoke(inviteID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if inv := h.invites[inviteID]; inv != nil {
+		inv.Status = "revoked"
 	}
 }
 
@@ -132,12 +170,16 @@ func (h *Hub) handler() http.HandlerFunc {
 			_ = json.NewDecoder(req.Body).Decode(&body)
 			h.nextID++
 			h.Created++
-			id := fmt.Sprintf("inv-%d", h.nextID)
+			id := fmt.Sprintf("inv-%s%d", h.idPrefix, h.nextID)
 			name := ""
 			if body.Name != nil {
 				name = *body.Name
 			}
-			h.invites[id] = &towonel.Invite{InviteID: id, TenantID: "ten-" + id, Name: name, Hostnames: body.Hostnames}
+			region := ""
+			if body.Region != nil {
+				region = *body.Region
+			}
+			h.invites[id] = &towonel.Invite{InviteID: id, TenantID: "ten-" + id, Name: name, Hostnames: body.Hostnames, Region: region, Status: "pending"}
 			h.tokens[id] = "tok-" + id
 			for _, hn := range body.Hostnames {
 				h.reservedHosts[hn] = id
@@ -149,6 +191,24 @@ func (h *Hub) handler() http.HandlerFunc {
 				out = append(out, *inv)
 			}
 			_ = json.NewEncoder(w).Encode(out)
+		case req.Method == http.MethodGet && strings.HasPrefix(p, "/v1/invites/") && strings.HasSuffix(p, "/status"):
+			// MUST precede the generic GET /v1/invites/{id} case, which would
+			// otherwise shadow it (#38 §6).
+			id := strings.TrimSuffix(strings.TrimPrefix(p, "/v1/invites/"), "/status")
+			inv := h.invites[id]
+			if inv == nil || h.statusUnavailable {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			st, ok := h.statuses[id]
+			if !ok {
+				region := inv.Region
+				if region == "" {
+					region = "EU"
+				}
+				st = towonel.InviteStatus{InviteID: id, TenantID: inv.TenantID, Regions: []towonel.RegionStatus{{Region: region, Role: "primary", Edges: []towonel.EdgeStatus{}}}}
+			}
+			_ = json.NewEncoder(w).Encode(st)
 		case req.Method == http.MethodGet && strings.HasPrefix(p, "/v1/invites/"):
 			id := strings.TrimPrefix(p, "/v1/invites/")
 			inv := h.invites[id]
