@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.9.1](https://github.com/jacaudi/towonel-operator/compare/v1.9.0...v1.9.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **chart:** default namespace section for bjw-s common 5.3.0 ([305f4da](https://github.com/jacaudi/towonel-operator/commit/305f4dab328d24da08bfb3e7218954e1985bf858))
+
+
+### Dependencies
+
+* **towonel-agent:** Update codeberg.org/towonel/towonel-agent Docker tag to v1.13.0 ([928c76d](https://github.com/jacaudi/towonel-operator/commit/928c76d7d5752a3396538894682d95bbc2444a73))
+* **towonel-agent:** Update codeberg.org/towonel/towonel-agent Docker tag to v1.13.4 ([21b8595](https://github.com/jacaudi/towonel-operator/commit/21b8595b416ecbb6d2c274fa691590782c60f26a))
+* Update GitHub Actions ([d756a72](https://github.com/jacaudi/towonel-operator/commit/d756a72685522d7612aaef01ac9c4b1cff76227c))
+* Update Helm release common to v5.3.0 ([f7856af](https://github.com/jacaudi/towonel-operator/commit/f7856af106a1040a3c1eb76f91bc869b904effaf))
+* Update kubernetes-client-libraries ([7298994](https://github.com/jacaudi/towonel-operator/commit/72989948530653d41b1748afc1608c18893b5d2f))
+* Update module sigs.k8s.io/gateway-api to v1.6.3 ([a49f50a](https://github.com/jacaudi/towonel-operator/commit/a49f50a1f504ca17afe118054ee725dc00d08677))
+
 ## [1.9.0](https://github.com/jacaudi/towonel-operator/compare/v1.8.0...v1.9.0) (2026-10-02)
 
 
