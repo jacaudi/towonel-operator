@@ -224,8 +224,6 @@ spec:
                 description: ExpiresAt in epoch ms; 0 = never.
                 format: int64
                 type: integer
-              httpsEdgeTarget:
-                type: string
               inviteId:
                 type: string
               observedGeneration:

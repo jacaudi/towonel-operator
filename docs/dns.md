@@ -2,7 +2,7 @@
 
 > **Status: designed, not yet implemented.** The `TowonelTunnel.spec.dns` field exists in the CRD
 > and validates, but the operator does **not** act on it — no `DNSEndpoint` resources are emitted and
-> `status.dnsRecords` / `status.httpsEdgeTarget` are not populated. This page describes the intended
+> `status.dnsRecords` is not populated. This page describes the intended
 > design so the field's meaning is clear; do not rely on automated DNS yet.
 
 ## Today: point DNS yourself
@@ -41,6 +41,6 @@ vendor-neutral design avoids.
 ## Related fields (currently inert)
 
 - `TowonelTunnel.spec.dns.{mode, defaultTTL, namespace}` — accepted, no effect yet.
-- `TowonelTunnel.status.{dnsRecords, httpsEdgeTarget}` — reserved for the handoff.
+- `TowonelTunnel.status.dnsRecords` — reserved for the handoff.
 - `TowonelAgent.spec.tcp[]/udp[].hostname` and the `towonel.io/dns-record` source annotation — the
   inputs the handoff would consume; today they are informational only.
