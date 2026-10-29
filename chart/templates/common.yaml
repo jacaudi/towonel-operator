@@ -56,6 +56,9 @@ and passes it to the bjw-s common library loader
 {{- if not (hasKey $bjwsValues "rbac") -}}
   {{- $_ := set $bjwsValues "rbac" dict -}}
 {{- end -}}
+{{- if not (hasKey $bjwsValues "namespace") -}}
+  {{- $_ := set $bjwsValues "namespace" (dict "create" false) -}}
+{{- end -}}
 
 {{/* Create new context with constructed values */}}
 {{- $ctx := deepCopy . -}}
