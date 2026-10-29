@@ -3,7 +3,6 @@ package envtest_test
 import (
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	externaldnsv1alpha1 "sigs.k8s.io/external-dns/apis/v1alpha1"
 	"sigs.k8s.io/external-dns/endpoint"
@@ -15,8 +14,8 @@ func TestDNSEndpointAPIRoundTrip(t *testing.T) {
 	ctx := t.Context()
 	ns := mustNamespace(t)
 	obj := &externaldnsv1alpha1.DNSEndpoint{
-		TypeMeta:   metav1.TypeMeta{APIVersion: externaldnsv1alpha1.GroupVersion.String(), Kind: "DNSEndpoint"},
-		ObjectMeta: metav1.ObjectMeta{Name: "roundtrip", Namespace: ns, Labels: map[string]string{"t": "roundtrip"}},
+		APIVersion: externaldnsv1alpha1.GroupVersion.String(), Kind: "DNSEndpoint",
+		Name: "roundtrip", Namespace: ns, Labels: map[string]string{"t": "roundtrip"},
 		Spec: externaldnsv1alpha1.DNSEndpointSpec{Endpoints: []*endpoint.Endpoint{{
 			DNSName: "a.example.com", RecordType: endpoint.RecordTypeCNAME,
 			Targets: endpoint.Targets{"edge.example.com"}, RecordTTL: 300,

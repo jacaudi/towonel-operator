@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,11 +25,10 @@ func TestCrossWatchPredicateSkipsStatusOnlyUpdates(t *testing.T) {
 	p := crossWatchPredicate()
 
 	base := func() *corev1.Service {
-		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		return &corev1.Service{
 			Namespace: "net", Name: "gw", Generation: 1, ResourceVersion: "100",
 			Annotations: map[string]string{"towonel.io/gateway-service": "net/gw:443"},
-			Labels:      map[string]string{"k": "v"},
-		}}
+			Labels:      map[string]string{"k": "v"}}
 	}
 
 	if !p.Create(event.CreateEvent{Object: base()}) {
@@ -70,7 +68,7 @@ func TestObserveUserAgentWarnsOnUnservedHostname(t *testing.T) {
 	rec := record.NewFakeRecorder(8)
 	b := &sourceBase{}
 	b.ensure(rec)
-	src := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "svc"}}
+	src := &corev1.Service{Namespace: "net", Name: "svc"}
 	rt := routing{services: []map[string]any{{"hostname": "x.example", "origin": "x:1"}}}
 	b.observeUserAgent(func(r, m string) { b.dedupe.emit(b.recorder, src, corev1.EventTypeWarning, r, m) },
 		user, types.NamespacedName{Namespace: "net", Name: "app"}, rt)

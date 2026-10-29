@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -25,7 +24,7 @@ func TestBuildTokenSecret(t *testing.T) {
 }
 
 func TestTokenSecretNeedsWrite(t *testing.T) {
-	ok := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{AnnotationInviteID: "inv-1"}}, Data: map[string][]byte{tokenDataKey: []byte("tok")}}
+	ok := &corev1.Secret{Annotations: map[string]string{AnnotationInviteID: "inv-1"}, Data: map[string][]byte{tokenDataKey: []byte("tok")}}
 	if tokenSecretNeedsWrite(ok, "inv-1") {
 		t.Error("up-to-date should not need write")
 	}
@@ -39,7 +38,7 @@ func TestTokenSecretNeedsWrite(t *testing.T) {
 
 // ensureTokenSecret: adoption (token=="") with NO existing Secret -> errAdoptedNoToken.
 func TestEnsureTokenSecretAdoptNoSecret(t *testing.T) {
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "app", Namespace: "net"}
 	tt.Status.InviteID = "inv-1"
 	r := &TowonelTunnelReconciler{Client: newFakeClient(t), Scheme: testScheme(t)}
 	err := r.ensureTokenSecret(t.Context(), tt, secret(""))
@@ -50,7 +49,7 @@ func TestEnsureTokenSecretAdoptNoSecret(t *testing.T) {
 
 // ensureTokenSecret: fresh token writes the Secret + publishes status.
 func TestEnsureTokenSecretWrites(t *testing.T) {
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "app", Namespace: "net"}
 	tt.Status.InviteID = "inv-1"
 	r := &TowonelTunnelReconciler{Client: newFakeClient(t), Scheme: testScheme(t)}
 	if err := r.ensureTokenSecret(t.Context(), tt, secret("tok")); err != nil {

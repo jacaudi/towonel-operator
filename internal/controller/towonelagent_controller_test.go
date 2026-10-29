@@ -9,7 +9,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -62,7 +61,7 @@ func TestAgentReconcileNeverAppliesStaleDeployment(t *testing.T) {
 			scheme := agentScheme(t)
 			tunnel, token := tunnelWithToken("inv-1", "inv-1", "tok")
 			agent := &towonelv1alpha1.TowonelAgent{
-				ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default", UID: "agent-uid", Generation: 1},
+				Name: "edge", Namespace: "default", UID: "agent-uid", Generation: 1,
 				Spec: towonelv1alpha1.TowonelAgentSpec{
 					TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "network"},
 					Services:  []towonelv1alpha1.AgentService{{Hostname: "old.example", Origin: "old:80"}},
@@ -153,7 +152,7 @@ func TestAgentReconcileRetryThroughJoinedFailure(t *testing.T) {
 			scheme := agentScheme(t)
 			tunnel, token := tunnelWithToken("inv-1", "inv-1", "tok")
 			agent := &towonelv1alpha1.TowonelAgent{
-				ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default", UID: "agent-uid", Generation: 1},
+				Name: "edge", Namespace: "default", UID: "agent-uid", Generation: 1,
 				Spec: towonelv1alpha1.TowonelAgentSpec{
 					TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "network"},
 					Services:  []towonelv1alpha1.AgentService{{Hostname: "edge.example", Origin: "edge:80"}},

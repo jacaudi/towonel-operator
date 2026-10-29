@@ -78,8 +78,8 @@ func TestReconcileCreatesInviteAndSecret(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "app8", Namespace: "default"},
-		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example"}},
+		Name: "app8", Namespace: "default",
+		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example"}},
 	}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestReconcileDefersWhenNoHostnames(t *testing.T) {
 	// No extraHostnames and no referencing agents -> nothing to authorize yet.
 	// #14(a): must NOT create an invite (API requires >=1 hostname); defer to Pending.
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "nohosts", Namespace: "default"},
+		Name: "nohosts", Namespace: "default",
 	}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
@@ -141,7 +141,7 @@ func TestReconcileDeletePolicy(t *testing.T) {
 		// A hostname is required for the invite to be created (#14(a) defers
 		// hostname-less tunnels); this test is about the delete/retain policy.
 		tt := &towonelv1alpha1.TowonelTunnel{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Name: name, Namespace: "default",
 			Spec: towonelv1alpha1.TowonelTunnelSpec{
 				DeletionPolicy: policy,
 				ExtraHostnames: []string{name + ".example"},
@@ -182,14 +182,14 @@ func TestTunnelAggregatesAgents(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "agg", Namespace: "default"},
-		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"extra.example"}},
+		Name: "agg", Namespace: "default",
+		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"extra.example"}},
 	}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
 	}
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "edge-a", Namespace: "default"},
+		Name: "edge-a", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "agg"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "app.example", Origin: "app:8080"}},

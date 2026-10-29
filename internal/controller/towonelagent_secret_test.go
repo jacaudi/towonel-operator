@@ -32,26 +32,24 @@ func agentScheme(t *testing.T) *runtime.Scheme {
 
 func tunnelWithToken(inviteID, secretInviteID, token string) (*towonelv1alpha1.TowonelTunnel, *corev1.Secret) {
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "network"},
+		Name: "app", Namespace: "network",
 		Status: towonelv1alpha1.TowonelTunnelStatus{
 			InviteID:       inviteID,
 			TokenSecretRef: &towonelv1alpha1.SecretReference{Name: "app-token", Namespace: "network"},
 		},
 	}
 	sec := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "app-token", Namespace: "network",
-			Annotations: map[string]string{AnnotationInviteID: secretInviteID},
-		},
-		Data: map[string][]byte{tokenDataKey: []byte(token)},
+		Name: "app-token", Namespace: "network",
+		Annotations: map[string]string{AnnotationInviteID: secretInviteID},
+		Data:        map[string][]byte{tokenDataKey: []byte(token)},
 	}
 	return tt, sec
 }
 
 func TestReadTunnelTokenGates(t *testing.T) {
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "edge-a", Namespace: "selfhosted"},
-		Spec:       towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "network"}},
+		Name: "edge-a", Namespace: "selfhosted",
+		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "network"}},
 	}
 	tests := []struct {
 		name       string
@@ -118,17 +116,15 @@ func TestReadTunnelTokenGates(t *testing.T) {
 
 func TestEnsureAgentSecretClashGuard(t *testing.T) {
 	s := agentScheme(t)
-	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "edge-a", Namespace: "selfhosted", UID: "uid-agent"}}
-	foreign := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+	ta := &towonelv1alpha1.TowonelAgent{Name: "edge-a", Namespace: "selfhosted", UID: "uid-agent"}
+	foreign := &corev1.Secret{
 		Name: "edge-a-token", Namespace: "selfhosted",
 		OwnerReferences: []metav1.OwnerReference{{
 			APIVersion: "towonel.io/v1alpha1", Kind: "TowonelTunnel", Name: "edge-a", UID: "uid-other", Controller: new(true),
-		}},
-	}}
-	unowned := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-		Name: "edge-a-token", Namespace: "other",
-	}}
-	taOther := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "edge-a", Namespace: "other", UID: "uid-agent2"}}
+		}}}
+	unowned := &corev1.Secret{
+		Name: "edge-a-token", Namespace: "other"}
+	taOther := &towonelv1alpha1.TowonelAgent{Name: "edge-a", Namespace: "other", UID: "uid-agent2"}
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(ta, foreign, unowned, taOther).Build()
 	r := &TowonelAgentReconciler{Client: c, Scheme: s}
 	if err := r.ensureAgentSecret(t.Context(), ta, secret("tok"), "inv-1"); !errors.Is(err, errSecretClash) {
@@ -141,7 +137,7 @@ func TestEnsureAgentSecretClashGuard(t *testing.T) {
 
 func TestEnsureAgentSecretWriteAndSkip(t *testing.T) {
 	s := agentScheme(t)
-	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "edge-a", Namespace: "selfhosted", UID: "uid-agent"}}
+	ta := &towonelv1alpha1.TowonelAgent{Name: "edge-a", Namespace: "selfhosted", UID: "uid-agent"}
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(ta).Build()
 	r := &TowonelAgentReconciler{Client: c, Scheme: s}
 	// Create path.

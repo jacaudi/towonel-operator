@@ -58,12 +58,12 @@ func TestAgentRoundTrip(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "rt", Namespace: "default"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "rt", Namespace: "default"}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
 	}
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "rt-edge", Namespace: "default"},
+		Name: "rt-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "rt"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "rt.example", Origin: "rt:8080"}},
@@ -120,13 +120,13 @@ func TestAgentConvergesAfterSpecBurst(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 
-	tunnel := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "burst", Namespace: "default"}}
+	tunnel := &towonelv1alpha1.TowonelTunnel{Name: "burst", Namespace: "default"}
 	if err := c.Create(ctx, tunnel); err != nil {
 		t.Fatal(err)
 	}
 	key := types.NamespacedName{Name: "burst-edge", Namespace: "default"}
 	agent := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+		Name: key.Name, Namespace: key.Namespace,
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "burst"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "one.example", Origin: "one:80"}},
@@ -145,7 +145,7 @@ func TestAgentConvergesAfterSpecBurst(t *testing.T) {
 		return c.Get(ctx, key, &got) == nil && got.Status.Phase == "Ready"
 	})
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			var got towonelv1alpha1.TowonelAgent
 			if err := c.Get(ctx, key, &got); err != nil {
@@ -210,7 +210,7 @@ func TestAgentWaitsForTunnelThenRenders(t *testing.T) {
 	ctx := t.Context()
 
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "wait-edge", Namespace: "default"},
+		Name: "wait-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "wait"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "w.example", Origin: "w:80"}},
@@ -230,7 +230,7 @@ func TestAgentWaitsForTunnelThenRenders(t *testing.T) {
 	}
 
 	// Tunnel arrives -> the watch (not the 30s fallback) wakes the agent fast.
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "wait", Namespace: "default"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "wait", Namespace: "default"}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
 	}
@@ -245,13 +245,13 @@ func TestTwoAgentsShareTunnel(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "share", Namespace: "default"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "share", Namespace: "default"}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"share-a", "share-b"} {
 		ta := &towonelv1alpha1.TowonelAgent{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Name: name, Namespace: "default",
 			Spec: towonelv1alpha1.TowonelAgentSpec{
 				TunnelRef: towonelv1alpha1.TunnelReference{Name: "share"},
 				Services:  []towonelv1alpha1.AgentService{{Hostname: "shared.example", Origin: name + ":80"}},
@@ -273,7 +273,7 @@ func TestTwoAgentsShareTunnel(t *testing.T) {
 		return len(got.Status.PortAllocations) == 1 && tenant != "" && hub.ReservationCount(tenant) == 1
 	})
 	// Delete one agent: shared port + hostname survive (other agent still declares them).
-	if err := c.Delete(ctx, &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "share-a", Namespace: "default"}}); err != nil {
+	if err := c.Delete(ctx, &towonelv1alpha1.TowonelAgent{Name: "share-a", Namespace: "default"}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, 15*time.Second, func() bool { // shrink the vacuous window: deletion observed first
@@ -300,12 +300,12 @@ func TestAgentRotationRollsDeployment(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "rot", Namespace: "default"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "rot", Namespace: "default"}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
 	}
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "rot-edge", Namespace: "default"},
+		Name: "rot-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "rot"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "rot.example", Origin: "rot:80"}},
@@ -364,12 +364,12 @@ func TestAgentAffinityChangeRollsDeployment(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "aff", Namespace: "default"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "aff", Namespace: "default"}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
 	}
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "aff-edge", Namespace: "default"},
+		Name: "aff-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "aff"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "aff.example", Origin: "aff:80"}},
@@ -415,12 +415,12 @@ func TestAgentNoChurn(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "calm", Namespace: "default"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "calm", Namespace: "default"}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
 	}
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "calm-edge", Namespace: "default"},
+		Name: "calm-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "calm"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "calm.example", Origin: "calm:80"}},
@@ -479,16 +479,16 @@ func TestCrossNamespaceTunnelRef(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "p4-net"}}
+	ns := &corev1.Namespace{Name: "p4-net"}
 	if err := c.Create(ctx, ns); err != nil && !strings.Contains(err.Error(), "already exists") {
 		t.Fatal(err)
 	}
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "xns", Namespace: "p4-net"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "xns", Namespace: "p4-net"}
 	if err := c.Create(ctx, tt); err != nil {
 		t.Fatal(err)
 	}
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "xns-edge", Namespace: "default"},
+		Name: "xns-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "xns", Namespace: "p4-net"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "xns.example", Origin: "x:80"}},
@@ -518,13 +518,13 @@ func TestAgentRetargetsTunnel(t *testing.T) {
 	ctx := t.Context()
 
 	for _, name := range []string{"ret-a", "ret-b"} {
-		tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}}
+		tt := &towonelv1alpha1.TowonelTunnel{Name: name, Namespace: "default"}
 		if err := c.Create(ctx, tt); err != nil {
 			t.Fatal(err)
 		}
 	}
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "ret-edge", Namespace: "default"},
+		Name: "ret-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "ret-a"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "ret.example", Origin: "r:80"}},
@@ -585,7 +585,7 @@ func TestTunnelDeleteReleasesAgentPorts(t *testing.T) {
 		// reservation) to exist (#14(a) defers hostname-less tunnels); this
 		// test is about the delete/retain policy for port reservations.
 		tt := &towonelv1alpha1.TowonelTunnel{
-			ObjectMeta: metav1.ObjectMeta{Name: tc.name, Namespace: "default"},
+			Name: tc.name, Namespace: "default",
 			Spec: towonelv1alpha1.TowonelTunnelSpec{
 				DeletionPolicy: tc.policy,
 				ExtraHostnames: []string{tc.name + ".example"},
@@ -595,7 +595,7 @@ func TestTunnelDeleteReleasesAgentPorts(t *testing.T) {
 			t.Fatal(err)
 		}
 		ta := &towonelv1alpha1.TowonelAgent{
-			ObjectMeta: metav1.ObjectMeta{Name: tc.name + "-edge", Namespace: "default"},
+			Name: tc.name + "-edge", Namespace: "default",
 			Spec: towonelv1alpha1.TowonelAgentSpec{
 				TunnelRef: towonelv1alpha1.TunnelReference{Name: tc.name},
 				TCP:       []towonelv1alpha1.AgentL4Service{{Name: "ssh", Origin: "o:22"}},

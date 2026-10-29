@@ -220,7 +220,7 @@ func (r *ServiceSourceReconciler) sourcesForAgent(ctx context.Context, obj clien
 			continue
 		}
 		if sourceTargetsAgent(svc.Annotations, svc.Namespace, r.AgentNamespace, ta) {
-			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}})
+			reqs = append(reqs, reconcile.Request{Namespace: svc.Namespace, Name: svc.Name})
 		}
 	}
 	return reqs
@@ -248,7 +248,7 @@ func (r *ServiceSourceReconciler) sourcesForTunnel(ctx context.Context, obj clie
 			continue
 		}
 		if sourceTargetsTunnel(svc.Annotations, svc.Namespace, tunnelNN) {
-			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}})
+			reqs = append(reqs, reconcile.Request{Namespace: svc.Namespace, Name: svc.Name})
 		}
 	}
 	return reqs

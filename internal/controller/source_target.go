@@ -7,9 +7,7 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -160,19 +158,17 @@ func ensureDefaultAgent(ctx context.Context, c client.Client, agentNS string, de
 		return nil, err
 	}
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   agentNS,
-			Labels:      map[string]string{LabelManagedBy: ManagedByValue, LabelPartOf: PartOfValue},
-			Annotations: map[string]string{AnnotationAutoCreated: "true"},
-		},
+		Name:        name,
+		Namespace:   agentNS,
+		Labels:      map[string]string{LabelManagedBy: ManagedByValue, LabelPartOf: PartOfValue},
+		Annotations: map[string]string{AnnotationAutoCreated: "true"},
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			Mode:      towonelv1alpha1.ModeManaged,
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: tunnel.Name, Namespace: tunnel.Namespace},
 		},
 	}
 	if defaultReplicas != nil {
-		ta.Spec.Workload.Replicas = ptr.To(*defaultReplicas) // copy: never alias the shared flag value
+		ta.Spec.Workload.Replicas = new(*defaultReplicas) // copy: never alias the shared flag value
 	}
 	if err := c.Create(ctx, ta); err != nil {
 		if apierrors.IsAlreadyExists(err) { // lost the create race

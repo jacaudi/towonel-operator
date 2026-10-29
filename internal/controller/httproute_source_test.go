@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -18,27 +17,27 @@ import (
 func nsPtr(s string) *gwv1.Namespace { n := gwv1.Namespace(s); return &n }
 
 func TestRoutesForGatewayMatchesByDefaultedNamespace(t *testing.T) {
-	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway"}}
+	gw := &gwv1.Gateway{Name: "external", Namespace: "kgateway"}
 	// route A: parentRef nil-namespace, same namespace as gateway → matches.
 	routeA := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "kgateway", Annotations: map[string]string{AnnotationTunnel: "enable"}},
-		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external"}}}},
+		Name: "a", Namespace: "kgateway", Annotations: map[string]string{AnnotationTunnel: "enable"},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external"}}}},
 	}
 	// route B: annotated, explicit cross-namespace parentRef → matches.
 	routeB := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"}},
-		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
+		Name: "b", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
 	}
 	// route C: UN-annotated, cross-namespace parentRef → now MUST enqueue (#39: the
 	// mapper enqueues every route parenting the gateway; Reconcile decides select/release).
 	routeC := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "immich"},
-		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
+		Name: "c", Namespace: "immich",
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
 	}
 	// route D: parentRef targets a DIFFERENT gateway name → MUST NOT match (locks name scoping).
 	routeD := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"}},
-		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: nsPtr("kgateway")}}}},
+		Name: "d", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: nsPtr("kgateway")}}}},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(routeA, routeB, routeC, routeD).Build()
 	reqs := (&HTTPRouteSourceReconciler{Client: c}).routesForGateway(context.Background(), gw)
@@ -52,23 +51,23 @@ func TestRoutesForGatewayMatchesByDefaultedNamespace(t *testing.T) {
 }
 
 func TestRoutesForGatewayEnqueuesAllParentingRoutes(t *testing.T) {
-	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway"}}
+	gw := &gwv1.Gateway{Name: "external", Namespace: "kgateway"}
 	// un-annotated route in the GATEWAY's namespace → enqueue.
 	sameNS := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "e", Namespace: "kgateway"},
-		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external"}}}},
+		Name: "e", Namespace: "kgateway",
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external"}}}},
 	}
 	// un-annotated route in ANOTHER namespace → now ALSO enqueue (#39): the mapper
 	// can't read the allowlist coherently across allowlist-shrink, so it enqueues
 	// every parenting route and lets Reconcile select-or-release.
 	crossNS := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "immich"},
-		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
+		Name: "x", Namespace: "immich",
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
 	}
 	// route parenting a DIFFERENT gateway → not enqueued.
 	other := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "o", Namespace: "immich"},
-		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: nsPtr("kgateway")}}}},
+		Name: "o", Namespace: "immich",
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: nsPtr("kgateway")}}}},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(sameNS, crossNS, other).Build()
 	reqs := (&HTTPRouteSourceReconciler{Client: c}).routesForGateway(context.Background(), gw)
@@ -85,17 +84,17 @@ func TestSourcesForAgentHTTPRouteMatchesByAgentRefAndNamespace(t *testing.T) {
 	agent := &towonelv1alpha1.TowonelAgent{}
 	agent.Namespace, agent.Name = "app", "my-agent"
 	// route A: agent-ref==my-agent, bare tunnel-ref → resolves to route ns "app" == agent ns → MUST match
-	routeA := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "app",
-		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "my-agent"}}}
+	routeA := &gwv1.HTTPRoute{Name: "a", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "my-agent"}}
 	// route B: agent-ref names a DIFFERENT agent → MUST NOT match
-	routeB := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "app",
-		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "other-agent"}}}
+	routeB := &gwv1.HTTPRoute{Name: "b", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "other-agent"}}
 	// route C: no agent-ref (default-agent path) → MUST NOT match (default path can't strand; see sourceTargetsAgent)
-	routeC := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "app",
-		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t"}}}
+	routeC := &gwv1.HTTPRoute{Name: "c", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t"}}
 	// route D: agent-ref==my-agent but tunnel-ref resolves to ns "other" != agent ns "app" → MUST NOT match
-	routeD := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: "app",
-		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "other/t", AnnotationAgentRef: "my-agent"}}}
+	routeD := &gwv1.HTTPRoute{Name: "d", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "other/t", AnnotationAgentRef: "my-agent"}}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(routeA, routeB, routeC, routeD).Build()
 	reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForAgent(context.Background(), agent)
 	if len(reqs) != 1 || reqs[0].NamespacedName.String() != "app/a" {
@@ -114,34 +113,34 @@ func TestSourcesForTunnelHTTPRouteMatchesExplicitAndAutoSelected(t *testing.T) {
 	tunnel.Namespace, tunnel.Name = "net", "app"
 
 	// gwAuto: auto-routes enabled, same-namespace default (#25).
-	gwAuto := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: "app",
-		Annotations: map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "app/proxy:443"}}}
+	gwAuto := &gwv1.Gateway{Name: "gw", Namespace: "app",
+		Annotations: map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "app/proxy:443"}}
 	// gwPlain: a parent Gateway WITHOUT auto-routes.
-	gwPlain := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "plain", Namespace: "app"}}
+	gwPlain := &gwv1.Gateway{Name: "plain", Namespace: "app"}
 	// gwCross: auto-routes enabled and allowlists namespace "other" (#39).
-	gwCross := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "xgw", Namespace: "app",
-		Annotations: map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "app/proxy:443", AnnotationAutoRoutesNamespaces: "other"}}}
+	gwCross := &gwv1.Gateway{Name: "xgw", Namespace: "app",
+		Annotations: map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "app/proxy:443", AnnotationAutoRoutesNamespaces: "other"}}
 
 	// A: explicit opt-in + matching tunnel-ref → MUST match.
-	routeA := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "app",
-		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/app"}}}
+	routeA := &gwv1.HTTPRoute{Name: "a", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/app"}}
 	// B: auto-selected — no towonel.io/tunnel, no tunnel-ref, parent gwAuto → MUST match (sole-tunnel default).
-	routeB := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "app"},
+	routeB := &gwv1.HTTPRoute{Name: "b", Namespace: "app",
 		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "gw"}}}}}
 	// C: un-annotated, parent gwPlain has NO auto-routes → MUST NOT match.
-	routeC := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "app"},
+	routeC := &gwv1.HTTPRoute{Name: "c", Namespace: "app",
 		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "plain"}}}}}
 	// D: explicit opt-in but tunnel-ref pins a DIFFERENT tunnel → MUST NOT match.
-	routeD := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: "app",
-		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/other"}}}
+	routeD := &gwv1.HTTPRoute{Name: "d", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/other"}}
 	// E: cross-namespace auto-selected — route in "other", parent gwCross allowlists "other" → MUST match.
-	routeE := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "e", Namespace: "other"},
+	routeE := &gwv1.HTTPRoute{Name: "e", Namespace: "other",
 		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "xgw", Namespace: nsPtr("app")}}}}}
 	// F: no towonel.io/tunnel but an explicit tunnel-ref that matches → the generous
 	// else-if branch enqueues it (Reconcile is authoritative and releases if the
 	// route turns out not to be selected). Locks that branch's behavior.
-	routeF := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "f", Namespace: "app",
-		Annotations: map[string]string{AnnotationTunnelRef: "net/app"}}}
+	routeF := &gwv1.HTTPRoute{Name: "f", Namespace: "app",
+		Annotations: map[string]string{AnnotationTunnelRef: "net/app"}}
 
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).
 		WithObjects(gwAuto, gwPlain, gwCross, routeA, routeB, routeC, routeD, routeE, routeF).Build()
@@ -162,12 +161,12 @@ func TestSourcesForTunnelHTTPRouteMatchesExplicitAndAutoSelected(t *testing.T) {
 }
 
 func TestDeriveHTTPRouteForwardsToParentGatewayProxy(t *testing.T) {
-	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway",
-		Annotations: map[string]string{AnnotationGatewayService: "kgateway/external:443"}}}
-	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway"},
+	gw := &gwv1.Gateway{Name: "external", Namespace: "kgateway",
+		Annotations: map[string]string{AnnotationGatewayService: "kgateway/external:443"}}
+	svc := &corev1.Service{Name: "external", Namespace: "kgateway",
 		Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.5"}}
 	rtObj := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "immich", Namespace: "immich"},
+		Name: "immich", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
 				{Name: "external", Namespace: nsPtr("kgateway")}, // group/kind nil → defaults to Gateway
@@ -187,12 +186,12 @@ func TestDeriveHTTPRouteForwardsToParentGatewayProxy(t *testing.T) {
 
 func TestDeriveHTTPRouteNilGroupKindResolves(t *testing.T) {
 	// parentRef with nil Group AND nil Kind (and nil Namespace → defaults to route ns) must resolve as a Gateway parent.
-	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: "immich",
-		Annotations: map[string]string{AnnotationGatewayService: "immich/gw:443"}}}
-	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: "immich"},
+	gw := &gwv1.Gateway{Name: "gw", Namespace: "immich",
+		Annotations: map[string]string{AnnotationGatewayService: "immich/gw:443"}}
+	svc := &corev1.Service{Name: "gw", Namespace: "immich",
 		Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.9"}}
 	rtObj := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "immich"},
+		Name: "r", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "gw"}}}, // all nil
 			Hostnames:       []gwv1.Hostname{"a.example"},
@@ -207,14 +206,14 @@ func TestDeriveHTTPRouteNilGroupKindResolves(t *testing.T) {
 
 func TestDeriveHTTPRouteAmbiguousGateway(t *testing.T) {
 	// two parentRefs → two Gateways with DIFFERENT gateway-service proxies → ReasonAmbiguousGateway, ok=false.
-	gwA := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw-a", Namespace: "kgateway",
-		Annotations: map[string]string{AnnotationGatewayService: "kgateway/gw-a:443"}}}
-	gwB := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw-b", Namespace: "kgateway",
-		Annotations: map[string]string{AnnotationGatewayService: "kgateway/gw-b:443"}}}
-	svcA := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "gw-a", Namespace: "kgateway"}, Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1"}}
-	svcB := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "gw-b", Namespace: "kgateway"}, Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.2"}}
+	gwA := &gwv1.Gateway{Name: "gw-a", Namespace: "kgateway",
+		Annotations: map[string]string{AnnotationGatewayService: "kgateway/gw-a:443"}}
+	gwB := &gwv1.Gateway{Name: "gw-b", Namespace: "kgateway",
+		Annotations: map[string]string{AnnotationGatewayService: "kgateway/gw-b:443"}}
+	svcA := &corev1.Service{Name: "gw-a", Namespace: "kgateway", Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1"}}
+	svcB := &corev1.Service{Name: "gw-b", Namespace: "kgateway", Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.2"}}
 	rtObj := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "immich"},
+		Name: "r", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
 				{Name: "gw-a", Namespace: nsPtr("kgateway")}, {Name: "gw-b", Namespace: nsPtr("kgateway")},
@@ -230,12 +229,12 @@ func TestDeriveHTTPRouteAmbiguousGateway(t *testing.T) {
 }
 
 func TestDeriveHTTPRoutePortlessGatewayServiceUsesFirstPort(t *testing.T) {
-	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway",
-		Annotations: map[string]string{AnnotationGatewayService: "kgateway/external"}}} // no :port
-	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway"},
+	gw := &gwv1.Gateway{Name: "external", Namespace: "kgateway",
+		Annotations: map[string]string{AnnotationGatewayService: "kgateway/external"}} // no :port
+	svc := &corev1.Service{Name: "external", Namespace: "kgateway",
 		Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.5", Ports: []corev1.ServicePort{{Port: 8443}}}}
 	rtObj := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "immich"},
+		Name: "r", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}},
 			Hostnames:       []gwv1.Hostname{"a.example"},
@@ -251,7 +250,7 @@ func TestDeriveHTTPRoutePortlessGatewayServiceUsesFirstPort(t *testing.T) {
 func TestDeriveHTTPRouteSkipsNonGatewayParent(t *testing.T) {
 	kind := gwv1.Kind("Service")
 	rtObj := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "immich"},
+		Name: "r", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "x", Kind: &kind}}},
 			Hostnames:       []gwv1.Hostname{"a.example"},
@@ -266,9 +265,9 @@ func TestDeriveHTTPRouteSkipsNonGatewayParent(t *testing.T) {
 
 func TestDeriveHTTPRouteGatewayServiceUnset(t *testing.T) {
 	// parent Gateway exists but has no towonel.io/gateway-service → ReasonGatewayServiceUnset, ok=false.
-	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: "kgateway"}}
+	gw := &gwv1.Gateway{Name: "external", Namespace: "kgateway"}
 	rtObj := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "immich"},
+		Name: "r", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}},
 			Hostnames:       []gwv1.Hostname{"a.example"},
@@ -286,15 +285,15 @@ func TestHTTPRouteSourcePredicateAdmitsUnannotatedWithGatewayParent(t *testing.T
 
 	// un-annotated route WITH a Gateway parentRef → admitted (may inherit auto-routes).
 	withParent := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns"},
-		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "gw"}}}},
+		Name: "r", Namespace: "ns",
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "gw"}}}},
 	}
 	if !p.Create(event.CreateEvent{Object: withParent}) {
 		t.Fatal("un-annotated route with a Gateway parentRef must be admitted")
 	}
 
 	// un-annotated route WITHOUT any parentRef → not admitted.
-	noParent := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "r2", Namespace: "ns"}}
+	noParent := &gwv1.HTTPRoute{Name: "r2", Namespace: "ns"}
 	if p.Create(event.CreateEvent{Object: noParent}) {
 		t.Fatal("un-annotated route with no Gateway parentRef must NOT be admitted")
 	}
@@ -302,16 +301,16 @@ func TestHTTPRouteSourcePredicateAdmitsUnannotatedWithGatewayParent(t *testing.T
 	// un-annotated route whose only parentRef is a NON-Gateway → not admitted.
 	svcKind := gwv1.Kind("Service")
 	nonGw := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "r3", Namespace: "ns"},
-		Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "x", Kind: &svcKind}}}},
+		Name: "r3", Namespace: "ns",
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "x", Kind: &svcKind}}}},
 	}
 	if p.Create(event.CreateEvent{Object: nonGw}) {
 		t.Fatal("un-annotated route with only a non-Gateway parentRef must NOT be admitted")
 	}
 
 	// annotated route with NO parentRef → still admitted (annotation alone qualifies).
-	annotated := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "r4", Namespace: "ns",
-		Annotations: map[string]string{AnnotationTunnel: "true"}}}
+	annotated := &gwv1.HTTPRoute{Name: "r4", Namespace: "ns",
+		Annotations: map[string]string{AnnotationTunnel: "true"}}
 	if !p.Create(event.CreateEvent{Object: annotated}) {
 		t.Fatal("annotated route must be admitted regardless of parentRefs")
 	}
@@ -320,12 +319,12 @@ func TestHTTPRouteSourcePredicateAdmitsUnannotatedWithGatewayParent(t *testing.T
 func TestAutoSelectedByGateway(t *testing.T) {
 	const ns = "app"
 	mkGW := func(ann map[string]string) *gwv1.Gateway {
-		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: ns, Annotations: ann}}
+		return &gwv1.Gateway{Name: "gw", Namespace: ns, Annotations: ann}
 	}
 	mkRoute := func(routeNS string, p gwv1.ParentReference) *gwv1.HTTPRoute {
 		return &gwv1.HTTPRoute{
-			ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: routeNS},
-			Spec:       gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{p}}},
+			Name: "r", Namespace: routeNS,
+			Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{p}}},
 		}
 	}
 
@@ -386,11 +385,11 @@ func TestAutoSelectedByGateway(t *testing.T) {
 func TestAutoSelectedByGatewayCrossNamespace(t *testing.T) {
 	const gwNS = "a"
 	mkGW := func(ann map[string]string) *gwv1.Gateway {
-		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: gwNS, Annotations: ann}}
+		return &gwv1.Gateway{Name: "gw", Namespace: gwNS, Annotations: ann}
 	}
 	// route in ns "b" with an explicit cross-namespace parentRef into gwNS "a".
 	route := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "b"},
+		Name: "r", Namespace: "b",
 		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
 			{Name: "gw", Namespace: nsPtr(gwNS)},
 		}}},
@@ -455,7 +454,7 @@ func TestAutoSelectedByGatewayCrossNamespace(t *testing.T) {
 func TestHTTPRouteForPredicateDropsStatusOnlyUpdates(t *testing.T) {
 	p := httpRouteForPredicate()
 	base := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns", Generation: 1},
+		Name: "r", Namespace: "ns", Generation: 1,
 		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{
 			ParentRefs: []gwv1.ParentReference{{Name: "gw"}}}},
 	}
@@ -524,7 +523,7 @@ func TestGatewayAllowsRouteNamespace(t *testing.T) {
 		if ann != "" {
 			m[AnnotationAutoRoutesNamespaces] = ann
 		}
-		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: "a", Annotations: m}}
+		return &gwv1.Gateway{Name: "gw", Namespace: "a", Annotations: m}
 	}
 	cases := []struct {
 		name    string

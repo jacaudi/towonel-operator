@@ -48,7 +48,7 @@ func TestAgentStatusWriteConflictPreservesNewerStatus(t *testing.T) {
 	if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	agent := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default", Generation: 2}}
+	agent := &towonelv1alpha1.TowonelAgent{Name: "edge", Namespace: "default", Generation: 2}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(agent).WithObjects(agent).Build()
 	key := types.NamespacedName{Namespace: "default", Name: "edge"}
 	var stale towonelv1alpha1.TowonelAgent
@@ -88,7 +88,7 @@ func TestAgentReconcileRetriesWithLatestSpecAfterStatusConflict(t *testing.T) {
 	tunnel.Status.PortAllocations = nil
 	tunnel.ResourceVersion = "1"
 	agent := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default", UID: "agent-uid", ResourceVersion: "1"},
+		Name: "edge", Namespace: "default", UID: "agent-uid", ResourceVersion: "1",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "network"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "old.example", Origin: "old:80", EdgeTLSMode: "passthrough"}},
@@ -122,7 +122,7 @@ func TestAgentReconcileRetriesWithLatestSpecAfterStatusConflict(t *testing.T) {
 	// Fake clients do not allocate versions; the interceptor simulates the API's
 	// spec-update conflict and lets the retry fetch the updated object.
 	r := &TowonelAgentReconciler{Client: cl, APIReader: store, Scheme: scheme}
-	_, err := r.Reconcile(t.Context(), reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "edge"}})
+	_, err := r.Reconcile(t.Context(), reconcile.Request{Namespace: "default", Name: "edge"})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestAgentPhaseWaitingForTunnel(t *testing.T) {
 }
 
 func TestConnectivityCondDoesNotGateReady(t *testing.T) {
-	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "n"}}
+	ta := &towonelv1alpha1.TowonelAgent{Name: "a", Namespace: "n"}
 	setAgentCond(ta, CondTunnelReady, metav1.ConditionTrue, ReasonReady, "")
 	setAgentCond(ta, CondConfigRendered, metav1.ConditionTrue, ReasonRendered, "")
 	dep := &appsv1.Deployment{Status: appsv1.DeploymentStatus{Conditions: []appsv1.DeploymentCondition{{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue}}}}
@@ -238,7 +238,7 @@ func TestConnectivityCondDoesNotGateReady(t *testing.T) {
 }
 
 func TestConnectivityCondAbsentWhenUnrequested(t *testing.T) {
-	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "n"}}
+	ta := &towonelv1alpha1.TowonelAgent{Name: "a", Namespace: "n"}
 	setConnectivityCond(ta, connectivityPlan{}, false, false) // nothing requested
 	if meta.FindStatusCondition(ta.Status.Conditions, CondIrohConnectivityReady) != nil {
 		t.Error("condition must be absent when connectivity is unrequested")
@@ -257,7 +257,7 @@ func TestAgentFailStatusPreservesCause(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			agent := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default"}}
+			agent := &towonelv1alpha1.TowonelAgent{Name: "edge", Namespace: "default"}
 			store := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithStatusSubresource(agent).WithObjects(agent).Build()
 			cl := interceptor.NewClient(store, interceptor.Funcs{
 				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {

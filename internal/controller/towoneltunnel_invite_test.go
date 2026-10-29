@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,12 +37,12 @@ func testScheme(t *testing.T) *runtime.Scheme {
 
 func TestResolveAPIKey(t *testing.T) {
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"},
-		Spec:       towonelv1alpha1.TowonelTunnelSpec{APIKeySecretRef: &towonelv1alpha1.SecretKeyRef{Name: "tw", Key: "token"}},
+		Name: "app", Namespace: "net",
+		Spec: towonelv1alpha1.TowonelTunnelSpec{APIKeySecretRef: &towonelv1alpha1.SecretKeyRef{Name: "tw", Key: "token"}},
 	}
 	sec := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "tw", Namespace: "net"},
-		Data:       map[string][]byte{"token": []byte("twk_fromref")},
+		Name: "tw", Namespace: "net",
+		Data: map[string][]byte{"token": []byte("twk_fromref")},
 	}
 	r := &TowonelTunnelReconciler{Client: newFakeClient(t, sec)}
 	key, halt, err := r.resolveAPIKey(t.Context(), tt)
@@ -52,7 +51,7 @@ func TestResolveAPIKey(t *testing.T) {
 	}
 
 	t.Setenv("TOWONEL_API_KEY", "twk_fromenv")
-	tt2 := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "n"}}
+	tt2 := &towonelv1alpha1.TowonelTunnel{Name: "a", Namespace: "n"}
 	r2 := &TowonelTunnelReconciler{Client: newFakeClient(t)}
 	key2, halt2, err2 := r2.resolveAPIKey(t.Context(), tt2)
 	if err2 != nil || halt2 || key2.Expose() != "twk_fromenv" {
@@ -67,8 +66,8 @@ func TestResolveAPIKey(t *testing.T) {
 
 	// Missing secret ref → halt (Ready=False/InvalidConfig), NOT a transient error.
 	ttMissing := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "app2", Namespace: "net"},
-		Spec:       towonelv1alpha1.TowonelTunnelSpec{APIKeySecretRef: &towonelv1alpha1.SecretKeyRef{Name: "missing", Key: "token"}},
+		Name: "app2", Namespace: "net",
+		Spec: towonelv1alpha1.TowonelTunnelSpec{APIKeySecretRef: &towonelv1alpha1.SecretKeyRef{Name: "missing", Key: "token"}},
 	}
 	rMissing := &TowonelTunnelReconciler{Client: newFakeClient(t)} // no Secret registered
 	_, haltMissing, errMissing := rMissing.resolveAPIKey(t.Context(), ttMissing)
@@ -83,8 +82,8 @@ func TestEnsureInviteCreates(t *testing.T) {
 	t.Cleanup(srv.Close)
 	r := &TowonelTunnelReconciler{}
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"},
-		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example"}},
+		Name: "app", Namespace: "net",
+		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example"}},
 	}
 	token, err := r.ensureInvite(t.Context(), tc, tt, desiredHostnames(tt, nil))
 	if err != nil {
@@ -114,7 +113,7 @@ func TestEnsureInviteAdopts(t *testing.T) {
 	srv, tc := hub.Server()
 	t.Cleanup(srv.Close)
 	r := &TowonelTunnelReconciler{}
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "app", Namespace: "net"}
 	token, err := r.ensureInvite(t.Context(), tc, tt, desiredHostnames(tt, nil))
 	if err != nil {
 		t.Fatal(err)
@@ -137,8 +136,8 @@ func TestEnsureInviteCreatesWithFullDesired(t *testing.T) {
 
 	r := &TowonelTunnelReconciler{}
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"},
-		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"extra.example"}},
+		Name: "t1", Namespace: "ns",
+		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"extra.example"}},
 	}
 	desired := []string{"agent.example", "extra.example"}
 
@@ -167,8 +166,8 @@ func TestConvergeHostnames(t *testing.T) {
 	t.Cleanup(srv.Close)
 	r := &TowonelTunnelReconciler{}
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "net"},
-		Spec:       towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example", "b.example"}},
+		Name: "app", Namespace: "net",
+		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example", "b.example"}},
 	}
 	if _, err := r.ensureInvite(t.Context(), tc, tt, desiredHostnames(tt, nil)); err != nil { // creates with a,b; seeds observed
 		t.Fatal(err)
@@ -199,7 +198,7 @@ func TestConvergeHostnamesAbsorbsOwnConflict(t *testing.T) {
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"},
+		Name: "t1", Namespace: "ns",
 	}
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = nil
@@ -220,7 +219,7 @@ func TestConvergeHostnamesAddsNewHostname(t *testing.T) {
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example"}})
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = []string{"a.example"}
 
@@ -241,7 +240,7 @@ func TestConvergeHostnamesPropagatesNon409(t *testing.T) {
 	// hostname_conflict — it must propagate (never fall back to a stale status).
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
 	tt.Status.InviteID = "inv-missing" // hub has no such invite → GetInvite returns 404
 	tt.Status.AuthorizedHostnames = nil
 
@@ -265,7 +264,7 @@ func TestConvergeHostnamesDoesNotStrandOnAdd(t *testing.T) {
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example"}})
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = []string{"a.example", "b.example"} // in sync with hub
 
@@ -297,7 +296,7 @@ func TestConvergeHostnamesRepairsCorruptStatusFromHubTruth(t *testing.T) {
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example"}})
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = []string{"a.example"} // corrupted: dropped b.example
 
@@ -329,7 +328,7 @@ func TestConvergeHostnamesRemovesAgainstHubTruth(t *testing.T) {
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example", "c.example"}})
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "ns"}}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = []string{"a.example"} // corrupt: dropped b and c
 
@@ -353,7 +352,7 @@ func TestConvergeHostnamesRemovesAgainstHubTruth(t *testing.T) {
 
 func agentWithRoutes(ns, name string, hostnames []string, tcpHostname string) towonelv1alpha1.TowonelAgent {
 	ta := towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+		Namespace: ns, Name: name,
 	}
 	for _, h := range hostnames {
 		ta.Spec.Services = append(ta.Spec.Services, towonelv1alpha1.AgentService{Hostname: h, Origin: "svc:80"})

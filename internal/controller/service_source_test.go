@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -19,7 +17,7 @@ func TestSourcesForAgentServiceMatchesByAgentRefAndNamespace(t *testing.T) {
 	agent := &towonelv1alpha1.TowonelAgent{}
 	agent.Namespace, agent.Name = "app", "my-agent"
 	mk := func(name string, ann map[string]string) *corev1.Service {
-		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "app", Annotations: ann}}
+		return &corev1.Service{Name: name, Namespace: "app", Annotations: ann}
 	}
 	// A: agent-ref==my-agent, bare tunnel-ref → ns "app" == agent ns → MUST match
 	svcA := mk("a", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "my-agent"})
@@ -43,7 +41,7 @@ func TestSourcesForAgentServiceMatchesByAgentRefAndNamespace(t *testing.T) {
 func TestSourcesForTunnelServiceMatchesRefAndNoRef(t *testing.T) {
 	tunnel := mkTunnel("net", "app")
 	mk := func(name, ns string, ann map[string]string) *corev1.Service {
-		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Annotations: ann}}
+		return &corev1.Service{Name: name, Namespace: ns, Annotations: ann}
 	}
 	// A: opted-in, explicit tunnel-ref → resolves to the changed tunnel → MUST match
 	svcA := mk("a", "app", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/app"})
@@ -68,10 +66,10 @@ func TestSourcesForTunnelServiceMatchesRefAndNoRef(t *testing.T) {
 // single HTTPS hostname over its ClusterIP:port — exercises the omission default.
 func reflessSvc() *corev1.Service {
 	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "app", Annotations: map[string]string{
+		Namespace: "net", Name: "app", Annotations: map[string]string{
 			AnnotationTunnel:      "enable",
 			AnnotationSrcHostname: "app.example",
-		}},
+		},
 		Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: []corev1.ServicePort{{Port: 8080}}},
 	}
 }
@@ -89,7 +87,7 @@ func TestServiceReconcileRefLessSingleTunnelContributes(t *testing.T) {
 	rec := record.NewFakeRecorder(8)
 	r := &ServiceSourceReconciler{Client: c, APIReader: c, Recorder: rec}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "net", Name: "app"}}); err != nil {
+		Namespace: "net", Name: "app"}); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 	// The omission default resolved tunnel net/only and (no agent-ref) minted the
@@ -124,7 +122,7 @@ func TestServiceReconcileRefLessMultiTunnelSkipsLoudly(t *testing.T) {
 	rec := record.NewFakeRecorder(8)
 	r := &ServiceSourceReconciler{Client: c, APIReader: c, Recorder: rec}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "net", Name: "app"}}); err != nil {
+		Namespace: "net", Name: "app"}); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 	// Ambiguous: no agent contributed.
@@ -153,8 +151,8 @@ func TestServiceReconcileRefLessMultiTunnelSkipsLoudly(t *testing.T) {
 
 func svcWith(ann map[string]string, ports ...corev1.ServicePort) *corev1.Service {
 	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "app", Annotations: ann},
-		Spec:       corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: ports},
+		Namespace: "net", Name: "app", Annotations: ann,
+		Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: ports},
 	}
 }
 

@@ -20,7 +20,7 @@ import (
 // collisions across tests that share the same API server).
 func annService(ns, name string, ann map[string]string, ports ...corev1.ServicePort) *corev1.Service {
 	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Annotations: ann},
+		Namespace: ns, Name: name, Annotations: ann,
 		Spec: corev1.ServiceSpec{
 			Ports: ports,
 			Type:  corev1.ServiceTypeClusterIP,
@@ -156,7 +156,7 @@ func TestAgentRefContributesToHandAuthoredAgent(t *testing.T) {
 	ns := mustNamespace(t)
 
 	user := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "home"},
+		Namespace: ns, Name: "home",
 	}
 	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
 	if err := k8sClient.Create(context.Background(), user); err != nil {
@@ -207,7 +207,7 @@ func TestObserveOnlyModeNeverMutatesUserAgent(t *testing.T) {
 	ns := mustNamespace(t)
 
 	user := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "mine"},
+		Namespace: ns, Name: "mine",
 	}
 	user.Spec.Mode = towonelv1alpha1.ModeObserveOnly
 	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
@@ -305,14 +305,12 @@ func TestGatewayAndHTTPRouteRoundTrip(t *testing.T) {
 
 	hn := func(s string) *gwv1.Hostname { h := gwv1.Hostname(s); return &h }
 	gw := &gwv1.Gateway{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: ns,
-			Name:      "gw",
-			Annotations: map[string]string{
-				ctrlpkg.AnnotationTunnel:         "enable",
-				ctrlpkg.AnnotationTunnelRef:      "gwtun",
-				ctrlpkg.AnnotationGatewayService: "envoy:443",
-			},
+		Namespace: ns,
+		Name:      "gw",
+		Annotations: map[string]string{
+			ctrlpkg.AnnotationTunnel:         "enable",
+			ctrlpkg.AnnotationTunnelRef:      "gwtun",
+			ctrlpkg.AnnotationGatewayService: "envoy:443",
 		},
 		Spec: gwv1.GatewaySpec{
 			GatewayClassName: "x",
@@ -348,7 +346,7 @@ func TestRetargetReleasesFromHandAuthoredManagedAgent(t *testing.T) {
 	ns := mustNamespace(t)
 
 	user := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "home"},
+		Namespace: ns, Name: "home",
 	}
 	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
 	if err := k8sClient.Create(context.Background(), user); err != nil {
@@ -448,7 +446,7 @@ func TestReconcilingAgentEventOnHandAuthored(t *testing.T) {
 	ns := mustNamespace(t)
 
 	user := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "home"},
+		Namespace: ns, Name: "home",
 	}
 	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
 	if err := k8sClient.Create(context.Background(), user); err != nil {
@@ -483,7 +481,7 @@ func TestReconcilingAgentEventOnHandAuthored(t *testing.T) {
 // parentRef in its own namespace, and one hostname.
 func httpRoute(ns, name string, ann map[string]string, gwName, host string) *gwv1.HTTPRoute {
 	return &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Annotations: ann},
+		Namespace: ns, Name: name, Annotations: ann,
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: gwv1.ObjectName(gwName)}}},
 			Hostnames:       []gwv1.Hostname{gwv1.Hostname(host)},
@@ -495,10 +493,10 @@ func httpRoute(ns, name string, ann map[string]string, gwName, host string) *gwv
 // pointing at proxySvc:443 (no towonel.io/tunnel — it is not a source itself).
 func autoRoutesGateway(ns, name, proxySvc string) *gwv1.Gateway {
 	return &gwv1.Gateway{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Annotations: map[string]string{
+		Namespace: ns, Name: name, Annotations: map[string]string{
 			ctrlpkg.AnnotationAutoRoutes:     "true",
 			ctrlpkg.AnnotationGatewayService: proxySvc + ":443",
-		}},
+		},
 		Spec: gwv1.GatewaySpec{GatewayClassName: "x", Listeners: []gwv1.Listener{
 			{Name: "https", Protocol: gwv1.HTTPSProtocolType, Port: 443},
 		}},
@@ -654,9 +652,9 @@ func TestAutoRoutesNoGatewayServiceIsNoOp(t *testing.T) {
 
 	// auto-routes enabled but NO gateway-service annotation.
 	gw := &gwv1.Gateway{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "gw", Annotations: map[string]string{
+		Namespace: ns, Name: "gw", Annotations: map[string]string{
 			ctrlpkg.AnnotationAutoRoutes: "true",
-		}},
+		},
 		Spec: gwv1.GatewaySpec{GatewayClassName: "x", Listeners: []gwv1.Listener{
 			{Name: "https", Protocol: gwv1.HTTPSProtocolType, Port: 443},
 		}},
@@ -774,7 +772,7 @@ func autoRoutesGatewayNS(ns, name, proxySvc, allowlist string) *gwv1.Gateway {
 func crossNSRoute(routeNS, name, gwNS, gwName, host string, ann map[string]string) *gwv1.HTTPRoute {
 	n := gwv1.Namespace(gwNS)
 	return &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Namespace: routeNS, Name: name, Annotations: ann},
+		Namespace: routeNS, Name: name, Annotations: ann,
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
 				{Name: gwv1.ObjectName(gwName), Namespace: &n},

@@ -16,8 +16,8 @@ import (
 
 func l4Agent(ns, name string, tcp, udp []towonelv1alpha1.AgentL4Service) towonelv1alpha1.TowonelAgent {
 	return towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-		Spec:       towonelv1alpha1.TowonelAgentSpec{TCP: tcp, UDP: udp},
+		Namespace: ns, Name: name,
+		Spec: towonelv1alpha1.TowonelAgentSpec{TCP: tcp, UDP: udp},
 	}
 }
 
@@ -76,8 +76,8 @@ func portsFixture(t *testing.T) (*TowonelTunnelReconciler, *towoneltest.Hub, *ht
 	srv, tc := hub.Server()
 	t.Cleanup(srv.Close)
 	tt := &towonelv1alpha1.TowonelTunnel{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "app"},
-		Status:     towonelv1alpha1.TowonelTunnelStatus{InviteID: "inv-1", TenantID: "ten-1"},
+		Namespace: "net", Name: "app",
+		Status: towonelv1alpha1.TowonelTunnelStatus{InviteID: "inv-1", TenantID: "ten-1"},
 	}
 	return &TowonelTunnelReconciler{}, hub, srv, tc, tt
 }
