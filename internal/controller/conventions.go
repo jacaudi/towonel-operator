@@ -10,6 +10,10 @@ const (
 	FinalizerName = "towonel-operator.towonel.io/finalizer"
 	FieldOwner    = "towonel-operator"
 
+	// DefaultTowonelAPIURL is the public Towonel hub — the --towonel-api-url
+	// default, and the only hub for which publicHubEdgeTargets apply.
+	DefaultTowonelAPIURL = "https://hub.towonel.dev"
+
 	AnnotationInviteID   = "towonel.io/invite-id"
 	AnnotationConfigHash = "towonel.io/config-hash"
 
