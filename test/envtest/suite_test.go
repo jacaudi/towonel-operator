@@ -52,6 +52,7 @@ func TestMain(m *testing.M) {
 	utilruntime.Must(towonelv1alpha1.AddToScheme(testScheme))
 	utilruntime.Must(gwv1.Install(testScheme))
 	utilruntime.Must(gwv1beta1.Install(testScheme))
+	utilruntime.Must(controller.AddExternalDNSToScheme(testScheme))
 
 	// Resolve the gateway-api module dir at runtime so the CRD path stays
 	// correct regardless of GOPATH layout.
@@ -60,11 +61,16 @@ func TestMain(m *testing.M) {
 		log.Fatalf("locate gateway-api module: %v", err)
 	}
 	gwCRDs := filepath.Join(strings.TrimSpace(string(out)), "config", "crd", "standard")
+	edCRD, err := dnsEndpointCRDPath()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "config", "crd", "bases"),
 			gwCRDs,
+			edCRD,
 		},
 		ErrorIfCRDPathMissing: true,
 	}
@@ -199,4 +205,15 @@ func startSourceManagerWith(t *testing.T, agentNS, enable string) {
 		cancel()
 		<-stopped
 	})
+}
+
+// dnsEndpointCRDPath is the external-dns DNSEndpoint CRD shipped inside the
+// sigs.k8s.io/external-dns module. Only this file is loaded: the same
+// directory also holds the unrelated DNSRecord CRD.
+func dnsEndpointCRDPath() (string, error) {
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "sigs.k8s.io/external-dns").Output()
+	if err != nil {
+		return "", fmt.Errorf("locate external-dns module: %w", err)
+	}
+	return filepath.Join(strings.TrimSpace(string(out)), "config", "crd", "standard", "dnsendpoints.externaldns.k8s.io.yaml"), nil
 }
