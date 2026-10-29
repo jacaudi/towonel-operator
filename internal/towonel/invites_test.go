@@ -3,6 +3,7 @@ package towonel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"testing"
@@ -163,5 +164,58 @@ func TestListInvites(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].InviteID != "inv1" || got[0].Region != "EU" {
 		t.Errorf("got = %+v", got)
+	}
+}
+
+func TestGetInviteDecodesStatusAndRegion(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"invite_id":"inv1","tenant_id":"ten1","name":"ns/t","hostnames":["a.dev"],"status":"revoked","region":null}`))
+	})
+	inv, err := c.GetInvite(context.Background(), "inv1")
+	if err != nil {
+		t.Fatalf("GetInvite: %v", err)
+	}
+	if inv.Status != "revoked" || inv.Region != "" {
+		t.Fatalf("invite = %+v, want status revoked and empty region", inv)
+	}
+}
+
+func TestGetInviteStatus(t *testing.T) {
+	var gotMethod, gotPath string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		_, _ = w.Write([]byte(`{"invite_id":"inv1","tenant_id":"ten1","regions":[{"region":"CA","role":"primary","edges":[{"node_id":"n1","public_ips":["51.79.11.238"]}]},{"region":"EU","role":"failover","edges":[]}]}`))
+	})
+	st, err := c.GetInviteStatus(context.Background(), "inv1")
+	if err != nil {
+		t.Fatalf("GetInviteStatus: %v", err)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/v1/invites/inv1/status" {
+		t.Errorf("request = %s %s, want GET /v1/invites/inv1/status", gotMethod, gotPath)
+	}
+	if len(st.Regions) != 2 || st.Regions[0].Region != "CA" || st.Regions[0].Role != "primary" ||
+		len(st.Regions[0].Edges) != 1 || st.Regions[0].Edges[0].PublicIPs[0] != "51.79.11.238" ||
+		st.Regions[1].Role != "failover" || len(st.Regions[1].Edges) != 0 {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestGetInviteStatus404(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	_, err := c.GetInviteStatus(context.Background(), "inv1")
+	apiErr, ok := errors.AsType[*APIError](err)
+	if !ok || apiErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("err = %v, want 404 APIError", err)
+	}
+}
+
+func TestGetInviteStatusDecodeError(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{not json`))
+	})
+	if _, err := c.GetInviteStatus(context.Background(), "inv1"); err == nil {
+		t.Fatal("want decode error, got nil")
 	}
 }

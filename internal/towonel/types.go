@@ -20,15 +20,17 @@ type CreateInviteResponse struct {
 	ExpiresAtMs *int64 `json:"expires_at_ms,omitempty"` // nil → never
 }
 
-// Invite is an element of the GET /v1/invites response list.
-// NOTE: GET /v1/invites has no response schema in user.json; these fields are
-// best-effort and UNVERIFIED against a live response — confirm in P2 before relying on them.
+// Invite is an element of GET /v1/invites and the body of GET /v1/invites/{id}.
+// Fields verified against hub v1.13.4 InviteSummary (api/invites.rs:276-290):
+// status serializes lowercase pending|claimed|revoked; region is null when the
+// invite was created without one (hub DEFAULT_REGION "EU" applies).
 type Invite struct {
 	InviteID    string   `json:"invite_id"`
 	TenantID    string   `json:"tenant_id"`
 	Name        string   `json:"name"`
 	Hostnames   []string `json:"hostnames"`
 	Region      string   `json:"region"`
+	Status      string   `json:"status"`
 	ExpiresAtMs *int64   `json:"expires_at_ms,omitempty"`
 }
 
@@ -82,4 +84,26 @@ type ReservePortResponse struct {
 	IP          *string   `json:"ip,omitempty"`
 	Label       *string   `json:"label,omitempty"`
 	Edge        *EdgeInfo `json:"edge,omitempty"`
+}
+
+// InviteStatus is returned by GET /v1/invites/{id}/status (hub >= v1.1.0; older
+// hubs 404). Every configured region is listed, primary first, then failover
+// regions in configured order; a region with no live edge has empty Edges.
+type InviteStatus struct {
+	InviteID string         `json:"invite_id"`
+	TenantID string         `json:"tenant_id"`
+	Regions  []RegionStatus `json:"regions"`
+}
+
+// RegionStatus is one configured region's live edges.
+type RegionStatus struct {
+	Region string       `json:"region"`
+	Role   string       `json:"role"` // "primary" | "failover"
+	Edges  []EdgeStatus `json:"edges"`
+}
+
+// EdgeStatus is one live edge and its resolvable public IPs.
+type EdgeStatus struct {
+	NodeID    string   `json:"node_id"`
+	PublicIPs []string `json:"public_ips"`
 }

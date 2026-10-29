@@ -65,3 +65,14 @@ func (c *Client) DeleteInvite(ctx context.Context, inviteID string) error {
 	path := fmt.Sprintf("/v1/invites/%s", url.PathEscape(inviteID))
 	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }
+
+// GetInviteStatus returns per-region live edges and their public IPs.
+// GET /v1/invites/{id}/status (hub >= v1.1.0; older hubs return 404).
+func (c *Client) GetInviteStatus(ctx context.Context, inviteID string) (*InviteStatus, error) {
+	var out InviteStatus
+	path := fmt.Sprintf("/v1/invites/%s/status", url.PathEscape(inviteID))
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
