@@ -173,7 +173,7 @@ func TestConvergeHostnames(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Spec.ExtraHostnames = []string{"a.example", "c.example"} // drop b, add c
-	if err := r.convergeHostnames(t.Context(), tc, tt, desiredHostnames(tt, nil)); err != nil {
+	if _, err := r.convergeHostnames(t.Context(), tc, tt, desiredHostnames(tt, nil)); err != nil {
 		t.Fatalf("converge: %v", err)
 	}
 	got := map[string]bool{}
@@ -204,11 +204,17 @@ func TestConvergeHostnamesAbsorbsOwnConflict(t *testing.T) {
 	tt.Status.AuthorizedHostnames = nil
 
 	// Must NOT return an error (the 409 means the hostname we want is reserved → idempotent success).
-	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example"}); err != nil {
+	view, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example"})
+	if err != nil {
 		t.Fatalf("convergeHostnames returned error on hostname conflict: %v", err)
 	}
 	if got := tt.Status.AuthorizedHostnames; len(got) != 1 || got[0] != "a.example" {
 		t.Fatalf("AuthorizedHostnames = %v, want [a.example]", got)
+	}
+	// Design §6.2 / gate B3: a 409-absorbed hostname may be another tenant's
+	// claim — it stays in status for compatibility but is never DNS-confirmed.
+	if len(view.Confirmed) != 0 {
+		t.Fatalf("Confirmed = %v, want empty (409-absorbed hostname must not be confirmed)", view.Confirmed)
 	}
 }
 
@@ -223,7 +229,7 @@ func TestConvergeHostnamesAddsNewHostname(t *testing.T) {
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = []string{"a.example"}
 
-	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"}); err != nil {
+	if _, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"}); err != nil {
 		t.Fatalf("convergeHostnames: %v", err)
 	}
 	if got := tt.Status.AuthorizedHostnames; len(got) != 2 || got[0] != "a.example" || got[1] != "b.example" {
@@ -244,7 +250,7 @@ func TestConvergeHostnamesPropagatesNon409(t *testing.T) {
 	tt.Status.InviteID = "inv-missing" // hub has no such invite → GetInvite returns 404
 	tt.Status.AuthorizedHostnames = nil
 
-	err := r.convergeHostnames(t.Context(), tc, tt, []string{"new.example"})
+	_, err := r.convergeHostnames(t.Context(), tc, tt, []string{"new.example"})
 	if err == nil {
 		t.Fatal("convergeHostnames absorbed a non-409 error; want it propagated")
 	}
@@ -268,7 +274,7 @@ func TestConvergeHostnamesDoesNotStrandOnAdd(t *testing.T) {
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = []string{"a.example", "b.example"} // in sync with hub
 
-	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example", "c.example"}); err != nil {
+	if _, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example", "c.example"}); err != nil {
 		t.Fatalf("convergeHostnames: %v", err)
 	}
 	got := tt.Status.AuthorizedHostnames
@@ -300,7 +306,7 @@ func TestConvergeHostnamesRepairsCorruptStatusFromHubTruth(t *testing.T) {
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = []string{"a.example"} // corrupted: dropped b.example
 
-	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example", "c.example"}); err != nil {
+	if _, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example", "c.example"}); err != nil {
 		t.Fatalf("convergeHostnames: %v", err)
 	}
 	got := tt.Status.AuthorizedHostnames
@@ -332,7 +338,7 @@ func TestConvergeHostnamesRemovesAgainstHubTruth(t *testing.T) {
 	tt.Status.InviteID = "inv-1"
 	tt.Status.AuthorizedHostnames = []string{"a.example"} // corrupt: dropped b and c
 
-	if err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"}); err != nil {
+	if _, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"}); err != nil {
 		t.Fatalf("convergeHostnames: %v", err)
 	}
 	got := tt.Status.AuthorizedHostnames
@@ -381,5 +387,77 @@ func TestDesiredHostnames(t *testing.T) {
 	got0 := desiredHostnames(tt, nil)
 	if !slices.Equal(got0, []string{"extra.example"}) {
 		t.Errorf("nil agents: got %v", got0)
+	}
+}
+
+func TestConvergeHostnamesViewTracksHubTruth(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example"}})
+	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
+	tt.Status.InviteID = "inv-1"
+
+	view, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "c.example"})
+	if err != nil {
+		t.Fatalf("convergeHostnames: %v", err)
+	}
+	if want := []string{"a.example", "c.example"}; !slices.Equal(view.Confirmed, want) {
+		t.Fatalf("Confirmed = %v, want %v", view.Confirmed, want)
+	}
+	if view.Region != "EU" || view.Revoked {
+		t.Fatalf("view = %+v, want Region EU (hub default for a null region), not revoked", view)
+	}
+}
+
+func TestConvergeHostnamesRegionFromHub(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example"}, Region: "ca"})
+	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+	tt := &towonelv1alpha1.TowonelTunnel{
+		Name: "t1", Namespace: "ns",
+		Spec: towonelv1alpha1.TowonelTunnelSpec{Region: "EU"}, // edited spec must NOT win over the hub
+	}
+	tt.Status.InviteID = "inv-1"
+	view, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example"})
+	if err != nil {
+		t.Fatalf("convergeHostnames: %v", err)
+	}
+	if view.Region != "CA" {
+		t.Fatalf("Region = %q, want CA (hub region, upper-cased)", view.Region)
+	}
+}
+
+// Gate 2 B2: a revoked invite's GET still lists its hostnames, but they no
+// longer reserve anything hub-side — publish nothing and mutate nothing.
+func TestConvergeHostnamesRevokedInvitePublishesNothing(t *testing.T) {
+	hub := towoneltest.NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	// The hub holds a.example and gone.example; desired is a.example and b.example. On a
+	// live invite converge would ADD b and REMOVE gone — on a revoked one it must do neither.
+	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "gone.example"}, Status: "revoked"})
+	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
+	tt.Status.InviteID = "inv-1"
+
+	view, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"})
+	if err != nil {
+		t.Fatalf("convergeHostnames: %v", err)
+	}
+	if !view.Revoked || len(view.Confirmed) != 0 {
+		t.Fatalf("view = %+v, want Revoked with no confirmed hostnames", view)
+	}
+	if hub.HasHostname("inv-1", "b.example") {
+		t.Fatal("b.example was added to a revoked invite; converge must not mutate it")
+	}
+	if !hub.HasHostname("inv-1", "gone.example") {
+		t.Fatal("gone.example was removed from a revoked invite; converge must not mutate it")
+	}
+	if got := tt.Status.AuthorizedHostnames; !slices.Equal(got, []string{"a.example", "gone.example"}) {
+		t.Fatalf("AuthorizedHostnames = %v, want hub truth [a.example gone.example]", got)
 	}
 }

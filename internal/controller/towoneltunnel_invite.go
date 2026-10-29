@@ -109,6 +109,34 @@ func desiredHostnames(tt *towonelv1alpha1.TowonelTunnel, agents []towonelv1alpha
 	return dedupe(hs)
 }
 
+// inviteView is the hub-confirmed state DNS publishes from (design §6.2).
+type inviteView struct {
+	// Confirmed is the hub GET set plus successful adds minus successful
+	// removes. Hostnames absorbed from a 409 hostname_conflict are EXCLUDED:
+	// the hub may be routing them to another tenant (gate B3).
+	Confirmed []string
+	// Region is the invite's hub region, upper-cased; a null hub region is
+	// hubDefaultRegion. DNS keys its edge target on this, never spec.region,
+	// which is used only at invite creation (gate 2 B3).
+	Region string
+	// Revoked reports hub invite status "revoked": its hostnames no longer
+	// reserve anything hub-side, so nothing may be published for them.
+	Revoked bool
+}
+
+const (
+	hubDefaultRegion    = "EU"      // towonel_common::DEFAULT_REGION (hub v1.13.4)
+	inviteStatusRevoked = "revoked" // hub InviteStatus, serialized lowercase
+)
+
+// hubRegion normalizes the hub's invite region (null → hubDefaultRegion).
+func hubRegion(r string) string {
+	if r = strings.ToUpper(strings.TrimSpace(r)); r != "" {
+		return r
+	}
+	return hubDefaultRegion
+}
+
 // convergeHostnames reconciles authorized hostnames to the precomputed desired set.
 // desired must be pre-normalized (sorted, deduped) — use desiredHostnames to compute it.
 //
@@ -117,18 +145,26 @@ func desiredHostnames(tt *towonelv1alpha1.TowonelTunnel, agents []towonelv1alpha
 // (issue #26 ③), and AddHostnames echoes back only the just-added hostnames — not
 // the invite's cumulative set — so publishing it would strand previously-authorized
 // hostnames. status.authorizedHostnames is recomputed from the hub set plus the
-// mutations this call applies.
-func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel, desired []string) error {
+// mutations this call applies. The returned inviteView is what DNS may publish.
+func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel, desired []string) (inviteView, error) {
 	invite, err := tc.GetInvite(ctx, tt.Status.InviteID)
 	if err != nil {
-		return fmt.Errorf("get invite %q: %w", tt.Status.InviteID, err)
+		return inviteView{}, fmt.Errorf("get invite %q: %w", tt.Status.InviteID, err)
 	}
 	hubSet := dedupe(invite.Hostnames)
+	view := inviteView{Region: hubRegion(invite.Region), Revoked: invite.Status == inviteStatusRevoked}
+	if view.Revoked {
+		// Mutating a revoked invite is pointless; report hub truth, confirm nothing.
+		tt.Status.AuthorizedHostnames = hubSet
+		return view, nil
+	}
 
 	// authorized tracks the set the hub holds as this call mutates it. Starting from
 	// hub truth and applying only successful adds/removes keeps status faithful to
-	// the hub regardless of what status previously (mis)recorded.
+	// the hub regardless of what status previously (mis)recorded. confirmed is the
+	// same minus 409-absorbed hostnames.
 	authorized := slices.Clone(hubSet)
+	confirmed := slices.Clone(hubSet)
 
 	for _, h := range desired {
 		if slices.Contains(hubSet, h) {
@@ -138,7 +174,8 @@ func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *tow
 			// #14(b): a 409 hostname_conflict for a hostname we WANT authorized means
 			// it is already reserved on our invite — desired state already achieved.
 			// Absorb as idempotent success (single-tenant: a foreign conflict is
-			// indistinguishable by message and is masked — accepted for alpha).
+			// indistinguishable by message and is masked — accepted for alpha). It is
+			// NOT confirmed for DNS: it may be another tenant's claim (design §6.2).
 			if apiErr, ok := errors.AsType[*towonel.APIError](err); ok &&
 				apiErr.StatusCode == http.StatusConflict && strings.Contains(apiErr.Body, "hostname_conflict") {
 				if r.Recorder != nil {
@@ -150,22 +187,27 @@ func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *tow
 				}
 				continue
 			}
-			return fmt.Errorf("add hostnames: %w", err)
+			return inviteView{}, fmt.Errorf("add hostnames: %w", err)
 		}
 		if !slices.Contains(authorized, h) {
 			authorized = append(authorized, h)
+		}
+		if !slices.Contains(confirmed, h) {
+			confirmed = append(confirmed, h)
 		}
 	}
 	for _, h := range hubSet {
 		if !slices.Contains(desired, h) {
 			if _, err := tc.RemoveHostname(ctx, tt.Status.InviteID, h); err != nil {
-				return fmt.Errorf("remove hostname %q: %w", h, err)
+				return inviteView{}, fmt.Errorf("remove hostname %q: %w", h, err)
 			}
 			authorized = slices.DeleteFunc(authorized, func(x string) bool { return x == h })
+			confirmed = slices.DeleteFunc(confirmed, func(x string) bool { return x == h })
 		}
 	}
 	tt.Status.AuthorizedHostnames = dedupe(authorized)
-	return nil
+	view.Confirmed = dedupe(confirmed)
+	return view, nil
 }
 
 func dedupe(in []string) []string {
