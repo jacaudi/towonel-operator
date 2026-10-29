@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -219,8 +218,8 @@ func operatorEnv(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) []corev1.Env
 	env := []corev1.EnvVar{{
 		Name: "TOWONEL_INVITE_TOKEN",
 		ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: tokenSecretName(ta.Name)},
-			Key:                  tokenDataKey,
+			Name: tokenSecretName(ta.Name),
+			Key:  tokenDataKey,
 		}},
 	}}
 	add := func(name, value string) {
@@ -247,10 +246,10 @@ func agentPodSecurityContext(ta *towonelv1alpha1.TowonelAgent) *corev1.PodSecuri
 		return ta.Spec.Workload.PodSecurityContext
 	}
 	return &corev1.PodSecurityContext{
-		RunAsNonRoot:   ptr.To(true),
-		RunAsUser:      ptr.To(int64(10001)),
-		RunAsGroup:     ptr.To(int64(10001)),
-		FSGroup:        ptr.To(int64(10001)),
+		RunAsNonRoot:   new(true),
+		RunAsUser:      new(int64(10001)),
+		RunAsGroup:     new(int64(10001)),
+		FSGroup:        new(int64(10001)),
 		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
 }
@@ -263,8 +262,8 @@ func agentContainerSecurityContext(ta *towonelv1alpha1.TowonelAgent) *corev1.Sec
 		return ta.Spec.Workload.SecurityContext
 	}
 	return &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptr.To(false),
-		ReadOnlyRootFilesystem:   ptr.To(true),
+		AllowPrivilegeEscalation: new(false),
+		ReadOnlyRootFilesystem:   new(true),
 		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 	}
 }
@@ -300,17 +299,13 @@ func buildDeployment(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) *appsv1.
 	// traffic" signal (issue #42). Because Endpoints/rollout gate on readiness, an
 	// agent with no live session reports NotReady (intended; keep liveness on
 	// /healthz so a session-less-but-healthy agent is NOT restart-looped).
-	livenessProbe := &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
-		HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(agentHealthPort)},
-	}}
-	readinessProbe := &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
-		HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt32(agentHealthPort)},
-	}}
+	livenessProbe := &corev1.Probe{
+		HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(agentHealthPort)}}
+	readinessProbe := &corev1.Probe{
+		HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt32(agentHealthPort)}}
 	return &appsv1.Deployment{
-		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: ta.Name, Namespace: ta.Namespace, Labels: labels,
-		},
+		APIVersion: "apps/v1", Kind: "Deployment",
+		Name: ta.Name, Namespace: ta.Namespace, Labels: labels,
 		Spec: appsv1.DeploymentSpec{
 			Replicas: replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: selector},

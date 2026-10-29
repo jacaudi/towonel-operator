@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -18,7 +17,7 @@ func TestSourcesForAgentGatewayMatchesByAgentRefAndNamespace(t *testing.T) {
 	agent := &towonelv1alpha1.TowonelAgent{}
 	agent.Namespace, agent.Name = "app", "my-agent"
 	mk := func(name string, ann map[string]string) *gwv1.Gateway {
-		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "app", Annotations: ann}}
+		return &gwv1.Gateway{Name: name, Namespace: "app", Annotations: ann}
 	}
 	// A: agent-ref==my-agent, bare tunnel-ref → ns "app" == agent ns → MUST match
 	gwA := mk("a", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "my-agent"})
@@ -44,7 +43,7 @@ func TestSourcesForTunnelGatewayMatchesRefAndNoRef(t *testing.T) {
 	tunnel := &towonelv1alpha1.TowonelTunnel{}
 	tunnel.Namespace, tunnel.Name = "net", "app"
 	mk := func(name, ns string, ann map[string]string) *gwv1.Gateway {
-		return &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Annotations: ann}}
+		return &gwv1.Gateway{Name: name, Namespace: ns, Annotations: ann}
 	}
 	// A: opted-in, explicit tunnel-ref → resolves to the changed tunnel → MUST match
 	gwA := mk("a", "app", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/app"})
@@ -67,14 +66,14 @@ func TestSourcesForTunnelGatewayMatchesRefAndNoRef(t *testing.T) {
 
 func TestDeriveGatewayRoutingForwardsToProxy(t *testing.T) {
 	proxy := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "envoy"},
-		Spec:       corev1.ServiceSpec{ClusterIP: "10.1.2.3", Ports: []corev1.ServicePort{{Port: 443}}},
+		Namespace: "infra", Name: "envoy",
+		Spec: corev1.ServiceSpec{ClusterIP: "10.1.2.3", Ports: []corev1.ServicePort{{Port: 443}}},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(proxy).Build()
 	gw := &gwv1.Gateway{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "gw", Annotations: map[string]string{
+		Namespace: "net", Name: "gw", Annotations: map[string]string{
 			AnnotationGatewayService: "infra/envoy:443",
-		}},
+		},
 		Spec: gwv1.GatewaySpec{Listeners: []gwv1.Listener{
 			{Name: "https", Hostname: hn("a.example")},
 			{Name: "https2", Hostname: hn("b.example")},
@@ -98,14 +97,14 @@ func TestDeriveGatewayRoutingForwardsToProxy(t *testing.T) {
 // deriveGatewayRouting must collapse same-hostname listeners into a single entry.
 func TestDeriveGatewayRoutingDedupesListenerHostnames(t *testing.T) {
 	proxy := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "envoy"},
-		Spec:       corev1.ServiceSpec{ClusterIP: "10.1.2.3", Ports: []corev1.ServicePort{{Port: 443}}},
+		Namespace: "infra", Name: "envoy",
+		Spec: corev1.ServiceSpec{ClusterIP: "10.1.2.3", Ports: []corev1.ServicePort{{Port: 443}}},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(proxy).Build()
 	gw := &gwv1.Gateway{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "gw", Annotations: map[string]string{
+		Namespace: "net", Name: "gw", Annotations: map[string]string{
 			AnnotationGatewayService: "infra/envoy:443",
-		}},
+		},
 		Spec: gwv1.GatewaySpec{Listeners: []gwv1.Listener{
 			{Name: "http", Hostname: hn("*.example"), Protocol: gwv1.HTTPProtocolType, Port: 80},
 			{Name: "https", Hostname: hn("*.example"), Protocol: gwv1.HTTPSProtocolType, Port: 443},
@@ -122,7 +121,7 @@ func TestDeriveGatewayRoutingDedupesListenerHostnames(t *testing.T) {
 
 func TestDeriveGatewayRoutingRequiresAnnotation(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
-	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "net", Name: "gw"}}
+	gw := &gwv1.Gateway{Namespace: "net", Name: "gw"}
 	var reason string
 	if _, ok := deriveGatewayRouting(context.Background(), c, gw, func(r, _ string) { reason = r }); ok || reason != ReasonGatewayServiceUnset {
 		t.Fatalf("ok=%v reason=%q", ok, reason)

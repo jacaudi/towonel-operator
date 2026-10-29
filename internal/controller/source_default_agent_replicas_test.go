@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -22,7 +21,7 @@ func TestEnsureDefaultAgentAppliesReplicas(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
 
-	ta, err := ensureDefaultAgent(context.Background(), c, "net", ptr.To(int32(2)), tunnel)
+	ta, err := ensureDefaultAgent(context.Background(), c, "net", new(int32(2)), tunnel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +60,7 @@ func TestEnsureDefaultAgentBoundaryReplicaValues(t *testing.T) {
 	for _, n := range []int32{1, 3, 10} {
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 		tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
-		ta, err := ensureDefaultAgent(context.Background(), c, "net", ptr.To(n), tunnel)
+		ta, err := ensureDefaultAgent(context.Background(), c, "net", new(n), tunnel)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -93,7 +92,7 @@ func TestEnsureDefaultAgentReplicasCreateOnlyAndUnaliased(t *testing.T) {
 
 	// Second call with a NEW replica value must GET the existing agent, not
 	// re-stamp it (the value persisted at create time stays authoritative).
-	second, err := ensureDefaultAgent(context.Background(), c, "net", ptr.To(int32(5)), tunnel)
+	second, err := ensureDefaultAgent(context.Background(), c, "net", new(int32(5)), tunnel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,11 +111,11 @@ func TestResolveTargetAgentRefIgnoresDefaultReplicas(t *testing.T) {
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
 	mine := &towonelv1alpha1.TowonelAgent{}
 	mine.Namespace, mine.Name = "net", "mine"
-	mine.Spec.Workload.Replicas = ptr.To(int32(1)) // user's own choice
+	mine.Spec.Workload.Replicas = new(int32(1)) // user's own choice
 	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: tunnel.Name, Namespace: tunnel.Namespace}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
 
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", ptr.To(int32(4)), tunnel, "mine")
+	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", new(int32(4)), tunnel, "mine")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v; want write", mode, err)
 	}
@@ -131,7 +130,7 @@ func TestResolveTargetDefaultAgentAppliesReplicas(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
 
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", ptr.To(int32(2)), tunnel, "")
+	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", new(int32(2)), tunnel, "")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v; want write", mode, err)
 	}

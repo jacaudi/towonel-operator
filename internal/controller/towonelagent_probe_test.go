@@ -112,13 +112,13 @@ func TestAgentProbesConcurrentRenderSafe(t *testing.T) {
 
 	const n = 32
 	paths := make(chan [2]string, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			ctr := buildDeployment(ta, cfg).Spec.Template.Spec.Containers[0]
 			paths <- [2]string{ctr.LivenessProbe.HTTPGet.Path, ctr.ReadinessProbe.HTTPGet.Path}
 		}()
 	}
-	for i := 0; i < n; i++ {
+	for range n {
 		got := <-paths
 		if got[0] != "/healthz" || got[1] != "/readyz" {
 			t.Fatalf("concurrent render produced %v, want [/healthz /readyz]", got)

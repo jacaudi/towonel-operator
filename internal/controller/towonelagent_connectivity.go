@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -112,15 +111,15 @@ func agentSelector(ta *towonelv1alpha1.TowonelAgent) map[string]string {
 
 func buildServiceAccount(ta *towonelv1alpha1.TowonelAgent) *corev1.ServiceAccount {
 	return &corev1.ServiceAccount{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
-		ObjectMeta: metav1.ObjectMeta{Name: agentSAName(ta.Name), Namespace: ta.Namespace, Labels: agentLabels(ta)},
+		APIVersion: "v1", Kind: "ServiceAccount",
+		Name: agentSAName(ta.Name), Namespace: ta.Namespace, Labels: agentLabels(ta),
 	}
 }
 
 func buildNodePortService(ta *towonelv1alpha1.TowonelAgent, p connectivityPlan) *corev1.Service {
 	return &corev1.Service{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
-		ObjectMeta: metav1.ObjectMeta{Name: p.nodePortName, Namespace: ta.Namespace, Labels: agentLabels(ta)},
+		APIVersion: "v1", Kind: "Service",
+		Name: p.nodePortName, Namespace: ta.Namespace, Labels: agentLabels(ta),
 		Spec: corev1.ServiceSpec{
 			Type:                  corev1.ServiceTypeNodePort,
 			ExternalTrafficPolicy: corev1.ServiceExternalTrafficPolicyLocal, // design §5.2 (I2)
@@ -139,15 +138,15 @@ func buildNodePortService(ta *towonelv1alpha1.TowonelAgent, p connectivityPlan) 
 func buildServicesRBAC(ta *towonelv1alpha1.TowonelAgent) (*rbacv1.Role, *rbacv1.RoleBinding) {
 	name := servicesReaderName(ta.Name)
 	role := &rbacv1.Role{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "Role"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ta.Namespace, Labels: agentLabels(ta)},
-		Rules:      []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"services"}, Verbs: []string{"get", "list", "watch"}}},
+		APIVersion: "rbac.authorization.k8s.io/v1", Kind: "Role",
+		Name: name, Namespace: ta.Namespace, Labels: agentLabels(ta),
+		Rules: []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"services"}, Verbs: []string{"get", "list", "watch"}}},
 	}
 	rb := &rbacv1.RoleBinding{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "RoleBinding"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ta.Namespace, Labels: agentLabels(ta)},
-		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: name},
-		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: agentSAName(ta.Name), Namespace: ta.Namespace}},
+		APIVersion: "rbac.authorization.k8s.io/v1", Kind: "RoleBinding",
+		Name: name, Namespace: ta.Namespace, Labels: agentLabels(ta),
+		RoleRef:  rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: name},
+		Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: agentSAName(ta.Name), Namespace: ta.Namespace}},
 	}
 	return role, rb
 }
@@ -177,7 +176,7 @@ func (r *TowonelAgentReconciler) deleteOwnedIfExists(ctx context.Context, ta *to
 	if !metav1.IsControlledBy(obj, ta) {
 		return nil // not ours — never steal/delete a foreign object
 	}
-	if err := r.Delete(ctx, obj, client.Preconditions{ResourceVersion: ptr.To(obj.GetResourceVersion())}); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
+	if err := r.Delete(ctx, obj, client.Preconditions{ResourceVersion: new(obj.GetResourceVersion())}); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
 		return fmt.Errorf("delete %T %s: %w", obj, nn, err)
 	}
 	return nil

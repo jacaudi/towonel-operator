@@ -60,12 +60,7 @@ func httpRouteSourcePredicate() predicate.Predicate {
 		if !ok {
 			return false
 		}
-		for _, p := range rt.Spec.ParentRefs {
-			if isGatewayParent(p) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(rt.Spec.ParentRefs, isGatewayParent)
 	}
 	return predicate.Funcs{
 		CreateFunc:  func(e event.CreateEvent) bool { return admit(e.Object) },
@@ -346,7 +341,7 @@ func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj cl
 			if ns != gw.Namespace || string(p.Name) != gw.Name {
 				continue
 			}
-			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+			reqs = append(reqs, reconcile.Request{Namespace: rt.Namespace, Name: rt.Name})
 			break
 		}
 	}
@@ -375,7 +370,7 @@ func (r *HTTPRouteSourceReconciler) sourcesForAgent(ctx context.Context, obj cli
 			continue
 		}
 		if sourceTargetsAgent(rt.Annotations, rt.Namespace, r.AgentNamespace, ta) {
-			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+			reqs = append(reqs, reconcile.Request{Namespace: rt.Namespace, Name: rt.Name})
 		}
 	}
 	return reqs
@@ -402,7 +397,7 @@ func (r *HTTPRouteSourceReconciler) sourcesForTunnel(ctx context.Context, obj cl
 		rt := &routes.Items[i]
 		if _, opted := rt.Annotations[AnnotationTunnel]; opted {
 			if sourceTargetsTunnel(rt.Annotations, rt.Namespace, tunnelNN) {
-				reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+				reqs = append(reqs, reconcile.Request{Namespace: rt.Namespace, Name: rt.Name})
 			}
 			continue
 		}
@@ -427,12 +422,12 @@ func (r *HTTPRouteSourceReconciler) sourcesForTunnel(ctx context.Context, obj cl
 					continue
 				}
 				if enabled, _ := ParseTruthy(gw.Annotations[AnnotationAutoRoutes]); enabled {
-					reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+					reqs = append(reqs, reconcile.Request{Namespace: rt.Namespace, Name: rt.Name})
 					break
 				}
 			}
 		} else if sourceTargetsTunnel(rt.Annotations, rt.Namespace, tunnelNN) {
-			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rt.Namespace, Name: rt.Name}})
+			reqs = append(reqs, reconcile.Request{Namespace: rt.Namespace, Name: rt.Name})
 		}
 	}
 	return reqs

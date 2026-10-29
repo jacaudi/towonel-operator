@@ -82,7 +82,7 @@ func TestHostnamesSyncedConditionTransition(t *testing.T) {
 
 func TestTunnelAgentWatchFiltersStatusOnlyUpdates(t *testing.T) {
 	p := crossWatchPredicate()
-	old := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default", Generation: 1}}
+	old := &towonelv1alpha1.TowonelAgent{Name: "edge", Namespace: "default", Generation: 1}
 	statusOnly := old.DeepCopy()
 	statusOnly.ResourceVersion = "2"
 	if p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: statusOnly}) {
@@ -106,7 +106,7 @@ func TestTunnelStatusWriteConflictPreservesNewerStatus(t *testing.T) {
 	if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	tunnel := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default", Generation: 2}}
+	tunnel := &towonelv1alpha1.TowonelTunnel{Name: "edge", Namespace: "default", Generation: 2}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
 	key := types.NamespacedName{Namespace: "default", Name: "edge"}
 	var stale towonelv1alpha1.TowonelTunnel
@@ -156,7 +156,7 @@ func TestTunnelFailPreservesCause(t *testing.T) {
 			if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
 				t.Fatal(err)
 			}
-			tunnel := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default"}}
+			tunnel := &towonelv1alpha1.TowonelTunnel{Name: "edge", Namespace: "default"}
 			store := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
 			cl := interceptor.NewClient(store, interceptor.Funcs{
 				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
@@ -199,7 +199,7 @@ func TestTunnelFailHonorsRateLimitHint(t *testing.T) {
 			if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
 				t.Fatal(err)
 			}
-			tunnel := &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "edge", Namespace: "default"}}
+			tunnel := &towonelv1alpha1.TowonelTunnel{Name: "edge", Namespace: "default"}
 			store := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
 			cl := interceptor.NewClient(store, interceptor.Funcs{
 				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {

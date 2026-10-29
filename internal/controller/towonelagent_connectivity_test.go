@@ -8,7 +8,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -17,8 +16,8 @@ import (
 
 func agentWithConn(c towonelv1alpha1.ConnectivitySpec) *towonelv1alpha1.TowonelAgent {
 	return &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "edge-a", Namespace: "selfhosted"},
-		Spec:       towonelv1alpha1.TowonelAgentSpec{Connectivity: c},
+		Name: "edge-a", Namespace: "selfhosted",
+		Spec: towonelv1alpha1.TowonelAgentSpec{Connectivity: c},
 	}
 }
 
@@ -243,8 +242,8 @@ func TestReconcileNodeReaderPatchesSubjects(t *testing.T) {
 	a := agentWithConn(towonelv1alpha1.ConnectivitySpec{Autodiscover: true, IrohPort: 5000, NodePort: towonelv1alpha1.NodePortSpec{Create: true}})
 	a.Name, a.Namespace = "a", "ns1"
 	shell := &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: nodeReaderName},
-		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: nodeReaderName},
+		Name:    nodeReaderName,
+		RoleRef: rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: nodeReaderName},
 	}
 	cl := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithObjects(a, shell).Build()
 	r := &TowonelAgentReconciler{Client: cl}

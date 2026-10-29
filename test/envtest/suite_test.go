@@ -12,12 +12,10 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -93,7 +91,7 @@ func TestMain(m *testing.M) {
 		Scheme:  testScheme,
 		Metrics: metricsserver.Options{BindAddress: "0"},
 		Controller: crconfig.Controller{
-			SkipNameValidation: ptr.To(true),
+			SkipNameValidation: new(true),
 		},
 	})
 	if err != nil {
@@ -142,7 +140,7 @@ func TestMain(m *testing.M) {
 // suite, so per-test isolation is achieved by using a distinct namespace per test.
 func mustNamespace(t *testing.T) string {
 	t.Helper()
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "src-test-"}}
+	ns := &corev1.Namespace{GenerateName: "src-test-"}
 	if err := k8sClient.Create(context.Background(), ns); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +157,7 @@ func managerOptions() ctrl.Options {
 		Scheme:  testScheme,
 		Metrics: metricsserver.Options{BindAddress: "0"},
 		Controller: crconfig.Controller{
-			SkipNameValidation: ptr.To(true),
+			SkipNameValidation: new(true),
 		},
 	}
 }

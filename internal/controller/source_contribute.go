@@ -11,7 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -166,7 +165,7 @@ func orphanGCIfEmpty(ctx context.Context, r client.Reader, c client.Client, nn t
 	if hasSourceManager(&ta) {
 		return errOrphanInFlight
 	}
-	err := c.Delete(ctx, &ta, client.Preconditions{ResourceVersion: ptr.To(ta.ResourceVersion)})
+	err := c.Delete(ctx, &ta, client.Preconditions{ResourceVersion: new(ta.ResourceVersion)})
 	if apierrors.IsNotFound(err) || apierrors.IsConflict(err) {
 		return nil // object gone or changed since the authoritative read — no-op
 	}

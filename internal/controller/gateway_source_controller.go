@@ -156,7 +156,7 @@ func (r *GatewaySourceReconciler) sourcesForAgent(ctx context.Context, obj clien
 			continue
 		}
 		if sourceTargetsAgent(gw.Annotations, gw.Namespace, r.AgentNamespace, ta) {
-			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: gw.Namespace, Name: gw.Name}})
+			reqs = append(reqs, reconcile.Request{Namespace: gw.Namespace, Name: gw.Name})
 		}
 	}
 	return reqs
@@ -184,7 +184,7 @@ func (r *GatewaySourceReconciler) sourcesForTunnel(ctx context.Context, obj clie
 			continue
 		}
 		if sourceTargetsTunnel(gw.Annotations, gw.Namespace, tunnelNN) {
-			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: gw.Namespace, Name: gw.Name}})
+			reqs = append(reqs, reconcile.Request{Namespace: gw.Namespace, Name: gw.Name})
 		}
 	}
 	return reqs

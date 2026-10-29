@@ -57,7 +57,7 @@ func renderAgentPodMonitor(t *testing.T) podMonitorSelector {
 	if err != nil {
 		t.Fatalf("helm template failed: %v\n%s", err, out)
 	}
-	for _, doc := range strings.Split(string(out), "\n---") {
+	for doc := range strings.SplitSeq(string(out), "\n---") {
 		if !strings.Contains(doc, "kind: PodMonitor") {
 			continue
 		}

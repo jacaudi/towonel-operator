@@ -8,14 +8,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
 
 func renderAgent() *towonelv1alpha1.TowonelAgent {
 	return &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "edge-a", Namespace: "selfhosted"},
+		Name: "edge-a", Namespace: "selfhosted",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "network"},
 			Services: []towonelv1alpha1.AgentService{
@@ -214,7 +213,7 @@ func TestDeploymentNeedsWrite(t *testing.T) {
 }
 
 func TestDeploymentNeedsWriteAffinityChange(t *testing.T) {
-	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "ns"}}
+	ta := &towonelv1alpha1.TowonelAgent{Name: "agent-a", Namespace: "ns"}
 	base := buildDeployment(ta, agentConfig{Image: "img", SAName: "agent-a"})
 	if deploymentNeedsWrite(base.DeepCopy(), base) {
 		t.Fatal("both nil affinities must not need a write")
@@ -244,7 +243,7 @@ func TestDeploymentNeedsWriteAffinityChange(t *testing.T) {
 
 func TestBuildDeploymentSecurityContextDefaults(t *testing.T) {
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "ns"},
+		Name: "agent-a", Namespace: "ns",
 	}
 	dep := buildDeployment(ta, agentConfig{Image: "img", SAName: "agent-a"})
 
@@ -272,10 +271,10 @@ func TestBuildDeploymentSecurityContextDefaults(t *testing.T) {
 }
 
 func TestBuildDeploymentSecurityContextUserOverrideWins(t *testing.T) {
-	userPod := &corev1.PodSecurityContext{RunAsUser: ptr.To(int64(2000))}
-	userCtr := &corev1.SecurityContext{ReadOnlyRootFilesystem: ptr.To(false)}
+	userPod := &corev1.PodSecurityContext{RunAsUser: new(int64(2000))}
+	userCtr := &corev1.SecurityContext{ReadOnlyRootFilesystem: new(false)}
 	ta := &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "ns"},
+		Name: "agent-a", Namespace: "ns",
 		Spec: towonelv1alpha1.TowonelAgentSpec{Workload: towonelv1alpha1.WorkloadSpec{
 			PodSecurityContext: userPod, SecurityContext: userCtr,
 		}},
@@ -293,18 +292,18 @@ func TestBuildDeploymentSecurityContextUserOverrideWins(t *testing.T) {
 }
 
 func TestDeploymentNeedsWriteSecurityContextChange(t *testing.T) {
-	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "ns"}}
+	ta := &towonelv1alpha1.TowonelAgent{Name: "agent-a", Namespace: "ns"}
 	cur := buildDeployment(ta, agentConfig{Image: "img", SAName: "agent-a"})
 
 	ta2 := ta.DeepCopy()
-	ta2.Spec.Workload.SecurityContext = &corev1.SecurityContext{ReadOnlyRootFilesystem: ptr.To(false)}
+	ta2.Spec.Workload.SecurityContext = &corev1.SecurityContext{ReadOnlyRootFilesystem: new(false)}
 	desired := buildDeployment(ta2, agentConfig{Image: "img", SAName: "agent-a"})
 	if !deploymentNeedsWrite(cur, desired) {
 		t.Fatal("container securityContext change must trigger a write")
 	}
 
 	ta3 := ta.DeepCopy()
-	ta3.Spec.Workload.PodSecurityContext = &corev1.PodSecurityContext{RunAsUser: ptr.To(int64(2000))}
+	ta3.Spec.Workload.PodSecurityContext = &corev1.PodSecurityContext{RunAsUser: new(int64(2000))}
 	desired3 := buildDeployment(ta3, agentConfig{Image: "img", SAName: "agent-a"})
 	if !deploymentNeedsWrite(cur, desired3) {
 		t.Fatal("pod securityContext change must trigger a write")

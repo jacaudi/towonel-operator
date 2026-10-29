@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,12 +75,7 @@ func (h *Hub) HasHostname(inviteID, host string) bool {
 	if inv == nil {
 		return false
 	}
-	for _, hn := range inv.Hostnames {
-		if hn == host {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(inv.Hostnames, host)
 }
 
 // SeedTakenPort marks a port as taken hub-wide (conflicts any preferred reserve).

@@ -64,12 +64,12 @@ func installNodeReaderShell(t *testing.T, c client.Client) {
 	// Ensure a clean shell: wait until create succeeds or the existing object is
 	// reset to zero subjects (tolerating a not-yet-propagated prior cleanup).
 	waitFor(t, 15*time.Second, func() bool {
-		cr := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: nodeReader},
+		cr := &rbacv1.ClusterRole{Name: nodeReader,
 			Rules: []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"nodes"}, Verbs: []string{"get", "list", "watch"}}}}
 		if err := c.Create(ctx, cr); err != nil && !apierrors.IsAlreadyExists(err) {
 			return false
 		}
-		crb := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: nodeReader},
+		crb := &rbacv1.ClusterRoleBinding{Name: nodeReader,
 			RoleRef: rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: nodeReader}}
 		if err := c.Create(ctx, crb); err != nil {
 			if !apierrors.IsAlreadyExists(err) {
@@ -89,8 +89,8 @@ func installNodeReaderShell(t *testing.T, c client.Client) {
 		return true
 	})
 	t.Cleanup(func() {
-		_ = c.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: nodeReader}})
-		_ = c.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: nodeReader}})
+		_ = c.Delete(ctx, &rbacv1.ClusterRoleBinding{Name: nodeReader})
+		_ = c.Delete(ctx, &rbacv1.ClusterRole{Name: nodeReader})
 	})
 }
 
@@ -99,11 +99,11 @@ func TestConnectivitySAAlwaysSet(t *testing.T) {
 	c, _, stop := startManager(t)
 	defer stop()
 	ctx := t.Context()
-	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "sa", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "sa", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"sa.example"}}}) // #14(a): needs a hostname to issue an invite/token
 	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "sa-edge", Namespace: "default"},
-		Spec:       towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "sa"}},
+		Name: "sa-edge", Namespace: "default",
+		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "sa"}},
 	})
 	depNN := types.NamespacedName{Name: "sa-edge", Namespace: "default"}
 	waitFor(t, 20*time.Second, func() bool {
@@ -124,20 +124,20 @@ func TestConnectivityAutodiscoverObjectsAndSharedSubjects(t *testing.T) {
 	c, _, stop := startManager(t)
 	defer stop()
 	ctx := t.Context()
-	mustCreate(t, c, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: nodeReader},
+	mustCreate(t, c, &rbacv1.ClusterRole{Name: nodeReader,
 		Rules: []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"nodes"}, Verbs: []string{"get", "list", "watch"}}}})
-	mustCreate(t, c, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: nodeReader},
+	mustCreate(t, c, &rbacv1.ClusterRoleBinding{Name: nodeReader,
 		RoleRef: rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: nodeReader}})
 	t.Cleanup(func() {
-		_ = c.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: nodeReader}})
-		_ = c.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: nodeReader}})
+		_ = c.Delete(ctx, &rbacv1.ClusterRoleBinding{Name: nodeReader})
+		_ = c.Delete(ctx, &rbacv1.ClusterRole{Name: nodeReader})
 	})
-	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "ad", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "ad", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"ad.example"}}}) // #14(a): needs a hostname to issue an invite/token
 	conn := towonelv1alpha1.ConnectivitySpec{Autodiscover: true, IrohPort: 5000, NodePort: towonelv1alpha1.NodePortSpec{Create: true}}
-	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "ad-a", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{Name: "ad-a", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "ad"}, Connectivity: conn}})
-	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "ad-b", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{Name: "ad-b", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "ad"}, Connectivity: conn}})
 	waitFor(t, 20*time.Second, func() bool {
 		var svc corev1.Service
@@ -163,10 +163,10 @@ func TestConnectivityDisablePrunes(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 	installNodeReaderShell(t, c)
-	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "dp", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "dp", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"dp.example"}}}) // #14(a): needs a hostname to issue an invite/token
 	conn := towonelv1alpha1.ConnectivitySpec{Autodiscover: true, IrohPort: 5000, NodePort: towonelv1alpha1.NodePortSpec{Create: true}}
-	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "dp-a", Namespace: "default"},
+	ta := &towonelv1alpha1.TowonelAgent{Name: "dp-a", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "dp"}, Connectivity: conn}}
 	mustCreate(t, c, ta)
 	// Drop this agent at test end so it doesn't linger as a node-reader subject
@@ -210,9 +210,9 @@ func TestConnectivityInvalidStillReady(t *testing.T) {
 	c, _, stop := startManager(t)
 	defer stop()
 	ctx := t.Context()
-	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "inv", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "inv", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"inv.example"}}}) // #14(a): needs a hostname to issue an invite/token
-	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "inv-a", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{Name: "inv-a", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "inv"},
 			Connectivity: towonelv1alpha1.ConnectivitySpec{Autodiscover: true, NodePort: towonelv1alpha1.NodePortSpec{Create: true}}}}) // no irohPort
 	depNN := types.NamespacedName{Name: "inv-a", Namespace: "default"}
@@ -241,10 +241,10 @@ func TestConnectivityDeleteDropsSubject(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 	installNodeReaderShell(t, c)
-	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "del", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "del", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"del.example"}}}) // #14(a): needs a hostname to issue an invite/token
 	conn := towonelv1alpha1.ConnectivitySpec{Autodiscover: true, IrohPort: 5000, NodePort: towonelv1alpha1.NodePortSpec{Create: true}}
-	ta := &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "del-a", Namespace: "default"},
+	ta := &towonelv1alpha1.TowonelAgent{Name: "del-a", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "del"}, Connectivity: conn}}
 	mustCreate(t, c, ta)
 	// This agent's SA subject lands in the shared binding.
@@ -266,9 +266,9 @@ func TestConnectivityToggleRollsDeployment(t *testing.T) {
 	c, _, stop := startManager(t)
 	defer stop()
 	ctx := t.Context()
-	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{ObjectMeta: metav1.ObjectMeta{Name: "tog", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "tog", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"tog.example"}}}) // #14(a): needs a hostname to issue an invite/token
-	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{ObjectMeta: metav1.ObjectMeta{Name: "tog-a", Namespace: "default"},
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{Name: "tog-a", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "tog"}}})
 	depNN := types.NamespacedName{Name: "tog-a", Namespace: "default"}
 	var hashBefore string
