@@ -283,8 +283,65 @@ func TestDNSInviteDeletedHubSideWithdrawsRecords(t *testing.T) {
 	pokeTunnel(t, c, ns, "gone")
 	waitFor(t, 20*time.Second, func() bool {
 		_, err := getDNS(ctx, ns, dnsName(ns, "gone"))
-		return apierrors.IsNotFound(err)
+		cond, tt := tunnelCond(ctx, c, ns, "gone")
+		if tt == nil {
+			return false
+		}
+		// r.fail ran (Ready=False/APIError) and DNS recorded why it withdrew.
+		ready := meta.FindStatusCondition(tt.Status.Conditions, controller.CondReady)
+		return apierrors.IsNotFound(err) && cond != nil && cond.Reason == controller.ReasonInviteRevoked &&
+			ready != nil && ready.Status == metav1.ConditionFalse && ready.Reason == controller.ReasonAPIError
 	})
+}
+
+// A hostname DELETE that 404s ("hostname not found on invite": another writer
+// already removed it, a multi-cluster race) is not a deleted invite. The
+// reconcile fails, but the published records must stay: only a 404 on
+// GET /v1/invites/{id} withdraws them.
+func TestDNSHostnameRemove404KeepsRecords(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, hub, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ctx := t.Context()
+	ns := mustNamespace(t)
+	if err := c.Create(ctx, dnsTunnelObj(ns, "race", []string{"a.example.com", "b.example.com"}, enabled())); err != nil {
+		t.Fatal(err)
+	}
+	var inviteID string
+	waitFor(t, 20*time.Second, func() bool {
+		o, err := getDNS(ctx, ns, dnsName(ns, "race"))
+		_, tt := tunnelCond(ctx, c, ns, "race")
+		if tt != nil {
+			inviteID = tt.Status.InviteID
+		}
+		return err == nil && inviteID != "" && slices.Equal(dnsNames(o), []string{"a.example.com", "b.example.com"})
+	})
+	hub.SetHostnameDeleteNotFound(inviteID, "b.example.com", true)
+	mutateTunnel(t, c, ns, "race", func(tt *towonelv1alpha1.TowonelTunnel) {
+		tt.Spec.ExtraHostnames = []string{"a.example.com"} // drops b -> hub DELETE 404s
+	})
+	// The remove failure surfaces on HostnamesSynced; DNS runs after it in the
+	// same pass, so by now a wrongful withdraw has already happened.
+	waitFor(t, 20*time.Second, func() bool {
+		_, tt := tunnelCond(ctx, c, ns, "race")
+		if tt == nil {
+			return false
+		}
+		hostCond := meta.FindStatusCondition(tt.Status.Conditions, controller.CondHostnamesSynced)
+		return hostCond != nil && hostCond.Status == metav1.ConditionFalse && hostCond.Reason == controller.ReasonAPIError &&
+			strings.Contains(hostCond.Message, "remove hostname")
+	})
+	o, err := getDNS(ctx, ns, dnsName(ns, "race"))
+	if err != nil {
+		t.Fatalf("DNSEndpoint withdrawn after a hostname-remove 404: %v", err)
+	}
+	if got := dnsNames(o); !slices.Equal(got, []string{"a.example.com", "b.example.com"}) {
+		t.Fatalf("DNSEndpoint names = %v, want both kept", got)
+	}
+	cond, _ := tunnelCond(ctx, c, ns, "race")
+	if cond != nil && cond.Reason == controller.ReasonInviteRevoked {
+		t.Fatalf("DNSEndpointSynced = %+v, must not be InviteRevoked", cond)
+	}
 }
 
 // pokeTunnel annotates the tunnel with a fresh value to trigger a reconcile.

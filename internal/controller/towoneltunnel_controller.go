@@ -128,7 +128,7 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		setCond(&tt, CondHostnamesSynced, metav1.ConditionFalse, ReasonAPIError, err.Error())
 		// The hub no longer knows the invite (deleted hub-side): nothing can be
 		// confirmed, so fail closed and withdraw published records before failing.
-		if apiErr, ok := errors.AsType[*towonel.APIError](err); ok && apiErr.StatusCode == http.StatusNotFound {
+		if errors.Is(err, errInviteNotFound) {
 			r.reconcileDNS(ctx, &tt, inviteView{Revoked: true})
 		}
 		return r.fail(ctx, &tt, orig, err)

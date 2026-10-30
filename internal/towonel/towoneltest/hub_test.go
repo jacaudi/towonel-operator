@@ -200,3 +200,38 @@ func TestHubInviteIDsAreUniqueAcrossHubs(t *testing.T) {
 		t.Fatalf("two Hubs issued the same first invite ID %q", a)
 	}
 }
+
+// TestHubHostnameDeleteNotFound pins the multi-writer race knob: another
+// writer already removed the hostname, so the hub still lists it on GET but
+// DELETE answers 404 "hostname not found on invite" — for the targeted
+// invite/hostname only.
+func TestHubHostnameDeleteNotFound(t *testing.T) {
+	hub := NewHub()
+	srv, tc := hub.Server()
+	t.Cleanup(srv.Close)
+	ctx := context.Background()
+	created, err := tc.CreateInvite(ctx, towonel.CreateInviteRequest{Hostnames: []string{"a.example", "b.example"}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	hub.SetHostnameDeleteNotFound(created.InviteID, "a.example", true)
+	_, err = tc.RemoveHostname(ctx, created.InviteID, "a.example")
+	apiErr, ok := errors.AsType[*towonel.APIError](err)
+	if !ok || apiErr.StatusCode != http.StatusNotFound || !strings.Contains(apiErr.Body, "hostname not found on invite") {
+		t.Fatalf("targeted delete: err = %v, want 404 %q", err, "hostname not found on invite")
+	}
+	if !hub.HasHostname(created.InviteID, "a.example") {
+		t.Fatal("a 404ing delete must leave the hub state untouched")
+	}
+
+	// Other hostnames on the same invite are unaffected.
+	if _, err := tc.RemoveHostname(ctx, created.InviteID, "b.example"); err != nil {
+		t.Fatalf("untargeted delete: %v", err)
+	}
+
+	hub.SetHostnameDeleteNotFound(created.InviteID, "a.example", false)
+	if _, err := tc.RemoveHostname(ctx, created.InviteID, "a.example"); err != nil {
+		t.Fatalf("delete after clearing knob: %v", err)
+	}
+}
