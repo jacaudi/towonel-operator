@@ -159,10 +159,11 @@ func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *tow
 		return view, nil
 	}
 
-	// authorized tracks the set the hub holds as this call mutates it. Starting from
-	// hub truth and applying only successful adds/removes keeps status faithful to
-	// the hub regardless of what status previously (mis)recorded. confirmed is the
-	// same minus 409-absorbed hostnames.
+	// authorized starts from hub truth and applies the adds/removes this call
+	// performs, so status stays faithful to the hub regardless of what status
+	// previously (mis)recorded. It also keeps 409-absorbed hostnames, which the hub
+	// does NOT hold on this invite. confirmed is hub truth plus successful adds
+	// only, minus removes: the set DNS may publish.
 	authorized := slices.Clone(hubSet)
 	confirmed := slices.Clone(hubSet)
 
@@ -171,16 +172,19 @@ func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *tow
 			continue
 		}
 		if _, err := tc.AddHostnames(ctx, tt.Status.InviteID, []string{h}); err != nil {
-			// #14(b): a 409 hostname_conflict for a hostname we WANT authorized means
-			// it is already reserved on our invite — desired state already achieved.
-			// Absorb as idempotent success (single-tenant: a foreign conflict is
-			// indistinguishable by message and is masked — accepted for alpha). It is
-			// NOT confirmed for DNS: it may be another tenant's claim (design §6.2).
+			// #14(b): a 409 hostname_conflict for a hostname we WANT authorized, but
+			// that hub truth (GET above) does not list on our invite, means it is
+			// already reserved by ANOTHER invite. The hub will never add it here, so
+			// retrying cannot succeed: absorb it rather than fail the reconcile, and
+			// keep it in status.authorizedHostnames for compatibility (single-tenant:
+			// the conflict is indistinguishable from a foreign claim by message —
+			// accepted for alpha). It is NOT confirmed for DNS, so it is never
+			// published (design §6.2).
 			if apiErr, ok := errors.AsType[*towonel.APIError](err); ok &&
 				apiErr.StatusCode == http.StatusConflict && strings.Contains(apiErr.Body, "hostname_conflict") {
 				if r.Recorder != nil {
 					r.Recorder.Event(tt, corev1.EventTypeWarning, ReasonHostnameConflict,
-						fmt.Sprintf("hostname %q already reserved by an active invite; treating as authorized", h))
+						fmt.Sprintf("hostname %q is already reserved by another invite; kept in status.authorizedHostnames but not DNS-confirmed", h))
 				}
 				if !slices.Contains(authorized, h) {
 					authorized = append(authorized, h)

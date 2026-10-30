@@ -9,7 +9,7 @@ external-dns with `--source=crd` is the reference.
 ```yaml
 spec:
   dns:
-    mode: DNSEndpoint                # default Disabled
+    mode: DNSEndpoint                # default Disabled — enable only after the rollout order below
     labels:                          # copied onto the DNSEndpoint — scope external-dns with them
       example.com/dns-endpoint: public
     providerSpecific:                # copied onto every endpoint
@@ -18,7 +18,7 @@ spec:
     # defaultTTL: 300                # record TTL (seconds, >= 1)
     # cnameTarget: edge.example.com  # override the edge target for this tunnel
     # includeWildcards: false        # also publish *.zone hostnames
-    # namespace: ""                  # where the DNSEndpoint lives (default: the tunnel's)
+    # namespace: external-dns        # where the DNSEndpoint lives (default: the tunnel's)
     # annotations: {}                # copied onto the DNSEndpoint (--annotation-filter)
 ```
 
@@ -36,6 +36,8 @@ spec:
     defaults are `CA → edge-na.towonel.dev` and `EU → edge-eu.towonel.dev`.
   - For a self-hosted hub, set Helm `dns.edgeTargets` (`--dns-edge-target REGION=FQDN`).
     Without it, the tunnel reports `NoEdgeTarget`.
+  - Explicit `dns.edgeTargets` / `--dns-edge-target` entries **replace** the public-hub defaults
+    entirely, so set every region you use.
 - **The object.** It is named `towonel.<tunnel-namespace>.<tunnel-name>`. If that would exceed the
   253-character name limit, it is named `towonel.<hash>` instead, where `<hash>` is the same value as
   the `towonel.io/owner-tunnel` label. It lives in `spec.dns.namespace` (default: the tunnel's namespace).
@@ -51,10 +53,10 @@ spec:
   | `Synced` | Records published, or 0 records and the object removed |
   | `DNSEndpointCRDMissing` | Install external-dns's CRD; it is picked up without a restart |
   | `NoEdgeTarget` | No target for the invite's region; records withdrawn |
-  | `InviteRevoked` | The hub revoked the invite; records withdrawn |
+  | `InviteRevoked` | The hub revoked the invite, or no longer knows it (deleted hub-side); records withdrawn |
   | `ForeignObject` | An object the operator doesn't own holds the name; nothing is overwritten |
   | `InvalidConfig` | The API server rejected the object (for example a bad label key) |
-  | `APIError` | A transient API error; retried every 2 minutes |
+  | `APIError` | An API error, transient or persistent (for example `Forbidden` or a missing `spec.dns.namespace`); retried every 2 minutes |
 
   In `Disabled` mode the condition is removed once the sweep succeeds. If the sweep fails it is
   `False/APIError` and retried. DNS never affects the tunnel's `Ready`.
@@ -108,6 +110,10 @@ by external-dns version:
 > ```sh
 > kubectl get twt -A -o jsonpath='{range .items[?(@.spec.dns.mode=="DNSEndpoint")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}'
 > ```
+>
+> Set each one to `mode: Disabled` before upgrading, or complete the rollout order above first.
+
+If you install CRDs from raw manifests or set `crds.install: false`, upgrade the TowonelTunnel CRD before enabling `mode: DNSEndpoint`; with a stale CRD, `spec.dns.labels` is unknown — strict clients reject it, non-strict clients silently prune it, emitting an unlabelled DNSEndpoint that your LAN instance would pick up.
 
 **Changes every tunnel sees after upgrading, even with DNS left `Disabled`:**
 
@@ -131,7 +137,7 @@ provider that the records are gone. Then enable. Expect a resolution gap of abou
 
 - Under `policy: sync`, public DNS is **removed** when:
   - the tunnel switches to `Disabled`;
-  - the hub revokes the invite;
+  - the hub revokes or deletes the invite;
   - the edge target disappears;
   - the tunnel is deleted with `deletionPolicy: Delete` (records are withdrawn before the
     invite's hostnames are released).
@@ -144,10 +150,13 @@ provider that the records are gone. Then enable. Expect a resolution gap of abou
   - Otherwise remove the records with the orphan-cleanup command below.
   - A re-adopting tunnel recreated with `Disabled` removes them.
 - A removed hostname lingers for one external-dns sync interval plus the TTL. If hostname
-  convergence fails, the last published set stays until the next success.
+  convergence fails (other than the hub reporting the invite deleted, which withdraws the records), the last
+  published set stays until the next success.
 - Orphans (for example after a force-removed finalizer):
   `kubectl delete dnsendpoints -A -l towonel.io/owner-tunnel=<hash>`. The
   `towonel.io/owner-tunnel-ref` annotation shows which tunnel an object belonged to.
+  Find the hash with
+  `kubectl get dnsendpoints -A -l app.kubernetes.io/managed-by=towonel-operator -L towonel.io/owner-tunnel`.
 - `spec.dns.namespace` lets a tunnel author place the `DNSEndpoint` in any existing namespace,
   through the operator's ClusterRole.
 
