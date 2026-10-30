@@ -122,12 +122,19 @@ const (
 	// is gateway-owner-side consent to PUBLICLY expose those namespaces' un-opted-out
 	// routes; per-route towonel.io/tunnel:"false" is the only target-side opt-out.
 	AnnotationAutoRoutesNamespaces = "towonel.io/auto-routes-namespaces"
-	AnnotationDNSRecord            = "towonel.io/dns-record" // reserved (DNS phase); inert in P5
+	AnnotationDNSRecord            = "towonel.io/dns-record" // reserved (per-route DNS opt-out / TCP-UDP records); inert
 
 	// Operator-managed agent markers (design §5/§6).
 	LabelManagedBy        = "app.kubernetes.io/managed-by"
 	ManagedByValue        = "towonel-operator"
 	AnnotationAutoCreated = "towonel.io/auto-created"
+
+	// DNSEndpoint ownership (design §6.3): the operator labels and annotation
+	// stamped on every emitted DNSEndpoint. LabelOwnerTunnel's value is
+	// ownerHash(<ns>, <name>) — stable across tunnel recreation, and the
+	// selector of the cleanup sweep and of kubectl orphan cleanup.
+	LabelOwnerTunnel         = "towonel.io/owner-tunnel"
+	AnnotationOwnerTunnelRef = "towonel.io/owner-tunnel-ref"
 
 	// Source Event reasons (design §4/§5; Events-only validation).
 	ReasonInvalidAnnotation   = "InvalidAnnotationValue"
