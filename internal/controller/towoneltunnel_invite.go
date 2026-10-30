@@ -109,6 +109,10 @@ func desiredHostnames(tt *towonelv1alpha1.TowonelTunnel, agents []towonelv1alpha
 	return dedupe(hs)
 }
 
+// errInviteNotFound reports that the hub no longer has this invite (deleted
+// hub-side): GET /v1/invites/{id} answered 404.
+var errInviteNotFound = errors.New("invite not found on hub")
+
 // inviteView is the hub-confirmed state DNS publishes from (design §6.2).
 type inviteView struct {
 	// Confirmed is the hub GET set plus successful adds minus successful
@@ -149,6 +153,12 @@ func hubRegion(r string) string {
 func (r *TowonelTunnelReconciler) convergeHostnames(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel, desired []string) (inviteView, error) {
 	invite, err := tc.GetInvite(ctx, tt.Status.InviteID)
 	if err != nil {
+		// Only a 404 on the invite itself means the hub deleted it; a 404 from
+		// the add/remove calls below does not (e.g. another writer already removed
+		// the hostname).
+		if apiErr, ok := errors.AsType[*towonel.APIError](err); ok && apiErr.StatusCode == http.StatusNotFound {
+			return inviteView{}, fmt.Errorf("get invite %q: %w: %w", tt.Status.InviteID, errInviteNotFound, err)
+		}
 		return inviteView{}, fmt.Errorf("get invite %q: %w", tt.Status.InviteID, err)
 	}
 	hubSet := dedupe(invite.Hostnames)

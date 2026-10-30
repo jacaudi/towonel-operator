@@ -31,7 +31,12 @@ type Hub struct {
 	statuses          map[string]towonel.InviteStatus // inviteID -> seeded /status response
 	statusUnavailable bool                            // true -> /status 404s (hub predates v1.1.0)
 	idPrefix          string                          // per-Hub invite-ID prefix (see hubSeq)
+
+	hostnameDeleteNotFound map[hostnameKey]bool // DELETE of this hostname 404s (another writer already removed it)
 }
+
+// hostnameKey identifies one hostname on one invite.
+type hostnameKey struct{ inviteID, host string }
 
 // hubSeq gives every Hub a distinct invite-ID prefix. envtest has no GC
 // between tests, so tunnels left over from an earlier test (whose
@@ -51,6 +56,8 @@ func NewHub() *Hub {
 		reservedHosts: map[string]string{},
 		statuses:      map[string]towonel.InviteStatus{},
 		idPrefix:      fmt.Sprintf("h%d-", hubSeq.Add(1)),
+
+		hostnameDeleteNotFound: map[hostnameKey]bool{},
 	}
 }
 
@@ -77,6 +84,15 @@ func (h *Hub) SetStatusUnavailable(v bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.statusUnavailable = v
+}
+
+// SetHostnameDeleteNotFound makes DELETE of host on inviteID answer 404
+// {"error":"hostname not found on invite"} while GET still lists it, as when
+// another writer (multi-cluster race) already removed the hostname.
+func (h *Hub) SetHostnameDeleteNotFound(inviteID, host string, v bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.hostnameDeleteNotFound[hostnameKey{inviteID, host}] = v
 }
 
 // Revoke marks an invite revoked as an out-of-band revoke does hub-side: GET
@@ -244,6 +260,11 @@ func (h *Hub) handler() http.HandlerFunc {
 		case req.Method == http.MethodDelete && strings.Contains(p, "/hostnames/"):
 			parts := strings.SplitN(strings.TrimPrefix(p, "/v1/invites/"), "/hostnames/", 2)
 			id, host := parts[0], parts[1]
+			if h.hostnameDeleteNotFound[hostnameKey{id, host}] {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":"hostname not found on invite"}`))
+				return
+			}
 			if inv := h.invites[id]; inv != nil {
 				kept := inv.Hostnames[:0]
 				for _, hn := range inv.Hostnames {

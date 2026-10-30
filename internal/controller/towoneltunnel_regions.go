@@ -15,9 +15,9 @@ import (
 
 // populateRegionEndpoints fills status.regionEndpoints from the hub's
 // GET /v1/invites/{id}/status (#38; design §7). Best-effort and non-blocking:
-// it never fails the reconcile. A 404 (hub too old) leaves regionEndpoints
-// unchanged; any other error keeps the last-known value. Hub region order
-// (primary first, then failover) is preserved.
+// it never fails the reconcile. A 404 (hub too old, or invite unknown) leaves
+// regionEndpoints unchanged; any other error keeps the last-known value. Hub
+// region order (primary first, then failover) is preserved.
 func (r *TowonelTunnelReconciler) populateRegionEndpoints(ctx context.Context, tc *towonel.Client, tt *towonelv1alpha1.TowonelTunnel) {
 	if tt.Status.InviteID == "" {
 		return

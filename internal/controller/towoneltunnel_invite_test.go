@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"errors"
+	"net/http"
 	"slices"
 	"testing"
 
@@ -459,5 +461,48 @@ func TestConvergeHostnamesRevokedInvitePublishesNothing(t *testing.T) {
 	}
 	if got := tt.Status.AuthorizedHostnames; !slices.Equal(got, []string{"a.example", "gone.example"}) {
 		t.Fatalf("AuthorizedHostnames = %v, want hub truth [a.example gone.example]", got)
+	}
+}
+
+// Only a 404 on GetInvite means the hub no longer has the invite. The hub also
+// answers 404 "hostname not found on invite" when another writer already
+// removed a hostname (multi-cluster race); that must NOT read as a deleted
+// invite, or the controller would withdraw the tunnel's whole DNSEndpoint.
+func TestConvergeHostnamesInviteNotFoundClassification(t *testing.T) {
+	tests := []struct {
+		name         string
+		seed         bool
+		failRemove   bool
+		wantNotFound bool
+	}{
+		{name: "GetInvite 404 is invite-not-found", wantNotFound: true},
+		{name: "RemoveHostname 404 is not invite-not-found", seed: true, failRemove: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hub := towoneltest.NewHub()
+			srv, c := hub.Server()
+			t.Cleanup(srv.Close)
+			if tc.seed {
+				hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example"}})
+			}
+			if tc.failRemove {
+				hub.SetHostnameDeleteNotFound("inv-1", "a.example", true)
+			}
+			r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
+			tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
+			tt.Status.InviteID = "inv-1"
+
+			_, err := r.convergeHostnames(t.Context(), c, tt, []string{"b.example"}) // drops a.example
+			if err == nil {
+				t.Fatal("convergeHostnames: want an error, got nil")
+			}
+			if got := errors.Is(err, errInviteNotFound); got != tc.wantNotFound {
+				t.Fatalf("errors.Is(err, errInviteNotFound) = %v, want %v (err = %v)", got, tc.wantNotFound, err)
+			}
+			if apiErr, ok := errors.AsType[*towonel.APIError](err); !ok || apiErr.StatusCode != http.StatusNotFound {
+				t.Fatalf("err = %v, want the 404 *towonel.APIError still reachable in the chain", err)
+			}
+		})
 	}
 }
