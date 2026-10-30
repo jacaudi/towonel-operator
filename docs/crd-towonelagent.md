@@ -31,7 +31,7 @@ See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
 
 **`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `edgeTLSMode` (edge TLS behavior: `passthrough` default | `terminate`), `proxyProtocol` (string passed to the agent; e.g. `none` to disable the PROXY-protocol header; empty = agent default).
 
-**`AgentL4Service`** (tcp/udp): `name` (unique within the list), `origin` (internal host:port), `preferredPort` (optional — pin the *public* listen port; honored if free), `hostname` (optional — intended for the future DNS handoff; currently informational).
+**`AgentL4Service`** (tcp/udp): `name` (unique within the list), `origin` (internal host:port), `preferredPort` (optional — pin the *public* listen port; honored if free), `hostname` (optional — intended for raw TCP/UDP DNS records, which the DNS handoff doesn't publish yet; currently informational, see [dns.md](dns.md)).
 
 **`workload`**: `replicas` (default `1`), `image` (default: the operator's built-in `codeberg.org/towonel/towonel-agent` tag — override to pick your own), `resources` (OOM-safe memory floor/ceiling applied if unset), `nodeSelector`, `tolerations`, and native Kubernetes `affinity`.
 
