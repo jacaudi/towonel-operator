@@ -1,11 +1,19 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	externaldnsv1alpha1 "sigs.k8s.io/external-dns/apis/v1alpha1"
 	"sigs.k8s.io/external-dns/endpoint"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -132,5 +140,39 @@ func TestDNSEndpointNameAndOwnerHash(t *testing.T) {
 	}
 	if ownerHash("a-b", "c") == ownerHash("a", "b-c") {
 		t.Error("ownerHash collides for a-b/c and a/b-c")
+	}
+}
+
+// Disabled mode with the DNSEndpoint CRD absent (NoMatch on the sweep's List)
+// is a clean no-op: reconcileDNS must NOT ask for dnsRetryRequeue (gate 2 B1,
+// spec §8) and must leave no DNSEndpointSynced condition. The envtest cannot
+// pin this: a 2-minute requeue loop outlasts its wait.
+func TestReconcileDNSDisabledNoMatchDoesNotRetry(t *testing.T) {
+	s := runtime.NewScheme()
+	if err := AddExternalDNSToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	noMatch := &meta.NoKindMatchError{
+		GroupKind:        schema.GroupKind{Group: externaldnsv1alpha1.GroupVersion.Group, Kind: "DNSEndpoint"},
+		SearchedVersions: []string{externaldnsv1alpha1.GroupVersion.Version},
+	}
+	var lists int
+	reader := interceptor.NewClient(fake.NewClientBuilder().WithScheme(s).Build(), interceptor.Funcs{
+		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+			lists++
+			return noMatch
+		},
+	})
+	r := &TowonelTunnelReconciler{APIReader: reader}
+	tt := dnsTunnel(towonelv1alpha1.TunnelDNSSpec{Mode: towonelv1alpha1.DNSModeDisabled})
+
+	if retry := r.reconcileDNS(t.Context(), tt, inviteView{Confirmed: []string{"a.example.com"}, Region: "EU"}); retry {
+		t.Fatal("reconcileDNS(Disabled, CRD absent) = retry true, want false (no requeue loop)")
+	}
+	if lists == 0 {
+		t.Fatal("the sweep never listed DNSEndpoints; the test is not exercising the NoMatch path")
+	}
+	if c := meta.FindStatusCondition(tt.Status.Conditions, CondDNSEndpointSynced); c != nil {
+		t.Fatalf("DNSEndpointSynced = %+v, want unset", c)
 	}
 }
