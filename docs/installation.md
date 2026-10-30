@@ -12,7 +12,7 @@
   `spec.workload.image`.
 - **Optional: Gateway API CRDs** — only if you want the `Gateway`/`HTTPRoute` source layer.
   The operator probes for them and gates those controllers automatically (see `gatewayAPI` below).
-- **Optional: cert-manager / your own DNS** — the operator does not manage DNS (see [dns.md](dns.md)).
+- **Optional: external-dns** — only for the DNS handoff: with `spec.dns.mode: DNSEndpoint` the operator emits external-dns `DNSEndpoint` records for authorized hostnames (see [dns.md](dns.md)).
 
 ## Install with Helm (OCI)
 

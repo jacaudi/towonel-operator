@@ -16,9 +16,13 @@ spec:
   tokenExpiry: 0                   # 0 = never expires (recommended default)
   deletionPolicy: Retain           # Retain leaves the invite alive on CR delete (prod tunnels)
   extraHostnames: []               # escape hatch: authorize a hostname no agent serves yet
-  # NOTE: spec.dns (DNS handoff via external-dns DNSEndpoint) is designed but NOT yet
-  # implemented — the field is accepted but inert. See docs/dns.md. For now, point your
-  # public DNS at the edge addresses surfaced in status (below) yourself.
+  dns:                             # optional DNS handoff — see docs/dns.md
+    mode: Disabled                 # set to DNSEndpoint only after the consumer rollout in docs/dns.md
+    labels:
+      example.com/dns-endpoint: public   # scope external-dns with --label-filter
+    providerSpecific:
+      - name: cloudflare/proxied
+        value: "false"
 # ─────────────────────────────────────────────────────────────────────────────
 # Illustrative reconciled status (operator-written; shown for reference only):
 #

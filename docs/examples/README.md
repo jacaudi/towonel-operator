@@ -57,7 +57,6 @@ and the whole listener zone is exposed (broad).
 > Every hostname clients actually use must be authorized on the tunnel — a Gateway listener
 > hostname (broad) or an HTTPRoute hostname (selective).
 
-> **DNS:** these examples expose services and reserve ports, but the operator does **not**
-> create public DNS records — DNS handoff (`spec.dns`) is designed but not yet implemented
-> (see [../dns.md](../dns.md)). Point your DNS at the edge addresses in the tunnel's status
-> yourself for now.
+> **DNS:** these examples don't publish DNS. To have the operator emit external-dns
+> `DNSEndpoint` records for authorized hostnames, set `spec.dns` on the tunnel
+> (see [01-tunnel.yaml](01-tunnel.yaml) and [../dns.md](../dns.md)).

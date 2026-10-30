@@ -24,7 +24,7 @@ All keys are under `towonel.io/`. Opt in with `tunnel`, point at a tunnel with `
 | `towonel.io/protocol` | Service | `tcp` or `udp` — emit a raw L4 service instead of HTTPS. |
 | `towonel.io/gateway-service` | Gateway | **Required** on an opted-in Gateway — the proxy Service the agent forwards to (not derivable from the Gateway object). |
 | `towonel.io/auto-routes` | Gateway | Opt every **same-namespace** HTTPRoute under this Gateway into tunneling, without annotating each route. Truthy values as `towonel.io/tunnel`. **Distinct** from `towonel.io/tunnel` on a Gateway (which exposes the Gateway's own listeners). Requires `towonel.io/gateway-service`. See "Gateway auto-routes" below. |
-| `towonel.io/dns-record` | all | **Reserved / inert** — intended to opt a hostname out of the (unimplemented) DNS handoff. See [dns.md](dns.md). |
+| `towonel.io/dns-record` | all | **Reserved / inert** — intended to opt a hostname out of the DNS handoff (not honored yet: the handoff publishes every authorized hostname). See [dns.md](dns.md). |
 
 ### Multi-exposure on one Service (port-name-scoped keys)
 
