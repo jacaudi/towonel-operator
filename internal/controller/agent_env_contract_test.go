@@ -24,7 +24,7 @@ func TestChartAgentEnvRoundTripsThroughFlagParser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helm template failed: %v\n%s", err, out)
 	}
-	got, err := ParseAgentEnv(renderedAgentEnvArgs(t, string(out)))
+	got, err := ParseAgentEnv(renderedManagerArgs(t, string(out), "--agent-env="))
 	if err != nil {
 		t.Fatalf("manager would reject the chart-rendered --agent-env args: %v", err)
 	}
@@ -41,16 +41,15 @@ func TestChartAgentEnvRoundTripsThroughFlagParser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helm template failed: %v\n%s", err, out)
 	}
-	if args := renderedAgentEnvArgs(t, string(out)); len(args) != 0 {
+	if args := renderedManagerArgs(t, string(out), "--agent-env="); len(args) != 0 {
 		t.Fatalf("no agentEnv must render no --agent-env args, got %v", args)
 	}
 }
 
-// renderedAgentEnvArgs returns the NAME=VALUE payload of every --agent-env arg
-// on the rendered manager Deployment.
-func renderedAgentEnvArgs(t *testing.T, rendered string) []string {
+// renderedManagerArgs returns the payload after flagPrefix of every matching
+// arg on the rendered manager Deployment's containers, in render order.
+func renderedManagerArgs(t *testing.T, rendered, flagPrefix string) []string {
 	t.Helper()
-	const flagPrefix = "--agent-env="
 	var entries []string
 	for doc := range strings.SplitSeq(rendered, "\n---") {
 		if !strings.Contains(doc, "kind: Deployment") {

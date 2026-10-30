@@ -56,7 +56,7 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "health probe bind address")
 	flag.BoolVar(&leaderElect, "leader-elect", true, "enable leader election for HA")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
-	flag.StringVar(&towonelAPIURL, "towonel-api-url", "https://hub.towonel.dev", "Towonel hub base URL")
+	flag.StringVar(&towonelAPIURL, "towonel-api-url", controller.DefaultTowonelAPIURL, "Towonel hub base URL")
 	var agentNamespace, enableGatewayAPI string
 	var defaultAgentReplicas int
 	flag.StringVar(&agentNamespace, "agent-namespace", "", "namespace for auto-created default agents (empty = the tunnel's namespace)")
@@ -65,6 +65,11 @@ func main() {
 	var agentEnvFlags []string
 	flag.Func("agent-env", "NAME=VALUE environment variable added to every agent pod (repeatable); e.g. RUST_LOG=debug. Operator-managed names cannot be overridden", func(s string) error {
 		agentEnvFlags = append(agentEnvFlags, s)
+		return nil
+	})
+	var dnsEdgeTargetFlags []string
+	flag.Func("dns-edge-target", "REGION=FQDN CNAME target for spec.dns.mode DNSEndpoint tunnels whose hub invite region is REGION (repeatable). Unset with the default --towonel-api-url: Towonel's public edges (CA=edge-na.towonel.dev, EU=edge-eu.towonel.dev); unset with any other hub: none. A malformed, invalid or duplicate entry stops the manager", func(s string) error {
+		dnsEdgeTargetFlags = append(dnsEdgeTargetFlags, s)
 		return nil
 	})
 	zapOpts := zap.Options{Development: false}
@@ -81,6 +86,14 @@ func main() {
 	// --agent-env: validated up front so a malformed entry stops the manager
 	// instead of being silently dropped from every agent.
 	agentEnv, err := controller.ParseAgentEnv(agentEnvFlags)
+	if err != nil {
+		setupLog.Error(err, "invalid flag")
+		os.Exit(1)
+	}
+
+	// --dns-edge-target: validated up front so a malformed entry stops the
+	// manager instead of silently publishing no (or wrong) DNS (design §6.1).
+	dnsEdgeTargets, err := controller.ResolveDNSEdgeTargets(towonelAPIURL, dnsEdgeTargetFlags)
 	if err != nil {
 		setupLog.Error(err, "invalid flag")
 		os.Exit(1)
@@ -108,12 +121,13 @@ func main() {
 	}
 
 	if err := (&controller.TowonelTunnelReconciler{
-		Client:     mgr.GetClient(),
-		APIReader:  mgr.GetAPIReader(),
-		Scheme:     mgr.GetScheme(),
-		Recorder:   mgr.GetEventRecorderFor("towoneltunnel"),
-		BaseURL:    towonelAPIURL,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		Client:         mgr.GetClient(),
+		APIReader:      mgr.GetAPIReader(),
+		Scheme:         mgr.GetScheme(),
+		Recorder:       mgr.GetEventRecorderFor("towoneltunnel"),
+		BaseURL:        towonelAPIURL,
+		HTTPClient:     &http.Client{Timeout: 30 * time.Second},
+		DNSEdgeTargets: dnsEdgeTargets,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TowonelTunnel")
 		os.Exit(1)

@@ -25,6 +25,9 @@ controllers:
           - --zap-log-level={{ .Values.logLevel }}
           - --towonel-api-url={{ .Values.towonel.apiURL }}
           - --enable-gateway-api={{ .Values.gatewayAPI.enabled }}
+          {{- range $region, $fqdn := .Values.dns.edgeTargets }}
+          - {{ printf "--dns-edge-target=%s=%s" $region (toString $fqdn) | quote }}
+          {{- end }}
           {{- if .Values.agentNamespace }}
           - --agent-namespace={{ .Values.agentNamespace }}
           {{- end }}

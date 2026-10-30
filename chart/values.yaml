@@ -112,6 +112,15 @@ agentNamespace: ""
 # gets an EnvIgnored Warning event.
 agentEnv: {}
 
+# dns: operator-wide settings for TowonelTunnel spec.dns.mode: DNSEndpoint.
+dns:
+  # -- Region → CNAME target FQDN, rendered as repeated --dns-edge-target=REGION=FQDN.
+  # Empty (default): Towonel's public edges (CA→edge-na.towonel.dev,
+  # EU→edge-eu.towonel.dev) ONLY while towonel.apiURL is the public hub;
+  # with any other hub no target exists until you set this. Any entry
+  # replaces the defaults entirely. A tunnel's spec.dns.cnameTarget overrides it.
+  edgeTargets: {}
+
 # defaultAgent tunes the auto-created default agent — the one the operator makes
 # when a tunnel's routing comes only from the source layer (annotated
 # Gateway/Service/HTTPRoute) with NO hand-authored TowonelAgent (issue #46).
