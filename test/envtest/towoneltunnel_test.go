@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,9 +36,16 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 // startManager wires the reconciler to envtest + a fresh fake hub.
 func startManager(t *testing.T) (client.Client, *towoneltest.Hub, func()) {
 	t.Helper()
+	return startManagerOn(t, sharedCfg, nil)
+}
+
+// startManagerOn is startManager against an explicit API server and
+// --dns-edge-target map (design §6.1).
+func startManagerOn(t *testing.T, cfg *rest.Config, edgeTargets map[string]string) (client.Client, *towoneltest.Hub, func()) {
+	t.Helper()
 	hub := towoneltest.NewHub()
 	srv, _ := hub.Server()
-	mgr, err := ctrl.NewManager(sharedCfg, managerOptions())
+	mgr, err := ctrl.NewManager(cfg, managerOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,12 +53,13 @@ func startManager(t *testing.T) (client.Client, *towoneltest.Hub, func()) {
 		t.Fatal(err)
 	}
 	r := &controller.TowonelTunnelReconciler{
-		Client:     mgr.GetClient(),
-		APIReader:  mgr.GetAPIReader(),
-		Scheme:     mgr.GetScheme(),
-		Recorder:   mgr.GetEventRecorderFor("towoneltunnel-" + t.Name()),
-		BaseURL:    srv.URL,
-		HTTPClient: srv.Client(),
+		Client:         mgr.GetClient(),
+		APIReader:      mgr.GetAPIReader(),
+		Scheme:         mgr.GetScheme(),
+		Recorder:       mgr.GetEventRecorderFor("towoneltunnel-" + t.Name()),
+		BaseURL:        srv.URL,
+		HTTPClient:     srv.Client(),
+		DNSEdgeTargets: edgeTargets,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		t.Fatal(err)

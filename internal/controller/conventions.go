@@ -37,6 +37,16 @@ const (
 	// Tunnel condition (parent design §5.1).
 	CondPortsReserved = "PortsReserved"
 
+	// Tunnel DNS handoff (design §6.4).
+	CondDNSEndpointSynced = "DNSEndpointSynced"
+	ReasonDNSCRDMissing   = "DNSEndpointCRDMissing"
+	ReasonNoEdgeTarget    = "NoEdgeTarget"
+	ReasonForeignObject   = "ForeignObject"
+	ReasonInviteRevoked   = "InviteRevoked"
+	// dnsRetryRequeue replaces the 30-minute resync when the DNS step asks to
+	// retry (CRD missing, foreign object, API error).
+	dnsRetryRequeue = 2 * time.Minute
+
 	ReasonInvalidConfig = "InvalidConfig"
 	ReasonReconciling   = "Reconciling"
 	ReasonReady         = "Ready"

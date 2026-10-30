@@ -51,12 +51,8 @@ type TowonelTunnelReconciler struct {
 // Reconcile drives a TowonelTunnel toward its desired state.
 func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
-	reader := client.Reader(r.Client)
-	if r.APIReader != nil {
-		reader = r.APIReader
-	}
 	var tt towonelv1alpha1.TowonelTunnel
-	if err := reader.Get(ctx, req.NamespacedName, &tt); err != nil {
+	if err := r.reader().Get(ctx, req.NamespacedName, &tt); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !tt.DeletionTimestamp.IsZero() {
@@ -126,13 +122,16 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	hostCtx, cancelHost := context.WithTimeout(ctx, hubCallTimeout)
-	_, err = r.convergeHostnames(hostCtx, tc, &tt, desired)
+	view, err := r.convergeHostnames(hostCtx, tc, &tt, desired)
 	cancelHost()
 	if err != nil {
 		setCond(&tt, CondHostnamesSynced, metav1.ConditionFalse, ReasonAPIError, err.Error())
 		return r.fail(ctx, &tt, orig, err)
 	}
 	setCond(&tt, CondHostnamesSynced, metav1.ConditionTrue, ReasonSynced, "authorized hostnames converged")
+	// DNS runs before ports so a port failure never blocks publishing or
+	// withdrawing records (design §6.4).
+	dnsRetry := r.reconcileDNS(ctx, &tt, view)
 	if err := r.convergePorts(ctx, tc, &tt, agents); err != nil { // sets PortsReserved itself
 		return r.fail(ctx, &tt, orig, err)
 	}
@@ -141,7 +140,11 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err // conflict surfaces here -> prompt requeue
 	}
 	log.Info("reconciled", "invite", tt.Status.InviteID)
-	return ctrl.Result{RequeueAfter: 30 * time.Minute}, nil
+	requeue := 30 * time.Minute
+	if dnsRetry {
+		requeue = dnsRetryRequeue
+	}
+	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
 // listReferencingAgents uses an authoritative all-namespace list because agents
@@ -149,11 +152,7 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // Results are sorted by ns/name for deterministic aggregation (design §4.B).
 func (r *TowonelTunnelReconciler) listReferencingAgents(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel) ([]towonelv1alpha1.TowonelAgent, error) {
 	var list towonelv1alpha1.TowonelAgentList
-	reader := client.Reader(r.Client)
-	if r.APIReader != nil {
-		reader = r.APIReader
-	}
-	if err := reader.List(ctx, &list); err != nil {
+	if err := r.reader().List(ctx, &list); err != nil {
 		return nil, fmt.Errorf("list referencing agents: %w", err)
 	}
 	key := types.NamespacedName{Namespace: tt.Namespace, Name: tt.Name}
@@ -167,6 +166,16 @@ func (r *TowonelTunnelReconciler) listReferencingAgents(ctx context.Context, tt 
 		return cmp.Compare(a.Namespace+"/"+a.Name, b.Namespace+"/"+b.Name)
 	})
 	return agents, nil
+}
+
+// reader returns the uncached APIReader when set, else the (cached) client.
+// DNSEndpoint reads go through it so no cluster-wide DNSEndpoint informer is
+// ever started (design §6.4, gate S2).
+func (r *TowonelTunnelReconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 // SetupWithManager wires the reconciler to the manager.
