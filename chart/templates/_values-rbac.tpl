@@ -65,6 +65,16 @@ rbac:
             - update
             - watch
         - apiGroups:
+            - externaldns.k8s.io
+          resources:
+            - dnsendpoints
+          verbs:
+            - create
+            - delete
+            - get
+            - list
+            - patch
+        - apiGroups:
             - gateway.networking.k8s.io
           resources:
             - gateways
