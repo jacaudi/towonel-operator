@@ -7,12 +7,15 @@ import (
 	"strings"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	externaldnsv1alpha1 "sigs.k8s.io/external-dns/apis/v1alpha1"
 	"sigs.k8s.io/external-dns/endpoint"
 
@@ -174,5 +177,45 @@ func TestReconcileDNSDisabledNoMatchDoesNotRetry(t *testing.T) {
 	}
 	if c := meta.FindStatusCondition(tt.Status.Conditions, CondDNSEndpointSynced); c != nil {
 		t.Fatalf("DNSEndpointSynced = %+v, want unset", c)
+	}
+}
+
+// A Forbidden on the pre-delete sweep must keep the finalizer: failing closed
+// beats orphaning public DNS records (design §6.5).
+func TestReconcileDeleteSweepForbiddenKeepsFinalizer(t *testing.T) {
+	s := runtime.NewScheme()
+	if err := towonelv1alpha1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddExternalDNSToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	now := metav1.Now()
+	tt := dnsTunnel(towonelv1alpha1.TunnelDNSSpec{Mode: towonelv1alpha1.DNSModeDNSEndpoint})
+	tt.DeletionTimestamp = &now
+	tt.Finalizers = []string{FinalizerName}
+	tt.Spec.DeletionPolicy = towonelv1alpha1.DeletionPolicyDelete
+
+	forbidden := apierrors.NewForbidden(
+		schema.GroupResource{Group: externaldnsv1alpha1.GroupVersion.Group, Resource: "dnsendpoints"}, "", errors.New("rbac"))
+	c := interceptor.NewClient(fake.NewClientBuilder().WithScheme(s).WithObjects(tt).Build(), interceptor.Funcs{
+		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+			return forbidden
+		},
+	})
+	r := &TowonelTunnelReconciler{Client: c, APIReader: c}
+
+	if _, err := r.reconcileDelete(t.Context(), tt); !apierrors.IsForbidden(err) {
+		t.Fatalf("reconcileDelete err = %v, want Forbidden", err)
+	}
+	if !controllerutil.ContainsFinalizer(tt, FinalizerName) {
+		t.Fatal("finalizer removed in memory despite a failed DNS sweep")
+	}
+	var stored towonelv1alpha1.TowonelTunnel
+	if err := c.Get(t.Context(), client.ObjectKeyFromObject(tt), &stored); err != nil {
+		t.Fatal(err)
+	}
+	if !controllerutil.ContainsFinalizer(&stored, FinalizerName) {
+		t.Fatal("finalizer removed from the stored tunnel despite a failed DNS sweep")
 	}
 }
