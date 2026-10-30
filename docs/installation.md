@@ -68,6 +68,7 @@ are recommended when tunnels span teams/accounts.
 | `credentials.existingSecret` | `""` | Secret holding the API key (`TOWONEL_API_KEY` fallback) |
 | `credentials.tokenKey` | `token` | Key within that Secret |
 | `gatewayAPI.enabled` | `auto` | `auto` probes for Gateway API CRDs; `true`/`false` force the source controllers |
+| `dns.edgeTargets` | `{}` | Region → CNAME target FQDN for `spec.dns.mode: DNSEndpoint` tunnels (`--dns-edge-target`). Empty: Towonel's public edges (`CA`→`edge-na.towonel.dev`, `EU`→`edge-eu.towonel.dev`) only while `towonel.apiURL` is the public hub; set it for self-hosted hubs. Any entry replaces the defaults. See [dns.md](dns.md) |
 | `agentNamespace` | `""` | Namespace for auto-created default agents (`""` = the tunnel's namespace) |
 | `agentEnv` | `{}` | Extra `name: value` environment variables for **every** agent pod, hand-authored and auto-created (e.g. `RUST_LOG`). Plain values only; changing it rolls every agent. Operator-managed names are ignored with an `EnvIgnored` Warning event |
 | `agentNodeRBAC.create` | `true` | Shared node-reader `ClusterRole`/`ClusterRoleBinding` for [direct-path autodiscover](connectivity.md) (inert until used) |
@@ -96,6 +97,7 @@ The chart wires these; set them directly if you run the binary yourself:
 | `--agent-namespace` | `""` | Namespace for auto-created default agents |
 | `--agent-env` | — | `NAME=VALUE` environment variable added to every agent pod (repeatable); a malformed, invalid or duplicate entry stops the manager at startup |
 | `--enable-gateway-api` | `auto` | `auto\|true\|false` — register Gateway/HTTPRoute source controllers |
+| `--dns-edge-target` | public-hub defaults (see `dns.edgeTargets`) | `REGION=FQDN` CNAME target for DNS-enabled tunnels in that hub region (repeatable); a malformed, invalid or duplicate entry stops the manager at startup |
 | `--leader-elect` | `true` | Leader election |
 | `--metrics-bind-address` | `:8080` | Metrics endpoint |
 | `--health-probe-bind-address` | `:8081` | Health/ready probes |

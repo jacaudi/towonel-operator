@@ -35,6 +35,9 @@ type TowonelTunnelReconciler struct {
 	Recorder   record.EventRecorder
 	BaseURL    string
 	HTTPClient *http.Client
+	// DNSEdgeTargets is the resolved region → CNAME-target map
+	// (--dns-edge-target, design §6.1); nil means no operator-wide targets.
+	DNSEdgeTargets map[string]string
 }
 
 //+kubebuilder:rbac:groups=towonel.io,resources=towoneltunnels,verbs=get;list;watch;create;update;patch;delete
