@@ -17,7 +17,7 @@ See [`examples/01-tunnel.yaml`](examples/01-tunnel.yaml).
 | `tokenExpiry` | int64 | `0` | Invite `expires_in_secs`; `0` = never (the hub caps finite values at 30d). |
 | `deletionPolicy` | `Delete`\|`Retain` | `Delete` | On CR delete: `Delete` releases the invite + ports; `Retain` leaves the invite alive (prod tunnels). |
 | `extraHostnames` | []string | — | Authorize hostnames no agent serves yet (escape hatch). |
-| `dns` | object | `{mode: Disabled}` | **Reserved / not yet implemented** — see [dns.md](dns.md). The field is accepted but the operator emits nothing. |
+| `dns` | object | `{mode: Disabled}` | DNS handoff: `mode: DNSEndpoint` emits an external-dns `DNSEndpoint` (`cnameTarget`, `defaultTTL`, `namespace`, `labels`, `annotations`, `providerSpecific`, `includeWildcards`). See [dns.md](dns.md). |
 
 ## Status (operator-written)
 
@@ -29,7 +29,8 @@ See [`examples/01-tunnel.yaml`](examples/01-tunnel.yaml).
 | `authorizedHostnames` | Aggregated from referencing agents + `extraHostnames`. |
 | `portAllocations` | One per agent tcp/udp service: `{name, protocol, listenPort, edge{nodeId, addresses}}`. |
 | `edges` | Union of edge addresses (TCP/UDP). |
-| `dnsRecords` | **Reserved** — populated only by the (unimplemented) DNS handoff. |
+| `dnsRecords` | The CNAME records the DNS handoff publishes (or would, in `Disabled` mode). |
+| `regionEndpoints` | Per configured region (primary first): `{region, role: primary\|secondary, addresses}` — live edge IPs from the hub. |
 | `phase` | Coarse rollup: `Pending` / `Ready` / `Error`. |
 | `observedGeneration` | Last reconciled generation. |
 
@@ -41,6 +42,8 @@ See [`examples/01-tunnel.yaml`](examples/01-tunnel.yaml).
 | `InviteIssued` | The Towonel invite exists and the token Secret is written. |
 | `HostnamesSynced` | The authorized-hostname set matches the desired (aggregated) set. |
 | `PortsReserved` | All requested TCP/UDP ports are reserved. |
+| `DNSEndpointSynced` | DNS handoff state: set while `dns.mode: DNSEndpoint`, or `False/APIError` when a Disabled-mode cleanup sweep fails (removed once it succeeds); see [dns.md](dns.md). Never gates `Ready`. |
+| `RegionEndpointsAvailable` | Whether the hub's region-status endpoint answered. Informational. |
 | `TokenExpiringSoon` | Set when a finite token nears expiry (7-day window). |
 
 ## Lifecycle notes

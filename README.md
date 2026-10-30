@@ -89,9 +89,9 @@ spec:
 …or author a `TowonelAgent` directly for full control (HTTPS + raw TCP/UDP, failover,
 [direct-path connectivity](docs/connectivity.md)) — see [`docs/examples/`](docs/examples/).
 
-**4. Point DNS.** The operator does not manage DNS yet — read the tunnel's status
-(`authorizedHostnames`, `portAllocations[].edge.addresses`) and create the records in your
-DNS provider. See [`docs/dns.md`](docs/dns.md).
+**4. Point DNS.** Set `spec.dns.mode: DNSEndpoint` on the tunnel and run external-dns with
+`--source=crd`: the operator publishes a `CNAME` per confirmed hostname to Towonel's regional
+edge. Or create the records yourself from `status.dnsRecords`. See [`docs/dns.md`](docs/dns.md).
 
 ```sh
 kubectl get towoneltunnel app -n towonel-system -o yaml   # inspect status

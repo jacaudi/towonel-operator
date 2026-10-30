@@ -13,7 +13,7 @@ New here? Start with the [Quickstart in the root README](../README.md#quickstart
 | [`TowonelAgent` reference](crd-towonelagent.md) | Workload + routing CRD: services, tcp/udp, connectivity, workload, status |
 | [Source layer (annotations)](source-layer.md) | Expose a `Service`/`Gateway`/`HTTPRoute` by annotation |
 | [Direct-path connectivity](connectivity.md) | Optional iroh NAT-traversal (`spec.connectivity`) |
-| [DNS](dns.md) | Public DNS handoff — **designed, not yet implemented** |
+| [DNS](dns.md) | Public DNS handoff via external-dns `DNSEndpoint` |
 | [Examples](examples/) | Runnable sample manifests |
 
 ## What's implemented
@@ -25,8 +25,8 @@ New here? Start with the [Quickstart in the root README](../README.md#quickstart
 - **Source layer** — `Service`, `Gateway`, and `HTTPRoute` annotations materialize/own
   agent routing entries.
 - **Direct-path connectivity** — optional iroh autodiscover + UDP NodePort.
+- **DNS handoff** — `spec.dns.mode: DNSEndpoint` emits an external-dns `DNSEndpoint` per tunnel (see [dns.md](dns.md)).
 
 ## Not yet implemented (designed)
 
-- **DNS handoff** (`spec.dns` / external-dns `DNSEndpoint`) — see [dns.md](dns.md).
 - **Finite-expiry token rotation** and the **operator-key (hub-admin) tier**.

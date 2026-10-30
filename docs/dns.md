@@ -1,46 +1,162 @@
 # DNS
 
-> **Status: designed, not yet implemented.** The `TowonelTunnel.spec.dns` field exists in the CRD
-> and validates, but the operator does **not** act on it — no `DNSEndpoint` resources are emitted and
-> `status.dnsRecords` is not populated. This page describes the intended
-> design so the field's meaning is clear; do not rely on automated DNS yet.
+With `spec.dns.mode: DNSEndpoint`, the operator publishes public DNS for every HTTPS hostname
+the hub has confirmed for the tunnel. It does not call any DNS provider. Instead it emits one
+external-dns [`DNSEndpoint`](https://kubernetes-sigs.github.io/external-dns/latest/docs/sources/crd/)
+(`externaldns.k8s.io/v1alpha1`) per tunnel. Any `DNSEndpoint`-aware controller publishes it;
+external-dns with `--source=crd` is the reference.
 
-## Today: point DNS yourself
+```yaml
+spec:
+  dns:
+    mode: DNSEndpoint                # default Disabled
+    labels:                          # copied onto the DNSEndpoint — scope external-dns with them
+      example.com/dns-endpoint: public
+    providerSpecific:                # copied onto every endpoint
+      - name: cloudflare/proxied
+        value: "false"
+    # defaultTTL: 300                # record TTL (seconds, >= 1)
+    # cnameTarget: edge.example.com  # override the edge target for this tunnel
+    # includeWildcards: false        # also publish *.zone hostnames
+    # namespace: ""                  # where the DNSEndpoint lives (default: the tunnel's)
+    # annotations: {}                # copied onto the DNSEndpoint (--annotation-filter)
+```
 
-Towonel has no DNS API. The tunnel exposes the information you need in its status:
+## What gets published
 
-- **HTTPS/SNI hostnames** → point a `CNAME` (or `A`) at your region's edge target.
-- **Raw TCP/UDP** → the reservation's edge address is in `status.portAllocations[].edge.addresses`
-  (and `status.edges`). Create an `A`/`AAAA` record to it; clients connect on `host:listenPort`
-  (the port is not expressible in DNS).
+- One `CNAME <hostname> → <edge target>` for every hostname in the invite that the hub has
+  **confirmed**. The record set follows the hub, not just your spec:
+  - A hostname the hub refused with `hostname_conflict` stays out: another tenant may hold it.
+  - A **revoked** invite publishes nothing.
+  - Wildcard hostnames (`*.example.com`) are skipped unless `includeWildcards: true`.
+- **Edge target.** The target is `spec.dns.cnameTarget` if set. Otherwise it comes from the
+  operator's region map, keyed on the **hub's** invite region (not `spec.region`, which only
+  matters when the invite is created):
+  - On the public hub (`towonel.apiURL` / `--towonel-api-url` = `https://hub.towonel.dev`) the
+    defaults are `CA → edge-na.towonel.dev` and `EU → edge-eu.towonel.dev`.
+  - For a self-hosted hub, set Helm `dns.edgeTargets` (`--dns-edge-target REGION=FQDN`).
+    Without it, the tunnel reports `NoEdgeTarget`.
+- **The object.** It is named `towonel.<tunnel-namespace>.<tunnel-name>`. If that would exceed the
+  253-character name limit, it is named `towonel.<hash>` instead, where `<hash>` is the same value as
+  the `towonel.io/owner-tunnel` label. It lives in `spec.dns.namespace` (default: the tunnel's namespace).
+  - It is labelled `app.kubernetes.io/managed-by: towonel-operator` and
+    `towonel.io/owner-tunnel: <hash>`, and annotated `towonel.io/owner-tunnel-ref: <ns>/<name>`.
+  - It has no owner reference. The operator cleans it up by label.
+- `status.dnsRecords` shows the records (also in `Disabled` mode, so you can create them by hand).
+  `status.regionEndpoints` shows the live edge IPs per region.
+- The `DNSEndpointSynced` condition reports progress:
 
-So: read the tunnel status, create the records in whatever DNS you run.
+  | Reason | Meaning |
+  |---|---|
+  | `Synced` | Records published, or 0 records and the object removed |
+  | `DNSEndpointCRDMissing` | Install external-dns's CRD; it is picked up without a restart |
+  | `NoEdgeTarget` | No target for the invite's region; records withdrawn |
+  | `InviteRevoked` | The hub revoked the invite; records withdrawn |
+  | `ForeignObject` | An object the operator doesn't own holds the name; nothing is overwritten |
+  | `InvalidConfig` | The API server rejected the object (for example a bad label key) |
+  | `APIError` | A transient API error; retried every 2 minutes |
 
-## Planned: vendor-neutral handoff via external-dns `DNSEndpoint`
+  In `Disabled` mode the condition is removed once the sweep succeeds. If the sweep fails it is
+  `False/APIError` and retried. DNS never affects the tunnel's `Ready`.
 
-The design (parent design §8) hands DNS off through the ecosystem-standard external-dns
-**`DNSEndpoint`** CRD (`externaldns.k8s.io/v1alpha1`) rather than talking to any DNS provider
-directly. When `spec.dns.mode: DNSEndpoint`, the operator would:
+## Consumer setup
 
-- emit owner-reffed `DNSEndpoint` resources (GC'd with the tunnel) in `spec.dns.namespace`
-  (default: the tunnel's namespace), with `recordTTL` from `spec.dns.defaultTTL`;
-- compute endpoints from the authorized hostnames + reservations: HTTPS hostnames → `CNAME` to the
-  configured regional edge target; tcp/udp entries that set a `hostname` → `A`/`AAAA` to the edge
-  addresses;
-- populate `status.dnsRecords` as an observability view (never an integration contract).
+external-dns `--label-filter` and `--annotation-filter` apply to **every** source on an instance
+(crd, ingress, gateway routes, service). With `policy: sync`, filtering a source out **deletes**
+its records. A `!=` label selector matches objects that lack the label.
 
-external-dns (run with `--source=crd`) then reconciles those to **any** provider (Cloudflare,
-Route53, Google, RFC2136, webhook/NextDNS, …). The operator would not own the `DNSEndpoint` CRD —
-you install it as part of your external-dns setup.
+**Recipe A: dedicated public instance (recommended).**
 
-Why `DNSEndpoint` and not, say, a ConfigMap: external-dns has no ConfigMap source, and a
-`DNSEndpoint` carries its records inline — it *is* the standard "declare records, let a controller
-apply them" artifact. A bespoke shape would only be consumable by a bespoke controller, which the
-vendor-neutral design avoids.
+1. Run an external-dns instance for your public provider with:
+   - `sources: [crd]`;
+   - `domainFilters: [<your zone>]`;
+   - `--label-filter=<you>/dns-endpoint=public`;
+   - its own `txtOwnerId`.
+2. On every other instance that reads `crd` for the same zone (for example a LAN split-horizon
+   one), add `--label-filter=<you>/dns-endpoint!=public`.
+3. Label the tunnel: `spec.dns.labels: {<you>/dns-endpoint: public}`. Use a label prefix you
+   own, not `towonel.io/`.
 
-## Related fields (currently inert)
+**Recipe B: reuse an existing public instance.** Adding your zone to its `domainFilters`
+publishes **every** source it reads in that zone: ingress, gateway routes and services, possibly
+with LAN IPs. It also publishes LAN-only `DNSEndpoint`s. Each of those must be excluded on that
+instance. Prefer recipe A.
 
-- `TowonelTunnel.spec.dns.{mode, defaultTTL, namespace}` — accepted, no effect yet.
-- `TowonelTunnel.status.dnsRecords` — reserved for the handoff.
-- `TowonelAgent.spec.tcp[]/udp[].hostname` and the `towonel.io/dns-record` source annotation — the
-  inputs the handoff would consume; today they are informational only.
+**Rollout order (mandatory):**
+
+1. The LAN instance's `!=public` filter.
+2. The public instance.
+3. `mode: DNSEndpoint`.
+
+Otherwise a LAN instance with `crd` and `policy: sync` writes the public CNAMEs over its local
+records.
+
+**Cloudflare proxying.** `providerSpecific: [{name: cloudflare/proxied, value: "false"}]`
+publishes DNS-only records, overriding an instance-wide `--cloudflare-proxied`. Property names
+by external-dns version:
+
+- `cloudflare/proxied` from v0.23.0;
+- `external-dns.kubernetes.io/cloudflare-proxied` in v0.22.0;
+- `external-dns.alpha.kubernetes.io/cloudflare-proxied` in v0.21.0 and earlier.
+
+## Upgrading
+
+> **Warning.** Before this release `spec.dns.mode: DNSEndpoint` was accepted but inert. A tunnel
+> that already sets it **starts emitting on upgrade**, bypassing the rollout order above. Find
+> such tunnels first:
+>
+> ```sh
+> kubectl get twt -A -o jsonpath='{range .items[?(@.spec.dns.mode=="DNSEndpoint")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}'
+> ```
+
+**Changes every tunnel sees after upgrading, even with DNS left `Disabled`:**
+
+- `status.dnsRecords` is populated with the records the tunnel *would* publish, whenever an edge
+  target resolves for its region.
+- A `RegionEndpointsAvailable` condition and `status.regionEndpoints` (live edge IPs per region)
+  appear.
+- The operator lists `DNSEndpoint`s once per reconcile (a no-op `NoMatch` when the CRD isn't
+  installed). This needs the new RBAC rule (`externaldns.k8s.io` / `dnsendpoints`:
+  `get, list, create, patch, delete`). The Helm chart grants it. **If you install from raw
+  manifests, update the operator's ClusterRole** from `config/rbac/role.yaml`, or DNS operations
+  fail with `Forbidden`. Under `deletionPolicy: Delete`, a `Forbidden` sweep keeps the tunnel's
+  finalizer until RBAC is fixed.
+
+**Migrating from hand-made records.** external-dns won't modify records it doesn't own (no TXT
+ownership record), so remove the existing records first. If another controller manages them (for
+example cloudflare-operator `CloudflareDNSRecord` CRs), remove those CRs, then check at the
+provider that the records are gone. Then enable. Expect a resolution gap of about one TTL.
+
+## Removal and cleanup
+
+- Under `policy: sync`, public DNS is **removed** when:
+  - the tunnel switches to `Disabled`;
+  - the hub revokes the invite;
+  - the edge target disappears;
+  - the tunnel is deleted with `deletionPolicy: Delete` (records are withdrawn before the
+    invite's hostnames are released).
+- `deletionPolicy: Retain` keeps the records, and from then on they are **unmanaged**: nothing
+  updates or removes them.
+  - A tunnel recreated with the same namespace/name re-adopts them only once its token Secret
+    (`<tunnel>-token`) is present again. Garbage collection deletes that Secret along with the old
+    tunnel, so until you restore it the recreated tunnel stops at `Ready=False` ("adopted invite
+    has no stored token") before DNS runs.
+  - Otherwise remove the records with the orphan-cleanup command below.
+  - A re-adopting tunnel recreated with `Disabled` removes them.
+- A removed hostname lingers for one external-dns sync interval plus the TTL. If hostname
+  convergence fails, the last published set stays until the next success.
+- Orphans (for example after a force-removed finalizer):
+  `kubectl delete dnsendpoints -A -l towonel.io/owner-tunnel=<hash>`. The
+  `towonel.io/owner-tunnel-ref` annotation shows which tunnel an object belonged to.
+- `spec.dns.namespace` lets a tunnel author place the `DNSEndpoint` in any existing namespace,
+  through the operator's ClusterRole.
+
+## Raw TCP/UDP
+
+Not automated yet. The reservation's edge address is in `status.portAllocations[].edge.addresses`.
+Create an `A`/`AAAA` record yourself. Clients connect on `host:listenPort`; the port can't be
+expressed in DNS.
+
+## SNI
+
+A CNAME chain doesn't change SNI, so Towonel still routes on the original hostname.
