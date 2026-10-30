@@ -239,17 +239,61 @@ func TestDNSRevokedInviteWithdrawsRecords(t *testing.T) {
 		return err == nil && inviteID != ""
 	})
 	hub.Revoke(inviteID)
-	mutateTunnel(t, c, ns, "rev", func(tt *towonelv1alpha1.TowonelTunnel) {
-		if tt.Annotations == nil {
-			tt.Annotations = map[string]string{}
-		}
-		tt.Annotations["test.towonel.io/poke"] = fmt.Sprint(time.Now().UnixNano()) // trigger a reconcile
-	})
+	pokeTunnel(t, c, ns, "rev")
 	waitFor(t, 20*time.Second, func() bool {
 		_, err := getDNS(ctx, ns, dnsName(ns, "rev"))
 		cond, tt := tunnelCond(ctx, c, ns, "rev")
+		if tt == nil {
+			return false
+		}
+		// A revoked invite is not "converged": HostnamesSynced must say so.
+		hostCond := meta.FindStatusCondition(tt.Status.Conditions, controller.CondHostnamesSynced)
 		return apierrors.IsNotFound(err) && cond != nil && cond.Reason == controller.ReasonInviteRevoked &&
-			tt != nil && len(tt.Status.DNSRecords) == 0
+			len(tt.Status.DNSRecords) == 0 &&
+			hostCond != nil && hostCond.Status == metav1.ConditionFalse && hostCond.Reason == controller.ReasonInviteRevoked
+	})
+}
+
+// A hub-deleted invite (GET /v1/invites/{id} -> 404) cannot be confirmed, so
+// DNS fails closed: the records are withdrawn rather than left published.
+func TestDNSInviteDeletedHubSideWithdrawsRecords(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, hub, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ctx := t.Context()
+	ns := mustNamespace(t)
+	if err := c.Create(ctx, dnsTunnelObj(ns, "gone", []string{"a.example.com"}, enabled())); err != nil {
+		t.Fatal(err)
+	}
+	var inviteID string
+	waitFor(t, 20*time.Second, func() bool {
+		_, err := getDNS(ctx, ns, dnsName(ns, "gone"))
+		_, tt := tunnelCond(ctx, c, ns, "gone")
+		if tt != nil {
+			inviteID = tt.Status.InviteID
+		}
+		return err == nil && inviteID != ""
+	})
+	srv, tc := hub.Server()
+	defer srv.Close()
+	if err := tc.DeleteInvite(ctx, inviteID); err != nil {
+		t.Fatalf("delete invite hub-side: %v", err)
+	}
+	pokeTunnel(t, c, ns, "gone")
+	waitFor(t, 20*time.Second, func() bool {
+		_, err := getDNS(ctx, ns, dnsName(ns, "gone"))
+		return apierrors.IsNotFound(err)
+	})
+}
+
+// pokeTunnel annotates the tunnel with a fresh value to trigger a reconcile.
+func pokeTunnel(t *testing.T, c client.Client, ns, name string) {
+	t.Helper()
+	mutateTunnel(t, c, ns, name, func(tt *towonelv1alpha1.TowonelTunnel) {
+		if tt.Annotations == nil {
+			tt.Annotations = map[string]string{}
+		}
+		tt.Annotations["test.towonel.io/poke"] = fmt.Sprint(time.Now().UnixNano())
 	})
 }
 

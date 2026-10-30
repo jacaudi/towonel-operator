@@ -126,9 +126,20 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	cancelHost()
 	if err != nil {
 		setCond(&tt, CondHostnamesSynced, metav1.ConditionFalse, ReasonAPIError, err.Error())
+		// The hub no longer knows the invite (deleted hub-side): nothing can be
+		// confirmed, so fail closed and withdraw published records before failing.
+		if apiErr, ok := errors.AsType[*towonel.APIError](err); ok && apiErr.StatusCode == http.StatusNotFound {
+			r.reconcileDNS(ctx, &tt, inviteView{Revoked: true})
+		}
 		return r.fail(ctx, &tt, orig, err)
 	}
-	setCond(&tt, CondHostnamesSynced, metav1.ConditionTrue, ReasonSynced, "authorized hostnames converged")
+	if view.Revoked {
+		// convergeHostnames mutates nothing on a revoked invite: do not claim convergence.
+		setCond(&tt, CondHostnamesSynced, metav1.ConditionFalse, ReasonInviteRevoked,
+			fmt.Sprintf("hub reports invite %s revoked; hostnames not converged", tt.Status.InviteID))
+	} else {
+		setCond(&tt, CondHostnamesSynced, metav1.ConditionTrue, ReasonSynced, "authorized hostnames converged")
+	}
 	// DNS runs before ports so a port failure never blocks publishing or
 	// withdrawing records (design §6.4).
 	dnsRetry := r.reconcileDNS(ctx, &tt, view)

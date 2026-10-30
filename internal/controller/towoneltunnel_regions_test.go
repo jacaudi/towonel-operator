@@ -67,6 +67,10 @@ func TestPopulateRegionEndpoints404KeepsStatus(t *testing.T) {
 	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != ReasonUnavailable {
 		t.Fatalf("condition = %+v, want False/Unavailable", cond)
 	}
+	// A 404 is also what an unknown invite returns, so the message must not blame the hub version alone.
+	if want := "hub returned 404 for /v1/invites/{id}/status (hub too old, or invite unknown)"; cond.Message != want {
+		t.Fatalf("condition message = %q, want %q", cond.Message, want)
+	}
 	if meta.FindStatusCondition(tt.Status.Conditions, CondReady) != nil {
 		t.Fatal("populateRegionEndpoints must not touch Ready")
 	}

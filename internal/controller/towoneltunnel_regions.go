@@ -27,7 +27,7 @@ func (r *TowonelTunnelReconciler) populateRegionEndpoints(ctx context.Context, t
 	})
 	if err != nil {
 		if apiErr, ok := errors.AsType[*towonel.APIError](err); ok && apiErr.StatusCode == http.StatusNotFound {
-			setCond(tt, CondRegionEndpointsAvailable, metav1.ConditionFalse, ReasonUnavailable, "hub does not serve /v1/invites/{id}/status")
+			setCond(tt, CondRegionEndpointsAvailable, metav1.ConditionFalse, ReasonUnavailable, "hub returned 404 for /v1/invites/{id}/status (hub too old, or invite unknown)")
 			logf.FromContext(ctx).V(1).Info("region status endpoint unavailable", "invite", tt.Status.InviteID)
 			return
 		}
