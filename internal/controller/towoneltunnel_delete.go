@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -20,6 +21,19 @@ import (
 func (r *TowonelTunnelReconciler) reconcileDelete(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(tt, FinalizerName) {
 		return ctrl.Result{}, nil
+	}
+	if tt.Spec.DeletionPolicy != towonelv1alpha1.DeletionPolicyRetain {
+		// Withdraw DNS FIRST — before any hub access and regardless of
+		// InviteID — so public records never outlive the hostnames this delete
+		// releases (design §6.5, gate 2 B4). A NoMatch (CRD absent) is nothing
+		// to clean; any other error (Forbidden included) keeps the finalizer:
+		// fail closed rather than orphan public DNS.
+		if err := r.sweepDNSEndpoints(ctx, ownerHash(tt.Namespace, tt.Name), nil); err != nil {
+			if r.Recorder != nil {
+				r.Recorder.Event(tt, corev1.EventTypeWarning, ReasonAPIError, "withdraw DNSEndpoints before delete: "+err.Error())
+			}
+			return ctrl.Result{}, err
+		}
 	}
 	if tt.Spec.DeletionPolicy != towonelv1alpha1.DeletionPolicyRetain && tt.Status.InviteID != "" {
 		apiKey, halt, err := r.resolveAPIKey(ctx, tt)

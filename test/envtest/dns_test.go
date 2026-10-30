@@ -314,3 +314,140 @@ func TestDNSForeignObjectNotOverwritten(t *testing.T) {
 		return slices.ContainsFunc(evs.Items, func(e corev1.Event) bool { return e.Reason == controller.ReasonForeignObject })
 	})
 }
+
+func TestDNSDeletePolicyWithdrawsRecords(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ctx := t.Context()
+	ns := mustNamespace(t)
+	tt := dnsTunnelObj(ns, "del", []string{"a.example.com"}, enabled())
+	tt.Spec.DeletionPolicy = towonelv1alpha1.DeletionPolicyDelete
+	if err := c.Create(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, "del")); return err == nil })
+	if err := c.Delete(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 20*time.Second, func() bool {
+		var g towonelv1alpha1.TowonelTunnel
+		_, err := getDNS(ctx, ns, dnsName(ns, "del"))
+		return apierrors.IsNotFound(err) && apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "del"}, &g))
+	})
+}
+
+// Design §6.5 / gate 2 B4: the Delete-policy sweep needs no hub access, so it
+// runs before resolveAPIKey — DNS is withdrawn even while the finalizer is
+// stuck on an unresolvable API key.
+func TestDNSDeleteSweepsWithoutAPIKey(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ctx := t.Context()
+	ns := mustNamespace(t)
+	tt := dnsTunnelObj(ns, "nokey", []string{"a.example.com"}, enabled())
+	tt.Spec.DeletionPolicy = towonelv1alpha1.DeletionPolicyDelete
+	if err := c.Create(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, "nokey")); return err == nil })
+	mutateTunnel(t, c, ns, "nokey", func(tt *towonelv1alpha1.TowonelTunnel) {
+		tt.Spec.APIKeySecretRef = &towonelv1alpha1.SecretKeyRef{Name: "missing-secret"}
+	})
+	if err := c.Delete(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, "nokey")); return apierrors.IsNotFound(err) })
+	// Unblock the finalizer so the namespace is not left with a stuck object.
+	mutateTunnel(t, c, ns, "nokey", func(tt *towonelv1alpha1.TowonelTunnel) { tt.Spec.APIKeySecretRef = nil })
+	waitFor(t, 20*time.Second, func() bool {
+		var g towonelv1alpha1.TowonelTunnel
+		return apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "nokey"}, &g))
+	})
+}
+
+// retainDeleted creates a Retain-policy DNS tunnel, waits for its record, deletes
+// the tunnel, and asserts the DNSEndpoint survives the deletion.
+func retainDeleted(t *testing.T, c client.Client, ns, name string) func() *towonelv1alpha1.TowonelTunnel {
+	t.Helper()
+	ctx := t.Context()
+	mk := func() *towonelv1alpha1.TowonelTunnel {
+		tt := dnsTunnelObj(ns, name, []string{"a.example.com"}, enabled())
+		tt.Spec.DeletionPolicy = towonelv1alpha1.DeletionPolicyRetain
+		return tt
+	}
+	tt := mk()
+	if err := c.Create(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, name)); return err == nil })
+	if err := c.Delete(ctx, tt); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 20*time.Second, func() bool {
+		var g towonelv1alpha1.TowonelTunnel
+		return apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &g))
+	})
+	if _, err := getDNS(ctx, ns, dnsName(ns, name)); err != nil {
+		t.Fatalf("Retain: DNSEndpoint must survive tunnel deletion, got %v", err)
+	}
+	return mk
+}
+
+// Token-PRESENT path only. envtest has no garbage collector, so the token
+// Secret (controller-owned by the deleted tunnel, towoneltunnel_secret.go)
+// survives here. In a real cluster GC deletes it, and the recreated tunnel
+// stops at errAdoptedNoToken before DNS runs; that path is the next test.
+func TestDNSRetainKeepsRecordsAndReadoptsWithToken(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ctx := t.Context()
+	ns := mustNamespace(t)
+	mk := retainDeleted(t, c, ns, "keep")
+	if err := c.Create(ctx, mk()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 20*time.Second, func() bool {
+		cond, _ := tunnelCond(ctx, c, ns, "keep")
+		return cond != nil && cond.Status == metav1.ConditionTrue && cond.Reason == controller.ReasonSynced
+	})
+}
+
+// Real-cluster Retain path (S4): with the token Secret gone (what GC does), the
+// recreated tunnel adopts the invite but halts at errAdoptedNoToken
+// (Ready=False/Reconciling, Phase Pending) before DNS runs. The records stay
+// published but UNMANAGED, and the tunnel never reports DNSEndpointSynced.
+func TestDNSRetainWithoutTokenLeavesRecordsUnmanaged(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ctx := t.Context()
+	ns := mustNamespace(t)
+	mk := retainDeleted(t, c, ns, "keepnotoken")
+	if err := k8sClient.Delete(ctx, &corev1.Secret{Name: "keepnotoken-token", Namespace: ns}); err != nil {
+		t.Fatalf("delete token Secret: %v", err)
+	}
+	// c is the manager's CACHED client: wait until the cache has seen the delete,
+	// or the recreated tunnel could read a stale Secret and skip the no-token path.
+	waitFor(t, 20*time.Second, func() bool {
+		var s corev1.Secret
+		return apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "keepnotoken-token"}, &s))
+	})
+	if err := c.Create(ctx, mk()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 20*time.Second, func() bool {
+		cond, got := tunnelCond(ctx, c, ns, "keepnotoken")
+		if got == nil {
+			return false
+		}
+		ready := meta.FindStatusCondition(got.Status.Conditions, controller.CondReady)
+		return cond == nil && got.Status.Phase == "Pending" && ready != nil &&
+			ready.Status == metav1.ConditionFalse && ready.Reason == controller.ReasonReconciling
+	})
+	if _, err := getDNS(ctx, ns, dnsName(ns, "keepnotoken")); err != nil {
+		t.Fatalf("records must remain (unmanaged) when the token is missing, got %v", err)
+	}
+}
