@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -488,10 +489,58 @@ func TestDNSRetainWithoutTokenLeavesRecordsUnmanaged(t *testing.T) {
 			return false
 		}
 		ready := meta.FindStatusCondition(got.Status.Conditions, controller.CondReady)
-		return cond == nil && got.Status.Phase == "Pending" && ready != nil &&
+		// InviteID != "": the invite was ADOPTED (no token), not "not yet issued".
+		return cond == nil && got.Status.InviteID != "" && got.Status.Phase == "Pending" && ready != nil &&
 			ready.Status == metav1.ConditionFalse && ready.Reason == controller.ReasonReconciling
 	})
 	if _, err := getDNS(ctx, ns, dnsName(ns, "keepnotoken")); err != nil {
 		t.Fatalf("records must remain (unmanaged) when the token is missing, got %v", err)
+	}
+}
+
+// dnsCondEventually waits for the tunnel's DNSEndpointSynced condition to be
+// False with the given reason and returns it.
+func dnsCondEventually(t *testing.T, c client.Client, ns, name, reason string) *metav1.Condition {
+	t.Helper()
+	var got *metav1.Condition
+	waitFor(t, 20*time.Second, func() bool {
+		cond, _ := tunnelCond(t.Context(), c, ns, name)
+		got = cond
+		return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == reason
+	})
+	return got
+}
+
+// A label key the API server rejects (the CRD only bounds the map shape) must
+// surface as InvalidConfig, not a retry loop.
+func TestDNSInvalidLabelsReportInvalidConfig(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ns := mustNamespace(t)
+	dns := enabled(func(d *towonelv1alpha1.TunnelDNSSpec) { d.Labels = map[string]string{"bad key!": "x"} })
+	if err := c.Create(t.Context(), dnsTunnelObj(ns, "badlabels", []string{"a.example.com"}, dns)); err != nil {
+		t.Fatal(err)
+	}
+	dnsCondEventually(t, c, ns, "badlabels", controller.ReasonInvalidConfig)
+	if _, err := getDNS(t.Context(), ns, dnsName(ns, "badlabels")); !apierrors.IsNotFound(err) {
+		t.Fatalf("DNSEndpoint must not exist for invalid labels, got err=%v", err)
+	}
+}
+
+// spec.dns.namespace naming a namespace that does not exist is an APIError
+// that says why (the operator retries; creating the namespace fixes it).
+func TestDNSMissingNamespaceReportsAPIError(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ns := mustNamespace(t)
+	dns := enabled(func(d *towonelv1alpha1.TunnelDNSSpec) { d.Namespace = ns + "-missing" })
+	if err := c.Create(t.Context(), dnsTunnelObj(ns, "nonamespace", []string{"a.example.com"}, dns)); err != nil {
+		t.Fatal(err)
+	}
+	cond := dnsCondEventually(t, c, ns, "nonamespace", controller.ReasonAPIError)
+	if !strings.Contains(cond.Message, "not found") {
+		t.Fatalf("message = %q, want it to contain %q", cond.Message, "not found")
 	}
 }
