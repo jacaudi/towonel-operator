@@ -43,6 +43,8 @@ const (
 	ReasonNoEdgeTarget    = "NoEdgeTarget"
 	ReasonForeignObject   = "ForeignObject"
 	ReasonInviteRevoked   = "InviteRevoked"
+	// Tunnel region endpoints (#38; design §7). Informational: never gates Ready.
+	CondRegionEndpointsAvailable = "RegionEndpointsAvailable"
 	// dnsRetryRequeue replaces the 30-minute resync when the DNS step asks to
 	// retry (CRD missing, foreign object, API error).
 	dnsRetryRequeue = 2 * time.Minute

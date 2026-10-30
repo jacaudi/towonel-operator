@@ -132,6 +132,9 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// DNS runs before ports so a port failure never blocks publishing or
 	// withdrawing records (design §6.4).
 	dnsRetry := r.reconcileDNS(ctx, &tt, view)
+	// Region endpoints (#38) also run before ports, so a persistent port error
+	// never freezes them (design §7).
+	r.populateRegionEndpoints(ctx, tc, &tt)
 	if err := r.convergePorts(ctx, tc, &tt, agents); err != nil { // sets PortsReserved itself
 		return r.fail(ctx, &tt, orig, err)
 	}
