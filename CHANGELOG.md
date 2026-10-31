@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.10.0](https://github.com/jacaudi/towonel-operator/compare/v1.9.1...v1.10.0) (2026-10-31)
+
+
+### Features
+
+* **api:** add DNSEndpoint handoff fields and status.regionEndpoints ([eeb5582](https://github.com/jacaudi/towonel-operator/commit/eeb55827fb94d88a9e00f87d2bf2bb25880cf67f))
+* **api:** remove dead status.httpsEdgeTarget ([659412d](https://github.com/jacaudi/towonel-operator/commit/659412dc058820898af5c7a2ce11e01175ea3f13))
+* **dns:** add --dns-edge-target and chart dns.edgeTargets ([705a65c](https://github.com/jacaudi/towonel-operator/commit/705a65c4daed3d852701ad6c2a9c9dd4c23fbb5d))
+* **dns:** compute the desired DNSEndpoint for a tunnel ([eaad800](https://github.com/jacaudi/towonel-operator/commit/eaad800236bf868cebdc0a19de89ee8bb94b446a))
+* **dns:** emit and sweep DNSEndpoints for spec.dns.mode DNSEndpoint ([1aee964](https://github.com/jacaudi/towonel-operator/commit/1aee9646426242a08317c6a416d7c838971f03f2))
+* **dns:** honor towonel.io/dns-record to opt hostnames out of the DNS handoff ([95fa430](https://github.com/jacaudi/towonel-operator/commit/95fa4303c5a0ca563c1f9186e6d1730dc79ad158))
+* **dns:** resolve the operator-wide region edge-target map ([cb52006](https://github.com/jacaudi/towonel-operator/commit/cb5200602a4e702eb30712a71f97a15168fb365d))
+* **dns:** withdraw DNSEndpoints before tunnel deletion ([4cf6d4d](https://github.com/jacaudi/towonel-operator/commit/4cf6d4d4142bb41b14e614db3571bad9d3a1a27c))
+* **towonel:** decode invite status/region and add GetInviteStatus ([2807eaf](https://github.com/jacaudi/towonel-operator/commit/2807eaf2039c174fd0412608ca7bfc378d240085))
+* **tunnel:** report per-region live edge endpoints in status ([080c562](https://github.com/jacaudi/towonel-operator/commit/080c5620bec34d789f341ecc87b978ec4b82f1c4))
+
+
+### Bug Fixes
+
+* **tunnel:** report revoked and hub-deleted invites honestly ([7a0cca1](https://github.com/jacaudi/towonel-operator/commit/7a0cca19dc57424a48a60350eee9cd05a5b6a56e))
+* **tunnel:** withdraw DNS only when the hub reports the invite missing ([b1bc1cd](https://github.com/jacaudi/towonel-operator/commit/b1bc1cd93479f927ecadfd9e645f8a7e1da8eb35))
+
+
+### Refactors
+
+* **go:** apply go fix for Go 1.27 ([028c89d](https://github.com/jacaudi/towonel-operator/commit/028c89d338d0e42c5cb7e2e5c800f6c5b8aa1dae))
+* **tunnel:** return the hub-confirmed invite view from convergeHostnames ([94f51c6](https://github.com/jacaudi/towonel-operator/commit/94f51c645b4eee4d12fc594b9f717601e7c3e826))
+
+
+### Dependencies
+
+* **go:** add sigs.k8s.io/external-dns v0.24.0 (requires Go 1.27.3) ([d4a48b4](https://github.com/jacaudi/towonel-operator/commit/d4a48b49d3f11fad9d66ec0ac7455832265abaa2))
+* **go:** tidy go.mod after go fix ([011d706](https://github.com/jacaudi/towonel-operator/commit/011d7066203cb57ef33e65411d827ea15004b370))
+* Update module sigs.k8s.io/gateway-api to v1.7.0 ([5f1363a](https://github.com/jacaudi/towonel-operator/commit/5f1363a37036380cbdc66a853c1263944bd298c2))
+
 ## [1.9.1](https://github.com/jacaudi/towonel-operator/compare/v1.9.0...v1.9.1) (2026-10-29)
 
 
