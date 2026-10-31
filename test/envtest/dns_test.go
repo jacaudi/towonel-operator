@@ -456,6 +456,13 @@ func TestDNSDeleteSweepsWithoutAPIKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, "nokey")); return err == nil })
+	// The DNSEndpoint is applied before status is written; mutating the spec in
+	// that window conflicts the status write, losing inviteId, and an invite-less
+	// delete never needs the API key. Wait for inviteId to persist first.
+	waitFor(t, 20*time.Second, func() bool {
+		var g towonelv1alpha1.TowonelTunnel
+		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "nokey"}, &g) == nil && g.Status.InviteID != ""
+	})
 	mutateTunnel(t, c, ns, "nokey", func(tt *towonelv1alpha1.TowonelTunnel) {
 		tt.Spec.APIKeySecretRef = &towonelv1alpha1.SecretKeyRef{Name: "missing-secret"}
 	})
