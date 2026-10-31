@@ -17,7 +17,7 @@ metadata:
     towonel.io/hostname: grafana.domain.dev
     # towonel.io/origin: grafana.monitoring.svc:3000 # optional override; defaults to the Service ClusterIP:firstPort
     # towonel.io/edge-tls-mode: passthrough          # optional: passthrough (default) | terminate
-    # towonel.io/dns-record: "false"                 # RESERVED / inert — per-hostname DNS opt-out is not honored yet (see ../dns.md)
+    # towonel.io/dns-record: "false"                 # optional: authorize the hostname but keep it out of the DNS handoff (see ../dns.md)
 spec:
   selector:
     app.kubernetes.io/name: grafana
