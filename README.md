@@ -139,8 +139,10 @@ external-dns `DNSEndpoint` per tunnel, with a `CNAME` for every hostname the hub
 The target is the invite region's edge (`CA` → `edge-na.towonel.dev`, `EU` → `edge-eu.towonel.dev`
 on the public hub), or one you set with `--dns-edge-target` / chart `dns.edgeTargets`. Records are
 withdrawn when the mode is `Disabled`, the invite is revoked or deleted, no edge target remains, or
-the tunnel is deleted under `deletionPolicy: Delete`. See [`docs/dns.md`](docs/dns.md) for the
-consumer setup and the mandatory rollout order.
+the tunnel is deleted under `deletionPolicy: Delete`. To keep a hostname out of DNS (a zone apex
+your provider can't CNAME, say), annotate its source `towonel.io/dns-record: "false"`; the hub
+still authorizes it ([opt-out](docs/dns.md#what-gets-published)). See [`docs/dns.md`](docs/dns.md)
+for the consumer setup and the mandatory rollout order.
 
 ## Agent environment variables
 

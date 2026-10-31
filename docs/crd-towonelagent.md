@@ -29,7 +29,7 @@ See [`examples/02-explicit-service.yaml`](examples/02-explicit-service.yaml),
 > reconciled, but — because you authored it (no `towonel.io/auto-created` annotation) — the
 > operator never deletes it. You do **not** need to add any label to have routing reconciled.
 
-**`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `edgeTLSMode` (edge TLS behavior: `passthrough` default | `terminate`), `proxyProtocol` (string passed to the agent; e.g. `none` to disable the PROXY-protocol header; empty = agent default).
+**`AgentService`** (HTTPS): `hostname`, `origin` (host:port), `edgeTLSMode` (edge TLS behavior: `passthrough` default | `terminate`), `proxyProtocol` (string passed to the agent; e.g. `none` to disable the PROXY-protocol header; empty = agent default), `dnsRecord` (optional bool; `false` keeps this hostname out of the tunnel's [DNS handoff](dns.md#what-gets-published), meaning the `DNSEndpoint` and `status.dnsRecords`, while the hub still authorizes it; omitted or `true` publishes it when the tunnel's `spec.dns.mode` is `DNSEndpoint`). If any agent of a tunnel serves a hostname with `dnsRecord: false`, the hostname is excluded. The source-layer annotation `towonel.io/dns-record: "false"` sets this field on the entries it contributes.
 
 **`AgentL4Service`** (tcp/udp): `name` (unique within the list), `origin` (internal host:port), `preferredPort` (optional — pin the *public* listen port; honored if free), `hostname` (optional — intended for raw TCP/UDP DNS records, which the DNS handoff doesn't publish yet; currently informational, see [dns.md](dns.md)).
 

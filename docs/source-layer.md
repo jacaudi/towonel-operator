@@ -24,7 +24,7 @@ All keys are under `towonel.io/`. Opt in with `tunnel`, point at a tunnel with `
 | `towonel.io/protocol` | Service | `tcp` or `udp` — emit a raw L4 service instead of HTTPS. |
 | `towonel.io/gateway-service` | Gateway | **Required** on an opted-in Gateway — the proxy Service the agent forwards to (not derivable from the Gateway object). |
 | `towonel.io/auto-routes` | Gateway | Opt every **same-namespace** HTTPRoute under this Gateway into tunneling, without annotating each route. Truthy values as `towonel.io/tunnel`. **Distinct** from `towonel.io/tunnel` on a Gateway (which exposes the Gateway's own listeners). Requires `towonel.io/gateway-service`. See "Gateway auto-routes" below. |
-| `towonel.io/dns-record` | all | **Reserved / inert** — intended to opt a hostname out of the DNS handoff (not honored yet: the handoff publishes every authorized hostname). See [dns.md](dns.md). |
+| `towonel.io/dns-record` | Service, Gateway, HTTPRoute | Optional. Only an absent annotation or a truthy value (`true`/`yes`/`enable`/`enabled`, case-insensitive) publishes. Any other present value opts out (`false`/`no`/`disable`/`disabled`, or a typo, which also raises an `InvalidAnnotationValue` Warning): it keeps every hostname **this object** contributes out of the tunnel's DNS handoff (the `DNSEndpoint` and `status.dnsRecords`); the hub still authorizes it. Not inherited: a Gateway's value does not reach its auto-routed HTTPRoutes. Any-wins: if a Gateway listener hostname and a route hostname are identical, opting out either object excludes the name (the tunnel excludes it even when they target different agents). Applies to HTTPS hostnames only. See [dns.md](dns.md#what-gets-published). |
 
 ### Multi-exposure on one Service (port-name-scoped keys)
 
