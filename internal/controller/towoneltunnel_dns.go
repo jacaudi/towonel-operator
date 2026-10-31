@@ -47,8 +47,9 @@ func dnsEndpointName(namespace, name string) string {
 // §6.3): the DNSEndpoint to apply and its status.dnsRecords projection. Pure.
 // The target is spec.dns.cnameTarget, else edgeTargets[view.Region] — the HUB
 // region, never spec.region. A revoked invite yields zero endpoints. Operator
-// labels/annotations win over user ones; no owner reference is set.
-func desiredDNSEndpoint(tt *towonelv1alpha1.TowonelTunnel, view inviteView, edgeTargets map[string]string) (*externaldnsv1alpha1.DNSEndpoint, []towonelv1alpha1.DNSRecord, error) {
+// labels/annotations win over user ones; no owner reference is set. optOut names
+// hostnames kept out of the endpoints and records (see dnsOptOutHostnames).
+func desiredDNSEndpoint(tt *towonelv1alpha1.TowonelTunnel, view inviteView, edgeTargets map[string]string, optOut map[string]bool) (*externaldnsv1alpha1.DNSEndpoint, []towonelv1alpha1.DNSRecord, error) {
 	dns := tt.Spec.DNS
 	target := strings.TrimSuffix(dns.CNAMETarget, ".")
 	if target == "" {
@@ -77,7 +78,7 @@ func desiredDNSEndpoint(tt *towonelv1alpha1.TowonelTunnel, view inviteView, edge
 	var records []towonelv1alpha1.DNSRecord
 	if !view.Revoked {
 		for _, h := range dedupe(view.Confirmed) {
-			if strings.HasPrefix(h, "*.") && !dns.IncludeWildcards {
+			if (strings.HasPrefix(h, "*.") && !dns.IncludeWildcards) || optOut[h] {
 				continue
 			}
 			eps = append(eps, &endpoint.Endpoint{
@@ -158,8 +159,8 @@ func (r *TowonelTunnelReconciler) sweepDNSEndpoints(ctx context.Context, hash st
 // It never fails the reconcile: problems surface on DNSEndpointSynced, and a
 // true return asks Reconcile for dnsRetryRequeue instead of the 30-minute
 // resync. The sweep is unconditional — no "evidence" gating (gate 2).
-func (r *TowonelTunnelReconciler) reconcileDNS(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel, view inviteView) (retry bool) {
-	desired, records, derr := desiredDNSEndpoint(tt, view, r.DNSEdgeTargets)
+func (r *TowonelTunnelReconciler) reconcileDNS(ctx context.Context, tt *towonelv1alpha1.TowonelTunnel, view inviteView, optOut map[string]bool) (retry bool) {
+	desired, records, derr := desiredDNSEndpoint(tt, view, r.DNSEdgeTargets, optOut)
 	if derr != nil || view.Revoked {
 		tt.Status.DNSRecords = nil
 	} else {
@@ -241,4 +242,20 @@ func (r *TowonelTunnelReconciler) reconcileDNS(ctx context.Context, tt *towonelv
 	}
 	r.setDNSCond(tt, metav1.ConditionTrue, ReasonSynced, fmt.Sprintf("%d record(s) in %s", len(desired.Spec.Endpoints), key))
 	return false
+}
+
+// dnsOptOutHostnames collects the hostnames kept out of the DNS handoff: any
+// referencing agent service with dnsRecord:false excludes that hostname, even
+// if another agent serves it without the opt-out (explicit opt-out wins; fail
+// closed). spec.extraHostnames have no opt-out.
+func dnsOptOutHostnames(agents []towonelv1alpha1.TowonelAgent) map[string]bool {
+	out := map[string]bool{}
+	for i := range agents {
+		for _, svc := range agents[i].Spec.Services {
+			if svc.DNSRecord != nil && !*svc.DNSRecord {
+				out[svc.Hostname] = true
+			}
+		}
+	}
+	return out
 }

@@ -94,6 +94,7 @@ func (b *sourceBase) applyContribution(
 ) (reconcile.Result, error) {
 	fieldMgr := srcFieldManager(kind, src.GetNamespace(), src.GetName())
 	emit := func(reason, msg string) { b.dedupe.emit(b.recorder, src, corev1.EventTypeWarning, reason, msg) }
+	applyDNSRecordAnnotation(rt, src.GetAnnotations(), emit)
 
 	target, mode, err := resolveTarget(ctx, c, emit, agentNSConfig, defaultReplicas, tunnel, agentRef)
 	if err != nil {
@@ -193,13 +194,21 @@ func (b *sourceBase) observeUserAgent(emit func(reason, msg string), target *tow
 		emit(ReasonObserveOnly, fmt.Sprintf("agent-ref %q references tunnel %s, not %s; operator is observe-only and will not modify it", target.Name, resolvedTunnelRef(target), tunnel))
 		return
 	}
-	served := make(map[string]bool, len(target.Spec.Services))
+	served := make(map[string]towonelv1alpha1.AgentService, len(target.Spec.Services))
 	for _, s := range target.Spec.Services {
-		served[s.Hostname] = true
+		served[s.Hostname] = s
 	}
 	for _, s := range rt.services {
-		if h, _ := s["hostname"].(string); h != "" && !served[h] {
+		h, _ := s["hostname"].(string)
+		if h == "" {
+			continue
+		}
+		svc, ok := served[h]
+		switch optOut := s["dnsRecord"] == false; {
+		case !ok:
 			emit(ReasonObserveOnly, fmt.Sprintf("hostname %q is annotated here but not served by agent %q, which is in observe-only mode; set its spec.mode: Managed to let the operator manage routing", h, target.Name))
+		case optOut && (svc.DNSRecord == nil || *svc.DNSRecord):
+			emit(ReasonObserveOnly, fmt.Sprintf("%q is annotated %s but agent %q serves it without dnsRecord: false; set it on the agent", h, AnnotationDNSRecord, target.Name))
 		}
 	}
 }

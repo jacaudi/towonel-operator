@@ -103,3 +103,45 @@ func TestObserveUserAgentActionableMessage(t *testing.T) {
 		t.Fatalf("ObserveOnly message must tell the user how to opt in; got %q", msgs[0])
 	}
 }
+
+func TestObserveUserAgentWarnsWhenDNSOptOutNotOnAgent(t *testing.T) {
+	tests := []struct {
+		name      string
+		dnsRecord *bool // on the agent's service entry
+		srcOptOut bool  // source stamped dnsRecord:false
+		want      bool
+	}{
+		{"agent serves without dnsRecord", nil, true, true},
+		{"agent serves with dnsRecord true", new(true), true, true},
+		{"agent already opts out", new(false), true, false},
+		{"source did not opt out", nil, false, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			target := &towonelv1alpha1.TowonelAgent{}
+			target.Namespace, target.Name = "net", "mine"
+			target.Spec.Mode = towonelv1alpha1.ModeObserveOnly
+			target.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
+			target.Spec.Services = []towonelv1alpha1.AgentService{{Hostname: "a.example", Origin: "o:1", DNSRecord: tc.dnsRecord}}
+			entry := map[string]any{"hostname": "a.example", "origin": "o:1"}
+			if tc.srcOptOut {
+				entry["dnsRecord"] = false
+			}
+
+			var got [][2]string
+			emit := func(reason, msg string) { got = append(got, [2]string{reason, msg}) }
+			(&sourceBase{}).observeUserAgent(emit, target, types.NamespacedName{Namespace: "net", Name: "app"}, routing{services: []map[string]any{entry}})
+
+			if !tc.want {
+				if len(got) != 0 {
+					t.Fatalf("events = %v, want none", got)
+				}
+				return
+			}
+			want := [2]string{ReasonObserveOnly, `"a.example" is annotated towonel.io/dns-record but agent "mine" serves it without dnsRecord: false; set it on the agent`}
+			if len(got) != 1 || got[0] != want {
+				t.Fatalf("events = %v, want exactly [%v]", got, want)
+			}
+		})
+	}
+}

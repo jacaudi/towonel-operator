@@ -35,7 +35,7 @@ type managedObject interface {
 // CRD JSON field names (camelCase: edgeTLSMode/proxyProtocol/preferredPort) — NOT the
 // agent's env snake_case. A wrong key is pruned silently by the apiserver.
 type routing struct {
-	services []map[string]any // {hostname, origin, edgeTLSMode?, proxyProtocol?}
+	services []map[string]any // {hostname, origin, edgeTLSMode?, proxyProtocol?, dnsRecord?}
 	tcp      []map[string]any // {name, origin, preferredPort?}
 	udp      []map[string]any
 }
@@ -170,4 +170,25 @@ func orphanGCIfEmpty(ctx context.Context, r client.Reader, c client.Client, nn t
 		return nil // object gone or changed since the authoritative read — no-op
 	}
 	return err
+}
+
+// applyDNSRecordAnnotation stamps dnsRecord:false on every HTTPS service entry
+// when the source carries AnnotationDNSRecord with a value that is not truthy.
+// Absent or truthy leaves the key off (published). An unrecognized value (a typo)
+// fails CLOSED, opting out like "false", and warns via emit: publishing a
+// hostname the user tried to exclude is the costlier mistake.
+func applyDNSRecordAnnotation(rt routing, ann map[string]string, emit func(reason, msg string)) {
+	v, ok := ann[AnnotationDNSRecord]
+	if !ok {
+		return
+	}
+	publish, err := ParseTruthy(v)
+	if err != nil {
+		emit(ReasonInvalidAnnotation, fmt.Sprintf("%s %q is not a recognized true/false value; keeping this object's hostnames out of DNS", AnnotationDNSRecord, v))
+	} else if publish {
+		return
+	}
+	for _, s := range rt.services {
+		s["dnsRecord"] = false // CRD JSON key spec.services[].dnsRecord
+	}
 }

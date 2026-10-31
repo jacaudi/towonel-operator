@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -34,17 +35,17 @@ var testTargets = map[string]string{"CA": "edge-na.example.com", "EU": "edge-eu.
 func TestDesiredDNSEndpointTargetPrecedence(t *testing.T) {
 	view := inviteView{Confirmed: []string{"a.example.com"}, Region: "EU"}
 	// Override wins (trailing dot trimmed).
-	obj, _, err := desiredDNSEndpoint(dnsTunnel(towonelv1alpha1.TunnelDNSSpec{CNAMETarget: "custom.example.com."}), view, testTargets)
+	obj, _, err := desiredDNSEndpoint(dnsTunnel(towonelv1alpha1.TunnelDNSSpec{CNAMETarget: "custom.example.com."}), view, testTargets, nil)
 	if err != nil || obj.Spec.Endpoints[0].Targets[0] != "custom.example.com" {
 		t.Fatalf("override: err=%v target=%v, want custom.example.com", err, obj)
 	}
 	// Map keyed on the HUB region: spec.region is CA but the invite is EU.
-	obj, _, err = desiredDNSEndpoint(dnsTunnel(towonelv1alpha1.TunnelDNSSpec{}), view, testTargets)
+	obj, _, err = desiredDNSEndpoint(dnsTunnel(towonelv1alpha1.TunnelDNSSpec{}), view, testTargets, nil)
 	if err != nil || obj.Spec.Endpoints[0].Targets[0] != "edge-eu.example.com" {
 		t.Fatalf("map: err=%v obj=%v, want edge-eu.example.com (hub region, not spec.region)", err, obj)
 	}
 	// Neither → errNoEdgeTarget.
-	if _, _, err := desiredDNSEndpoint(dnsTunnel(towonelv1alpha1.TunnelDNSSpec{}), inviteView{Region: "AP"}, testTargets); !errors.Is(err, errNoEdgeTarget) {
+	if _, _, err := desiredDNSEndpoint(dnsTunnel(towonelv1alpha1.TunnelDNSSpec{}), inviteView{Region: "AP"}, testTargets, nil); !errors.Is(err, errNoEdgeTarget) {
 		t.Fatalf("err = %v, want errNoEdgeTarget", err)
 	}
 }
@@ -55,7 +56,7 @@ func TestDesiredDNSEndpointEndpoints(t *testing.T) {
 		ProviderSpecific: []towonelv1alpha1.DNSProviderProperty{{Name: "cloudflare/proxied", Value: "false"}},
 	}
 	view := inviteView{Confirmed: []string{"b.example.com", "*.example.com", "a.example.com", "a.example.com"}, Region: "CA"}
-	obj, records, err := desiredDNSEndpoint(dnsTunnel(dns), view, testTargets)
+	obj, records, err := desiredDNSEndpoint(dnsTunnel(dns), view, testTargets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestDesiredDNSEndpointEndpoints(t *testing.T) {
 		t.Fatalf("records = %+v, want the endpoints projection", records)
 	}
 	dns.IncludeWildcards = true
-	obj, _, _ = desiredDNSEndpoint(dnsTunnel(dns), view, testTargets)
+	obj, _, _ = desiredDNSEndpoint(dnsTunnel(dns), view, testTargets, nil)
 	if len(obj.Spec.Endpoints) != 3 || obj.Spec.Endpoints[0].DNSName != "*.example.com" {
 		t.Fatalf("includeWildcards: endpoints = %v, want *.example.com first of 3", obj.Spec.Endpoints)
 	}
@@ -88,7 +89,7 @@ func TestDesiredDNSEndpointEndpoints(t *testing.T) {
 
 func TestDesiredDNSEndpointRevokedEmitsNothing(t *testing.T) {
 	obj, records, err := desiredDNSEndpoint(dnsTunnel(towonelv1alpha1.TunnelDNSSpec{}),
-		inviteView{Confirmed: []string{"a.example.com"}, Region: "CA", Revoked: true}, testTargets)
+		inviteView{Confirmed: []string{"a.example.com"}, Region: "CA", Revoked: true}, testTargets, nil)
 	if err != nil || len(obj.Spec.Endpoints) != 0 || len(records) != 0 {
 		t.Fatalf("revoked: err=%v endpoints=%v records=%v, want none", err, obj.Spec.Endpoints, records)
 	}
@@ -100,7 +101,7 @@ func TestDesiredDNSEndpointMetadata(t *testing.T) {
 		Annotations: map[string]string{AnnotationOwnerTunnelRef: "spoof", "note": "x"},
 	}
 	tt := dnsTunnel(dns)
-	obj, _, err := desiredDNSEndpoint(tt, inviteView{Confirmed: []string{"a.example.com"}, Region: "CA"}, testTargets)
+	obj, _, err := desiredDNSEndpoint(tt, inviteView{Confirmed: []string{"a.example.com"}, Region: "CA"}, testTargets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestDesiredDNSEndpointMetadata(t *testing.T) {
 		t.Error("desiredDNSEndpoint mutated the tunnel's spec maps")
 	}
 	tt.Spec.DNS.Namespace = "dns"
-	obj, _, _ = desiredDNSEndpoint(tt, inviteView{Confirmed: []string{"a.example.com"}, Region: "CA"}, testTargets)
+	obj, _, _ = desiredDNSEndpoint(tt, inviteView{Confirmed: []string{"a.example.com"}, Region: "CA"}, testTargets, nil)
 	if obj.Namespace != "dns" || obj.Name != "towonel.network.external" {
 		t.Errorf("spec.dns.namespace: got %s/%s, want dns/towonel.network.external", obj.Namespace, obj.Name)
 	}
@@ -169,7 +170,7 @@ func TestReconcileDNSDisabledNoMatchDoesNotRetry(t *testing.T) {
 	r := &TowonelTunnelReconciler{APIReader: reader}
 	tt := dnsTunnel(towonelv1alpha1.TunnelDNSSpec{Mode: towonelv1alpha1.DNSModeDisabled})
 
-	if retry := r.reconcileDNS(t.Context(), tt, inviteView{Confirmed: []string{"a.example.com"}, Region: "EU"}); retry {
+	if retry := r.reconcileDNS(t.Context(), tt, inviteView{Confirmed: []string{"a.example.com"}, Region: "EU"}, nil); retry {
 		t.Fatal("reconcileDNS(Disabled, CRD absent) = retry true, want false (no requeue loop)")
 	}
 	if lists == 0 {
@@ -217,5 +218,65 @@ func TestReconcileDeleteSweepForbiddenKeepsFinalizer(t *testing.T) {
 	}
 	if !controllerutil.ContainsFinalizer(&stored, FinalizerName) {
 		t.Fatal("finalizer removed from the stored tunnel despite a failed DNS sweep")
+	}
+}
+
+func TestDesiredDNSEndpointOptOut(t *testing.T) {
+	view := inviteView{Confirmed: []string{"apex.example.com", "a.example.com", "b.example.com"}, Region: "CA"}
+	tests := []struct {
+		name   string
+		optOut map[string]bool
+		want   []string
+	}{
+		{"none", nil, []string{"a.example.com", "apex.example.com", "b.example.com"}},
+		{"one excluded", map[string]bool{"apex.example.com": true}, []string{"a.example.com", "b.example.com"}},
+		{"unrelated name ignored", map[string]bool{"other.example.com": true}, []string{"a.example.com", "apex.example.com", "b.example.com"}},
+		{"all excluded", map[string]bool{"apex.example.com": true, "a.example.com": true, "b.example.com": true}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			obj, records, err := desiredDNSEndpoint(dnsTunnel(towonelv1alpha1.TunnelDNSSpec{}), view, testTargets, tc.optOut)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for _, ep := range obj.Spec.Endpoints {
+				names = append(names, ep.DNSName)
+			}
+			if !slices.Equal(names, tc.want) {
+				t.Errorf("endpoints = %v, want %v", names, tc.want)
+			}
+			var recNames []string
+			for _, r := range records {
+				recNames = append(recNames, r.Hostname)
+			}
+			if !slices.Equal(recNames, tc.want) {
+				t.Errorf("records = %v, want %v (same projection as endpoints)", recNames, tc.want)
+			}
+		})
+	}
+}
+
+func TestDNSOptOutHostnames(t *testing.T) {
+	agent := func(name string, svcs ...towonelv1alpha1.AgentService) towonelv1alpha1.TowonelAgent {
+		return towonelv1alpha1.TowonelAgent{
+			Name: name, Namespace: "network",
+			Spec: towonelv1alpha1.TowonelAgentSpec{Services: svcs},
+		}
+	}
+	svc := func(host string, dnsRecord *bool) towonelv1alpha1.AgentService {
+		return towonelv1alpha1.AgentService{Hostname: host, Origin: "o:1", DNSRecord: dnsRecord}
+	}
+	agents := []towonelv1alpha1.TowonelAgent{
+		agent("one", svc("shared.example.com", new(true)), svc("only-one.example.com", nil), svc("private.example.com", new(false))),
+		agent("two", svc("shared.example.com", new(false)), svc("explicit-true.example.com", new(true))),
+	}
+	got := dnsOptOutHostnames(agents)
+	want := map[string]bool{"shared.example.com": true, "private.example.com": true}
+	if !maps.Equal(got, want) {
+		t.Fatalf("opt-out set = %v, want %v (any agent opting out wins; nil and true publish)", got, want)
+	}
+	if len(dnsOptOutHostnames(nil)) != 0 {
+		t.Error("no agents must give an empty set")
 	}
 }
