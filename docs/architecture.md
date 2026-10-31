@@ -12,6 +12,11 @@ without opening inbound ports. Its topology:
 
 This operator drives the agent/client side from Kubernetes.
 
+![An annotated Service, Gateway, or HTTPRoute (or a hand-written TowonelAgent or TowonelTunnel) is watched by towonel-operator, which creates the invite, hostnames, and ports on the Towonel hub and renders agent Deployments that dial out to the regional edge over QUIC, so browsers and apps reach your origin through the edge by SNI without any inbound port.](images/01-how-it-works.svg)
+
+*Sources in your cluster become Towonel tunnels and agents; the hub authorizes hostnames and the
+edge carries traffic home.*
+
 ## The one fact that shapes everything
 
 In Towonel, the management API only *authorizes* hostnames and reserves ports — the actual
@@ -69,9 +74,26 @@ Service's own `ClusterIP:port`); an **HTTPRoute** forwards through its parent Ga
 broad (all of its listener hostnames). See [source-layer.md](source-layer.md). This mirrors the
 [`cloudflare-operator`](https://github.com/jacaudi/cloudflare-operator) source→primitive pattern.
 
+## DNS handoff and region endpoints
+
+Two tunnel-level features sit on top of the hub's view of the invite. Both are driven by what the
+hub **confirms or reports**, not just by your spec.
+
+- **DNS handoff** *(optional)*. With `spec.dns.mode: DNSEndpoint` the operator emits an
+  external-dns `DNSEndpoint` that CNAMEs each hub-confirmed hostname to its region's edge. The
+  operator never calls a DNS provider; whatever reads `DNSEndpoint` objects applies the records.
+  Off by default. See [dns.md](dns.md).
+- **Region endpoints.** `status.regionEndpoints` lists the live edge IPs per region, with a
+  `RegionEndpointsAvailable` condition. Always on, informational only. See
+  [crd-towoneltunnel.md](crd-towoneltunnel.md#status-operator-written).
+
 ## Relationship to cloudflare-operator
 
 This operator is the Towonel analog of the author's `cloudflare-operator`. The key difference is the
 one above: Cloudflare pushes ingress rules to a remote-config API and the connector is dumb (routing
 lives API-side), whereas Towonel's routing is inherently agent-local — which is exactly why the tunnel
 and agent are split here.
+
+---
+
+[← Back to README](../README.md)

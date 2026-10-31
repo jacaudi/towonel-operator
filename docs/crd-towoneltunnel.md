@@ -61,3 +61,7 @@ See [`examples/01-tunnel.yaml`](examples/01-tunnel.yaml).
 - **Multi-cluster.** Each cluster runs its own operator + tunnel CR referencing the *same* invite
   (shared hostnames = Towonel's native failover). Keep the aggregated hostname/port set identical
   across clusters (see [architecture.md](architecture.md#failover-not-sharding)).
+
+---
+
+[← Back to README](../README.md)
