@@ -113,3 +113,7 @@ CRDs are stamped `helm.sh/resource-policy: keep` (`crds.keep`), so they (and you
 survive an uninstall. Delete them explicitly if you really want them gone. If you enabled
 [direct-path autodiscover](connectivity.md), the shared node-reader `ClusterRole`/`ClusterRoleBinding`
 are chart-owned and removed on uninstall.
+
+---
+
+[← Back to README](../README.md)

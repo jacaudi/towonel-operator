@@ -1,5 +1,7 @@
 # Direct-path connectivity (`spec.connectivity`)
 
+*Optional, off by default.*
+
 An **optional** optimization on [`TowonelAgent`](crd-towonelagent.md). It advertises a reachable
 address for the agent so peers can connect over a **direct** iroh path instead of relaying. Agents
 work fine without it — the baseline (agent dials out, relay + hole-punching) needs no inbound ports.
@@ -75,3 +77,7 @@ gate** the agent's `Ready` phase — connectivity is optional.
   (autodiscover then surfaces a `NodeRBACShellMissing` Event and degrades to relay).
 - With `replicas > 1`, each pod advertises its own node; `externalTrafficPolicy: Local` keeps the
   per-node advertisements coherent.
+
+---
+
+[← Back to README](../README.md)

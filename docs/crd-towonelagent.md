@@ -110,3 +110,7 @@ spec:
 - **Failover, not sharding.** Agents on one tunnel must serve the *same* hostname set (see
   [architecture.md](architecture.md#failover-not-sharding)); use `workload.replicas` or per-cluster
   agents for redundancy, not divergent hostname subsets.
+
+---
+
+[← Back to README](../README.md)

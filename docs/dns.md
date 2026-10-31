@@ -1,10 +1,17 @@
 # DNS
 
+*Optional, off by default.*
+
 With `spec.dns.mode: DNSEndpoint`, the operator publishes public DNS for every HTTPS hostname
 the hub has confirmed for the tunnel. It does not call any DNS provider. Instead it emits one
 external-dns [`DNSEndpoint`](https://kubernetes-sigs.github.io/external-dns/latest/docs/sources/crd/)
 (`externaldns.k8s.io/v1alpha1`) per tunnel. Any `DNSEndpoint`-aware controller publishes it;
-external-dns with `--source=crd` is the reference.
+external-dns with `--source=crd` is the reference. The fields below live on
+[`TowonelTunnel`](crd-towoneltunnel.md); the install side is in [installation.md](installation.md).
+
+![Hostnames the Towonel hub confirms for an invite are turned by towonel-operator into a DNSEndpoint that CNAMEs each one to its region's edge; external-dns instances filtered by label then publish it to a public provider while a LAN instance ignores it.](images/02-dns-handoff.svg)
+
+*The operator declares the records; whatever reads `DNSEndpoint` objects applies them.*
 
 ```yaml
 spec:
@@ -169,3 +176,7 @@ expressed in DNS.
 ## SNI
 
 A CNAME chain doesn't change SNI, so Towonel still routes on the original hostname.
+
+---
+
+[← Back to README](../README.md)

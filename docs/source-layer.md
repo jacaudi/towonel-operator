@@ -213,3 +213,7 @@ The operator cannot write status onto user-owned `Service`/`Gateway`/`HTTPRoute`
 malformed annotations surface only as **`InvalidAnnotationValue` (and similar) Events** on the source
 object — `kubectl describe` it to see them. This is the deliberate reason to keep annotations to the
 simple cases and push heterogeneous exposure to the CR.
+
+---
+
+[← Back to README](../README.md)

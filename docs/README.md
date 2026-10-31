@@ -5,16 +5,16 @@ provisioning tunnels, deploying agents, and connecting them, declaratively.
 
 New here? Start with the [Quickstart in the root README](../README.md#quickstart), then dig in:
 
-| Doc | What it covers |
+| File | Covers |
 |---|---|
-| [Installation](installation.md) | Helm (OCI) install, chart values, manager flags, prerequisites |
-| [Architecture](architecture.md) | The two-resource model, why routing is agent-side, failover, the source layer |
-| [`TowonelTunnel` reference](crd-towoneltunnel.md) | Control-plane CRD: spec, status, conditions, lifecycle |
-| [`TowonelAgent` reference](crd-towonelagent.md) | Workload + routing CRD: services, tcp/udp, connectivity, workload, status |
-| [Source layer (annotations)](source-layer.md) | Expose a `Service`/`Gateway`/`HTTPRoute` by annotation |
-| [Direct-path connectivity](connectivity.md) | Optional iroh NAT-traversal (`spec.connectivity`) |
-| [DNS](dns.md) | Public DNS handoff via external-dns `DNSEndpoint` |
-| [Examples](examples/) | Runnable sample manifests |
+| [installation.md](installation.md) | Helm (OCI) install, chart values, manager flags, prerequisites |
+| [architecture.md](architecture.md) | The two-resource model, why routing is agent-side, failover, the source layer, DNS handoff |
+| [crd-towoneltunnel.md](crd-towoneltunnel.md) | `TowonelTunnel` reference: spec, status (incl. `regionEndpoints`), conditions, lifecycle |
+| [crd-towonelagent.md](crd-towonelagent.md) | `TowonelAgent` reference: services, tcp/udp, connectivity, workload, status |
+| [source-layer.md](source-layer.md) | Expose a `Service`/`Gateway`/`HTTPRoute` by annotation |
+| [connectivity.md](connectivity.md) | Optional iroh NAT-traversal (`spec.connectivity`) |
+| [dns.md](dns.md) | Optional public DNS handoff via external-dns `DNSEndpoint` |
+| [examples/](examples/) | Runnable sample manifests |
 
 ## What's implemented
 
@@ -26,7 +26,12 @@ New here? Start with the [Quickstart in the root README](../README.md#quickstart
   agent routing entries.
 - **Direct-path connectivity** — optional iroh autodiscover + UDP NodePort.
 - **DNS handoff** — `spec.dns.mode: DNSEndpoint` emits an external-dns `DNSEndpoint` per tunnel (see [dns.md](dns.md)).
+- **Region endpoints** — `status.regionEndpoints` and the `RegionEndpointsAvailable` condition report live edge IPs per region (see [crd-towoneltunnel.md](crd-towoneltunnel.md)).
 
 ## Not yet implemented (designed)
 
 - **Finite-expiry token rotation** and the **operator-key (hub-admin) tier**.
+
+---
+
+[← Back to README](../README.md)
