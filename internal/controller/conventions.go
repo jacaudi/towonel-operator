@@ -134,7 +134,11 @@ const (
 	// is gateway-owner-side consent to PUBLICLY expose those namespaces' un-opted-out
 	// routes; per-route towonel.io/tunnel:"false" is the only target-side opt-out.
 	AnnotationAutoRoutesNamespaces = "towonel.io/auto-routes-namespaces"
-	AnnotationDNSRecord            = "towonel.io/dns-record" // reserved (per-route DNS opt-out / TCP-UDP records); inert
+	// AnnotationDNSRecord, present and not truthy on a Service, Gateway or HTTPRoute,
+	// keeps every hostname that object contributes out of the tunnel's DNS handoff (it
+	// sets AgentService.DNSRecord=false); unrecognized values also warn. The hub still
+	// authorizes the hostname.
+	AnnotationDNSRecord = "towonel.io/dns-record"
 
 	// Operator-managed agent markers (design §5/§6).
 	LabelManagedBy        = "app.kubernetes.io/managed-by"

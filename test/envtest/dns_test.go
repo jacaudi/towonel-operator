@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	externaldnsv1alpha1 "sigs.k8s.io/external-dns/apis/v1alpha1"
 	"sigs.k8s.io/external-dns/endpoint"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 	"github.com/jacaudi/towonel-operator/internal/controller"
@@ -600,4 +602,124 @@ func TestDNSMissingNamespaceReportsAPIError(t *testing.T) {
 	if !strings.Contains(cond.Message, "not found") {
 		t.Fatalf("message = %q, want it to contain %q", cond.Message, "not found")
 	}
+}
+
+const optOutPrivate, optOutPublic, optOutExtra = "private.example.com", "public.example.com", "extra.example.com"
+
+// optOutFixture creates a DNSEndpoint-mode tunnel "dnstun" in ns with two HTTPRoutes
+// under one Gateway: "private" annotated towonel.io/dns-record: "false", and an
+// un-annotated sibling "public"; spec.extraHostnames carries optOutExtra. It waits
+// until both route hostnames are hub-authorized and the sibling is published.
+func optOutFixture(t *testing.T, c client.Client, ns string) {
+	t.Helper()
+	ctx := t.Context()
+	if err := c.Create(ctx, annService(ns, "envoy", nil, corev1.ServicePort{Port: 443})); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Create(ctx, autoRoutesGateway(ns, "gw", "envoy")); err != nil {
+		t.Fatal(err)
+	}
+	routeAnn := func(extra map[string]string) map[string]string {
+		ann := map[string]string{controller.AnnotationTunnel: "true", controller.AnnotationTunnelRef: "dnstun"}
+		maps.Copy(ann, extra)
+		return ann
+	}
+	for _, rt := range []*gwv1.HTTPRoute{
+		httpRoute(ns, "private", routeAnn(map[string]string{controller.AnnotationDNSRecord: "false"}), "gw", optOutPrivate),
+		httpRoute(ns, "public", routeAnn(nil), "gw", optOutPublic),
+	} {
+		if err := c.Create(ctx, rt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.Create(ctx, dnsTunnelObj(ns, "dnstun", []string{optOutExtra}, enabled())); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 60*time.Second, func() bool {
+		_, tt := tunnelCond(ctx, c, ns, "dnstun")
+		o, err := getDNS(ctx, ns, dnsName(ns, "dnstun"))
+		return tt != nil && slices.Contains(tt.Status.AuthorizedHostnames, optOutPrivate) &&
+			slices.Contains(tt.Status.AuthorizedHostnames, optOutPublic) &&
+			err == nil && slices.Contains(dnsNames(o), optOutPublic)
+	})
+}
+
+// A route annotated towonel.io/dns-record: "false" stays authorized at the hub
+// (it lands in status.authorizedHostnames) but is kept out of the DNSEndpoint and
+// status.dnsRecords; its un-annotated sibling and spec.extraHostnames publish.
+func TestDNSRecordAnnotationKeepsHostnameOutOfDNSEndpoint(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ctx := t.Context()
+	ns := mustNamespace(t)
+	optOutFixture(t, c, ns)
+
+	// The opted-out name never appears, across a stability window.
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		o, err := getDNS(ctx, ns, dnsName(ns, "dnstun"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := dnsNames(o), []string{optOutExtra, optOutPublic}; !slices.Equal(got, want) {
+			t.Fatalf("endpoints = %v, want %v (opted-out %s excluded)", got, want, optOutPrivate)
+		}
+	}
+	_, tt := tunnelCond(ctx, c, ns, "dnstun")
+	for _, r := range tt.Status.DNSRecords {
+		if r.Hostname == optOutPrivate {
+			t.Fatalf("status.dnsRecords lists opted-out %s: %+v", optOutPrivate, tt.Status.DNSRecords)
+		}
+	}
+	if len(tt.Status.DNSRecords) != 2 {
+		t.Fatalf("status.dnsRecords = %+v, want the %s and %s records", tt.Status.DNSRecords, optOutExtra, optOutPublic)
+	}
+}
+
+// Removing the annotation releases the source's dnsRecord:false (server-side apply
+// drops the field it owned), so the agent field returns to nil and the hostname is
+// republished.
+func TestDNSRecordAnnotationRemovalRepublishesHostname(t *testing.T) {
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
+	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
+	defer stop()
+	ctx := t.Context()
+	ns := mustNamespace(t)
+	optOutFixture(t, c, ns)
+
+	agentNN := defaultAgentNN(ns, types.NamespacedName{Namespace: ns, Name: "dnstun"})
+	agentDNSRecord := func() (found bool, v *bool) {
+		var ta towonelv1alpha1.TowonelAgent
+		if k8sClient.Get(ctx, agentNN, &ta) != nil {
+			return false, nil
+		}
+		for _, s := range ta.Spec.Services {
+			if s.Hostname == optOutPrivate {
+				return true, s.DNSRecord
+			}
+		}
+		return false, nil
+	}
+	if found, v := agentDNSRecord(); !found || v == nil || *v {
+		t.Fatalf("before removal: agent service %s found=%t dnsRecord=%v, want dnsRecord=false", optOutPrivate, found, v)
+	}
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var rt gwv1.HTTPRoute
+		if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "private"}, &rt); err != nil {
+			return err
+		}
+		delete(rt.Annotations, controller.AnnotationDNSRecord)
+		return c.Update(ctx, &rt)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, 60*time.Second, func() bool {
+		found, v := agentDNSRecord()
+		o, derr := getDNS(ctx, ns, dnsName(ns, "dnstun"))
+		return found && v == nil && derr == nil &&
+			slices.Equal(dnsNames(o), []string{optOutExtra, optOutPrivate, optOutPublic})
+	})
 }

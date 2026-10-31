@@ -112,6 +112,12 @@ spec:
                 items:
                   description: AgentService is an HTTPS/SNI route (hostname -> origin).
                   properties:
+                    dnsRecord:
+                      description: |-
+                        DNSRecord, when false, keeps this hostname out of the tunnel's DNS handoff
+                        (the emitted DNSEndpoint and status.dnsRecords). Omitted or true: published
+                        when the tunnel's spec.dns.mode is DNSEndpoint. The hub still authorizes it.
+                      type: boolean
                     edgeTLSMode:
                       default: passthrough
                       description: |-

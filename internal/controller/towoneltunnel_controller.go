@@ -129,7 +129,7 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// The hub no longer knows the invite (deleted hub-side): nothing can be
 		// confirmed, so fail closed and withdraw published records before failing.
 		if errors.Is(err, errInviteNotFound) {
-			r.reconcileDNS(ctx, &tt, inviteView{Revoked: true})
+			r.reconcileDNS(ctx, &tt, inviteView{Revoked: true}, nil)
 		}
 		return r.fail(ctx, &tt, orig, err)
 	}
@@ -142,7 +142,7 @@ func (r *TowonelTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	// DNS runs before ports so a port failure never blocks publishing or
 	// withdrawing records (design §6.4).
-	dnsRetry := r.reconcileDNS(ctx, &tt, view)
+	dnsRetry := r.reconcileDNS(ctx, &tt, view, dnsOptOutHostnames(agents))
 	// Region endpoints (#38) also run before ports, so a persistent port error
 	// never freezes them (design §7).
 	r.populateRegionEndpoints(ctx, tc, &tt)

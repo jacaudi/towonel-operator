@@ -27,6 +27,11 @@ type AgentService struct {
 	// the supported set is the agent's, not enumerated here.
 	// +optional
 	ProxyProtocol string `json:"proxyProtocol,omitempty"`
+	// DNSRecord, when false, keeps this hostname out of the tunnel's DNS handoff
+	// (the emitted DNSEndpoint and status.dnsRecords). Omitted or true: published
+	// when the tunnel's spec.dns.mode is DNSEndpoint. The hub still authorizes it.
+	// +optional
+	DNSRecord *bool `json:"dnsRecord,omitempty"`
 }
 
 // AgentL4Service is a raw TCP/UDP service (origin host:port).
