@@ -85,18 +85,17 @@ func effectiveServicePort(svc *corev1.Service, port int32) (int32, bool) {
 // parsePortScopedKey splits "towonel.io/<port>.<suffix>" on the LAST dot (port
 // names are DNS-1123 → no dots).
 func parsePortScopedKey(key string) (port, suffix string, ok bool) {
-	const p = "towonel.io/"
-	if !strings.HasPrefix(key, p) {
+	rest, ok := strings.CutPrefix(key, "towonel.io/")
+	if !ok {
 		return "", "", false
 	}
-	rest := key[len(p):]
-	i := strings.LastIndexByte(rest, '.')
-	if i <= 0 || i == len(rest)-1 {
+	port, suffix, ok = strings.CutLast(rest, ".")
+	if !ok || port == "" || suffix == "" {
 		return "", "", false
 	}
-	switch s := rest[i+1:]; s {
+	switch suffix {
 	case "hostname", "tcp", "udp", "public-port":
-		return rest[:i], s, true
+		return port, suffix, true
 	}
 	return "", "", false
 }
