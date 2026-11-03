@@ -8,7 +8,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -27,7 +26,6 @@ import (
 type GatewaySourceReconciler struct {
 	client.Client
 	APIReader            client.Reader // uncached; used for authoritative GC-decision reads
-	Scheme               *runtime.Scheme
 	Recorder             record.EventRecorder
 	AgentNamespace       string
 	DefaultAgentReplicas *int32 // --default-agent-replicas; nil => CRD default (issue #46)
