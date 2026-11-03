@@ -29,7 +29,7 @@ func defaultAgentName(tunnelNS, tunnelName string) string {
 func sanitizeLabel(s string) string {
 	out := make([]byte, 0, len(s))
 	prevHyphen := false
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		switch {
 		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':

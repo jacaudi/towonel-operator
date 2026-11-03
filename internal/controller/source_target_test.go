@@ -321,3 +321,19 @@ func TestSourcesForTunnelNilOnWrongType(t *testing.T) {
 		t.Errorf("httproute sourcesForTunnel(wrong type) = %v, want nil", reqs)
 	}
 }
+
+func TestSanitizeLabel(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"net-app", "net-app"},
+		{"Net.App_1", "net-app-1"}, // lowercased; every other byte becomes one hyphen
+		{"a--b...c", "a-b-c"},      // hyphen runs collapse
+		{"-a-", "a"},               // leading/trailing hyphens trimmed
+		{"...", ""},                // may return ""
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := sanitizeLabel(c.in); got != c.want {
+			t.Errorf("sanitizeLabel(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

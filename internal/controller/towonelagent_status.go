@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,14 +46,9 @@ func rollupAgentStatus(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig, dep *a
 		setAgentCond(ta, CondPortsAllocated, metav1.ConditionTrue, ReasonSynced, "all l4 services allocated")
 	}
 
-	available := false
-	if dep != nil {
-		for _, c := range dep.Status.Conditions {
-			if c.Type == appsv1.DeploymentAvailable && c.Status == corev1.ConditionTrue {
-				available = true
-			}
-		}
-	}
+	available := dep != nil && slices.ContainsFunc(dep.Status.Conditions, func(c appsv1.DeploymentCondition) bool {
+		return c.Type == appsv1.DeploymentAvailable && c.Status == corev1.ConditionTrue
+	})
 	if available {
 		setAgentCond(ta, CondWorkloadAvailable, metav1.ConditionTrue, ReasonAvailable, "deployment available")
 	} else {

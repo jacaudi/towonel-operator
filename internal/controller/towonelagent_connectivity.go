@@ -1,9 +1,10 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -198,11 +199,8 @@ func (r *TowonelAgentReconciler) computeNodeReaderSubjects(ctx context.Context) 
 			subs = append(subs, rbacv1.Subject{Kind: "ServiceAccount", Name: agentSAName(a.Name), Namespace: a.Namespace})
 		}
 	}
-	sort.Slice(subs, func(i, j int) bool {
-		if subs[i].Namespace != subs[j].Namespace {
-			return subs[i].Namespace < subs[j].Namespace
-		}
-		return subs[i].Name < subs[j].Name
+	slices.SortFunc(subs, func(a, b rbacv1.Subject) int {
+		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Name, b.Name))
 	})
 	return subs, nil
 }
@@ -225,7 +223,7 @@ func (r *TowonelAgentReconciler) reconcileNodeReaderSubjects(ctx context.Context
 			}
 			return getErr
 		}
-		if subjectsEqual(crb.Subjects, desired) {
+		if slices.Equal(crb.Subjects, desired) {
 			return nil
 		}
 		crb.Subjects = desired
@@ -235,18 +233,6 @@ func (r *TowonelAgentReconciler) reconcileNodeReaderSubjects(ctx context.Context
 		return false, fmt.Errorf("patch node-reader subjects: %w", retryErr)
 	}
 	return shellMissing, nil
-}
-
-func subjectsEqual(a, b []rbacv1.Subject) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // ensureConnectivity applies the agent's direct-path objects (design §5/§9):
