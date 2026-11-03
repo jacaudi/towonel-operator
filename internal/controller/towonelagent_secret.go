@@ -34,11 +34,7 @@ type tunnelGate struct {
 func (r *TowonelAgentReconciler) readTunnelToken(ctx context.Context, ta *towonelv1alpha1.TowonelAgent) (*towonelv1alpha1.TowonelTunnel, secret, *tunnelGate, error) {
 	nn := resolvedTunnelRef(ta)
 	var tt towonelv1alpha1.TowonelTunnel
-	reader := client.Reader(r.Client)
-	if r.APIReader != nil {
-		reader = r.APIReader
-	}
-	if err := reader.Get(ctx, nn, &tt); err != nil {
+	if err := r.reader().Get(ctx, nn, &tt); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, "", &tunnelGate{ReasonTunnelNotFound, fmt.Sprintf("tunnel %s not found", nn)}, nil
 		}
