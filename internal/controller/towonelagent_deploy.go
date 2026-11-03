@@ -270,12 +270,7 @@ func agentContainerSecurityContext(ta *towonelv1alpha1.TowonelAgent) *corev1.Sec
 
 // buildDeployment renders the agent workload (parent §5.2 defaults).
 func buildDeployment(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) *appsv1.Deployment {
-	labels := map[string]string{
-		LabelAppName:     AgentAppName,
-		LabelAppInstance: ta.Name,
-		LabelPartOf:      PartOfValue,
-	}
-	selector := map[string]string{LabelAppName: AgentAppName, LabelAppInstance: ta.Name}
+	labels := agentLabels(ta)
 	replicas := ta.Spec.Workload.Replicas
 	if replicas == nil {
 		replicas = new(int32(1))
@@ -308,7 +303,7 @@ func buildDeployment(ta *towonelv1alpha1.TowonelAgent, cfg agentConfig) *appsv1.
 		Name: ta.Name, Namespace: ta.Namespace, Labels: labels,
 		Spec: appsv1.DeploymentSpec{
 			Replicas: replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: selector},
+			Selector: &metav1.LabelSelector{MatchLabels: agentSelector(ta)},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      labels,

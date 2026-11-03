@@ -51,17 +51,12 @@ func (r *TowonelTunnelReconciler) ensureTokenSecret(ctx context.Context, tt *tow
 		return fmt.Errorf("get token secret %s: %w", nn, getErr)
 	}
 
-	if token == "" {
-		if exists && !tokenSecretNeedsWrite(&current, tt.Status.InviteID) {
-			tt.Status.TokenSecretRef = &towonelv1alpha1.SecretReference{Name: nn.Name, Namespace: nn.Namespace}
-			return nil
-		}
-		return errAdoptedNoToken
-	}
-
 	if exists && !tokenSecretNeedsWrite(&current, tt.Status.InviteID) {
 		tt.Status.TokenSecretRef = &towonelv1alpha1.SecretReference{Name: nn.Name, Namespace: nn.Namespace}
 		return nil
+	}
+	if token == "" {
+		return errAdoptedNoToken
 	}
 
 	desired := buildTokenSecret(tt.Name, tt.Namespace, token, tt.Status.InviteID)
