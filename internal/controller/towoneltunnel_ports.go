@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -117,22 +118,16 @@ func (r *TowonelTunnelReconciler) convergePorts(ctx context.Context, tc *towonel
 	}
 
 	// Lazy, best-effort list for adoption (shape UNVERIFIED -> tolerate failure).
-	var listed []towonel.ReservePortResponse
-	listedOnce := false
-	listReservations := func() []towonel.ReservePortResponse {
-		if !listedOnce {
-			listedOnce = true
-			var err error
-			listed, err = hubCall(ctx, func(c context.Context) ([]towonel.ReservePortResponse, error) {
-				return tc.ListPorts(c, tt.Status.TenantID)
-			})
-			if err != nil {
-				log.V(1).Info("list ports failed; skipping adoption", "err", err.Error())
-				listed = nil
-			}
+	listReservations := sync.OnceValue(func() []towonel.ReservePortResponse {
+		listed, err := hubCall(ctx, func(c context.Context) ([]towonel.ReservePortResponse, error) {
+			return tc.ListPorts(c, tt.Status.TenantID)
+		})
+		if err != nil {
+			log.V(1).Info("list ports failed; skipping adoption", "err", err.Error())
+			return nil
 		}
 		return listed
-	}
+	})
 
 	var errs []error
 	allocs := make([]towonelv1alpha1.PortAllocation, 0, len(desired))
