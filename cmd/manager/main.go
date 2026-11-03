@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"flag"
 	"fmt"
 	"net/http"
@@ -101,7 +100,7 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
-		Metrics:                metricsserver.Options{BindAddress: metricsAddr, TLSOpts: []func(*tls.Config){}},
+		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         leaderElect,
 		LeaderElectionID:       "towonel-operator.towonel.io",
@@ -146,14 +145,13 @@ func main() {
 	// --default-agent-replicas: 0 leaves spec.workload.replicas unset (CRD default
 	// 1); a positive value opts the auto-created default agent into that replica
 	// count (issue #46). Negatives are rejected — replicas cannot be negative.
-	var defaultReplicasPtr *int32
 	if defaultAgentReplicas < 0 {
 		setupLog.Error(fmt.Errorf("--default-agent-replicas must be >= 0, got %d", defaultAgentReplicas), "invalid flag")
 		os.Exit(1)
 	}
+	var defaultReplicasPtr *int32
 	if defaultAgentReplicas > 0 {
-		v := int32(defaultAgentReplicas)
-		defaultReplicasPtr = &v
+		defaultReplicasPtr = new(int32(defaultAgentReplicas))
 	}
 
 	if err := controller.SetupSourceControllers(mgr, controller.SourceConfig{
