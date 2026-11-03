@@ -127,3 +127,39 @@ func TestDeriveGatewayRoutingRequiresAnnotation(t *testing.T) {
 		t.Fatalf("ok=%v reason=%q", ok, reason)
 	}
 }
+
+func TestParseGatewayServiceRef(t *testing.T) {
+	cases := []struct {
+		raw, defNS       string
+		wantNS, wantName string
+		wantPort         int32
+		wantErr          bool
+	}{
+		{"proxy", "net", "net", "proxy", 0, false},
+		{" proxy ", "net", "net", "proxy", 0, false},
+		{"other/proxy", "net", "other", "proxy", 0, false},
+		{"proxy:8080", "net", "net", "proxy", 8080, false},
+		{"other/proxy:443", "net", "other", "proxy", 443, false},
+		{"proxy:0", "net", "", "", 0, true},
+		{"proxy:65536", "net", "", "", 0, true},
+		{"proxy:abc", "net", "", "", 0, true},
+		{"proxy:", "net", "", "", 0, true},
+		{"/proxy", "net", "", "", 0, true},
+		{"other/", "net", "", "", 0, true},
+		{"", "net", "", "", 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.raw, func(t *testing.T) {
+			nn, port, err := parseGatewayServiceRef(c.raw, c.defNS)
+			if c.wantErr {
+				if err == nil {
+					t.Errorf("parseGatewayServiceRef(%q) = %v,%d want error", c.raw, nn, port)
+				}
+				return
+			}
+			if err != nil || nn.Namespace != c.wantNS || nn.Name != c.wantName || port != c.wantPort {
+				t.Errorf("parseGatewayServiceRef(%q) = %v,%d,%v want %s/%s,%d", c.raw, nn, port, err, c.wantNS, c.wantName, c.wantPort)
+			}
+		})
+	}
+}

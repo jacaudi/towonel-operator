@@ -70,17 +70,17 @@ func (r *GatewaySourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func parseGatewayServiceRef(raw, defNS string) (types.NamespacedName, int32, error) {
 	raw = strings.TrimSpace(raw)
 	var port int32
-	if i := strings.LastIndexByte(raw, ':'); i >= 0 {
-		p, err := strconv.Atoi(raw[i+1:])
+	if before, portStr, ok := strings.CutLast(raw, ":"); ok {
+		p, err := strconv.Atoi(portStr)
 		if err != nil || p <= 0 || p > 65535 {
 			return types.NamespacedName{}, 0, fmt.Errorf("invalid port in gateway-service %q", raw)
 		}
 		port = int32(p)
-		raw = raw[:i]
+		raw = before
 	}
-	ns, name := defNS, raw
-	if i := strings.IndexByte(raw, '/'); i >= 0 {
-		ns, name = raw[:i], raw[i+1:]
+	ns, name, ok := strings.Cut(raw, "/")
+	if !ok {
+		ns, name = defNS, raw
 	}
 	if ns == "" || name == "" {
 		return types.NamespacedName{}, 0, fmt.Errorf("malformed gateway-service %q", raw)

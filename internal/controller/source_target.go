@@ -44,8 +44,7 @@ func parseTunnelRef(raw, srcNS string) (types.NamespacedName, error) {
 	if raw == "" {
 		return types.NamespacedName{}, fmt.Errorf("empty tunnel-ref")
 	}
-	if i := strings.IndexByte(raw, '/'); i >= 0 {
-		ns, name := raw[:i], raw[i+1:]
+	if ns, name, ok := strings.Cut(raw, "/"); ok {
 		if ns == "" || name == "" {
 			return types.NamespacedName{}, fmt.Errorf("malformed tunnel-ref %q", raw)
 		}

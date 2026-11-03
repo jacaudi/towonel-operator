@@ -187,3 +187,30 @@ func TestDeriveServiceRoutingMissingPortEvents(t *testing.T) {
 		t.Fatalf("ok=%v reason=%q", ok, reason)
 	}
 }
+
+func TestParsePortScopedKey(t *testing.T) {
+	cases := []struct {
+		key              string
+		wantPort, wantSf string
+		wantOK           bool
+	}{
+		{"towonel.io/web.hostname", "web", "hostname", true},
+		{"towonel.io/game.tcp", "game", "tcp", true},
+		{"towonel.io/game.udp", "game", "udp", true},
+		{"towonel.io/game.public-port", "game", "public-port", true},
+		{"towonel.io/a.b.hostname", "a.b", "hostname", true}, // split on the LAST dot
+		{"towonel.io/tunnel", "", "", false},                 // no dot: not port-scoped
+		{"towonel.io/.hostname", "", "", false},              // empty port name
+		{"towonel.io/web.", "", "", false},                   // empty suffix
+		{"towonel.io/web.origin", "", "", false},             // unknown suffix
+		{"other.io/web.hostname", "", "", false},             // foreign prefix
+	}
+	for _, c := range cases {
+		t.Run(c.key, func(t *testing.T) {
+			port, suffix, ok := parsePortScopedKey(c.key)
+			if port != c.wantPort || suffix != c.wantSf || ok != c.wantOK {
+				t.Errorf("parsePortScopedKey(%q) = %q,%q,%v want %q,%q,%v", c.key, port, suffix, ok, c.wantPort, c.wantSf, c.wantOK)
+			}
+		})
+	}
+}
