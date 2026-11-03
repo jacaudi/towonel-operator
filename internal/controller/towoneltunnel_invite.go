@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -31,11 +32,7 @@ func (r *TowonelTunnelReconciler) resolveAPIKey(ctx context.Context, tt *towonel
 			}
 			return "", false, fmt.Errorf("get api-key secret %s: %w", nn, err)
 		}
-		key := ref.Key
-		if key == "" {
-			key = defaultTokenKey
-		}
-		if v := s.Data[key]; len(v) > 0 {
+		if v := s.Data[cmp.Or(ref.Key, defaultTokenKey)]; len(v) > 0 {
 			return secret(v), false, nil
 		}
 		return "", true, nil

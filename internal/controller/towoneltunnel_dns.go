@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -58,10 +59,6 @@ func desiredDNSEndpoint(tt *towonelv1alpha1.TowonelTunnel, view inviteView, edge
 	if target == "" {
 		return nil, nil, errNoEdgeTarget
 	}
-	ns := dns.Namespace
-	if ns == "" {
-		ns = tt.Namespace
-	}
 	labels := maps.Clone(dns.Labels)
 	if labels == nil {
 		labels = map[string]string{}
@@ -93,7 +90,7 @@ func desiredDNSEndpoint(tt *towonelv1alpha1.TowonelTunnel, view inviteView, edge
 	}
 	return &externaldnsv1alpha1.DNSEndpoint{
 		APIVersion: externaldnsv1alpha1.GroupVersion.String(), Kind: "DNSEndpoint",
-		Name: dnsEndpointName(tt.Namespace, tt.Name), Namespace: ns,
+		Name: dnsEndpointName(tt.Namespace, tt.Name), Namespace: cmp.Or(dns.Namespace, tt.Namespace),
 		Labels: labels, Annotations: annotations,
 		Spec: externaldnsv1alpha1.DNSEndpointSpec{Endpoints: eps},
 	}, records, nil

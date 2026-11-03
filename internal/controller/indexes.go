@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -18,11 +19,7 @@ const agentTunnelRefIndex = "spec.tunnelRef"
 // resolvedTunnelRef returns the agent's tunnelRef with the namespace defaulted
 // to the agent's own.
 func resolvedTunnelRef(ta *towonelv1alpha1.TowonelAgent) types.NamespacedName {
-	ns := ta.Spec.TunnelRef.Namespace
-	if ns == "" {
-		ns = ta.Namespace
-	}
-	return types.NamespacedName{Namespace: ns, Name: ta.Spec.TunnelRef.Name}
+	return types.NamespacedName{Namespace: cmp.Or(ta.Spec.TunnelRef.Namespace, ta.Namespace), Name: ta.Spec.TunnelRef.Name}
 }
 
 // RegisterIndexes installs the shared field indexes on the manager's cache.

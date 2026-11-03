@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"time"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -182,10 +183,7 @@ func agentSAName(agentName string) string { return agentName }
 
 // nodePortServiceName resolves the per-agent UDP NodePort Service name.
 func nodePortServiceName(ta *towonelv1alpha1.TowonelAgent) string {
-	if n := ta.Spec.Connectivity.NodePort.Name; n != "" {
-		return n
-	}
-	return ta.Name + "-iroh"
+	return cmp.Or(ta.Spec.Connectivity.NodePort.Name, ta.Name+"-iroh")
 }
 
 // servicesReaderName is the per-agent services-reader Role/RoleBinding name.
