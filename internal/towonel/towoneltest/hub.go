@@ -2,6 +2,7 @@
 package towoneltest
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -218,11 +219,7 @@ func (h *Hub) handler() http.HandlerFunc {
 			}
 			st, ok := h.statuses[id]
 			if !ok {
-				region := inv.Region
-				if region == "" {
-					region = "EU"
-				}
-				st = towonel.InviteStatus{InviteID: id, TenantID: inv.TenantID, Regions: []towonel.RegionStatus{{Region: region, Role: "primary", Edges: []towonel.EdgeStatus{}}}}
+				st = towonel.InviteStatus{InviteID: id, TenantID: inv.TenantID, Regions: []towonel.RegionStatus{{Region: cmp.Or(inv.Region, "EU"), Role: "primary", Edges: []towonel.EdgeStatus{}}}}
 			}
 			_ = json.NewEncoder(w).Encode(st)
 		case req.Method == http.MethodGet && strings.HasPrefix(p, "/v1/invites/"):
@@ -266,13 +263,7 @@ func (h *Hub) handler() http.HandlerFunc {
 				return
 			}
 			if inv := h.invites[id]; inv != nil {
-				kept := inv.Hostnames[:0]
-				for _, hn := range inv.Hostnames {
-					if hn != host {
-						kept = append(kept, hn)
-					}
-				}
-				inv.Hostnames = kept
+				inv.Hostnames = slices.DeleteFunc(inv.Hostnames, func(hn string) bool { return hn == host })
 				delete(h.reservedHosts, host)
 				_ = json.NewEncoder(w).Encode(towonel.RemoveHostnameResponse{Status: "ok", Hostname: host, RemainingHostnames: inv.Hostnames})
 				return
@@ -334,21 +325,15 @@ func (h *Hub) handler() http.HandlerFunc {
 			}
 			port64, _ := strconv.ParseInt(pp[1], 10, 32)
 			tenant, proto, port := parts[0], pp[0], int32(port64)
-			kept := h.ports[tenant][:0]
-			found := false
-			for _, r := range h.ports[tenant] {
-				if r.Protocol == proto && r.Port == port {
-					found = true
-					delete(h.taken, fmt.Sprintf("%s/%d", proto, port))
-					continue
-				}
-				kept = append(kept, r)
-			}
-			h.ports[tenant] = kept
-			if !found {
+			before := len(h.ports[tenant])
+			h.ports[tenant] = slices.DeleteFunc(h.ports[tenant], func(r *towonel.ReservePortResponse) bool {
+				return r.Protocol == proto && r.Port == port
+			})
+			if len(h.ports[tenant]) == before {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
+			delete(h.taken, fmt.Sprintf("%s/%d", proto, port))
 			w.WriteHeader(http.StatusOK)
 		default:
 			w.WriteHeader(http.StatusNotFound)
