@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -34,10 +35,7 @@ func agentIsOperatorOwned(ta *towonelv1alpha1.TowonelAgent) bool {
 // objects observed before defaulting (the fake client in unit tests, or CRs
 // authored before the field existed).
 func agentMode(ta *towonelv1alpha1.TowonelAgent) towonelv1alpha1.AgentManagementMode {
-	if ta.Spec.Mode == "" {
-		return towonelv1alpha1.ModeManaged
-	}
-	return ta.Spec.Mode
+	return cmp.Or(ta.Spec.Mode, towonelv1alpha1.ModeManaged)
 }
 
 // parseTunnelRef parses "[<ns>/]<name>"; a bare name resolves in srcNS.
@@ -85,10 +83,7 @@ func resolveTunnel(ctx context.Context, c client.Client, emit func(reason, msg s
 // agentNamespaceFor returns where the default agent lives: the configured
 // --agent-namespace, else the tunnel's namespace (design §3.1).
 func agentNamespaceFor(configured string, tunnel types.NamespacedName) string {
-	if configured != "" {
-		return configured
-	}
-	return tunnel.Namespace
+	return cmp.Or(configured, tunnel.Namespace)
 }
 
 // sourceTargetsAgent reports whether a source carrying the given annotations and

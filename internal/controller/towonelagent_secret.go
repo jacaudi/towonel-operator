@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -44,10 +45,7 @@ func (r *TowonelAgentReconciler) readTunnelToken(ctx context.Context, ta *towone
 	if ref == nil || ref.Name == "" {
 		return &tt, "", &tunnelGate{ReasonTokenSecretMissing, fmt.Sprintf("tunnel %s has no token secret yet", nn)}, nil
 	}
-	secNS := ref.Namespace
-	if secNS == "" {
-		secNS = tt.Namespace
-	}
+	secNS := cmp.Or(ref.Namespace, tt.Namespace)
 	var sec corev1.Secret
 	if err := r.Get(ctx, types.NamespacedName{Namespace: secNS, Name: ref.Name}, &sec); err != nil {
 		if apierrors.IsNotFound(err) {

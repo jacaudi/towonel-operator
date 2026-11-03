@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"sort"
@@ -48,7 +47,7 @@ func planConnectivity(ta *towonelv1alpha1.TowonelAgent) connectivityPlan {
 		p.skipReason = "nodePort.create requires autodiscover=true; skipping NodePort Service"
 	case c.Autodiscover:
 		p.autodiscover = true
-		p.nodePortName = cmp.Or(c.NodePort.Name, ta.Name+"-iroh")
+		p.nodePortName = nodePortServiceName(ta)
 		p.nodePortPort = c.NodePort.Port
 	}
 	if c.NodePort.Port != 0 && !c.NodePort.Create {
