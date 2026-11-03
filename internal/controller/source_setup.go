@@ -55,7 +55,6 @@ func SetupSourceControllers(mgr ctrl.Manager, cfg SourceConfig) error {
 	if err := (&ServiceSourceReconciler{
 		Client:               mgr.GetClient(),
 		APIReader:            mgr.GetAPIReader(),
-		Scheme:               mgr.GetScheme(),
 		Recorder:             mgr.GetEventRecorderFor("service-source"),
 		AgentNamespace:       cfg.AgentNamespace,
 		DefaultAgentReplicas: cfg.DefaultAgentReplicas,
@@ -76,7 +75,6 @@ func SetupSourceControllers(mgr ctrl.Manager, cfg SourceConfig) error {
 	if err := (&GatewaySourceReconciler{
 		Client:               mgr.GetClient(),
 		APIReader:            mgr.GetAPIReader(),
-		Scheme:               mgr.GetScheme(),
 		Recorder:             mgr.GetEventRecorderFor("gateway-source"),
 		AgentNamespace:       cfg.AgentNamespace,
 		DefaultAgentReplicas: cfg.DefaultAgentReplicas,
@@ -86,7 +84,6 @@ func SetupSourceControllers(mgr ctrl.Manager, cfg SourceConfig) error {
 	if err := (&HTTPRouteSourceReconciler{
 		Client:               mgr.GetClient(),
 		APIReader:            mgr.GetAPIReader(),
-		Scheme:               mgr.GetScheme(),
 		Recorder:             mgr.GetEventRecorderFor("httproute-source"),
 		AgentNamespace:       cfg.AgentNamespace,
 		DefaultAgentReplicas: cfg.DefaultAgentReplicas,
