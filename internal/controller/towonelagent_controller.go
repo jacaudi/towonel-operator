@@ -61,11 +61,7 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		missing = false
 		reconciled = nil
 		var ta towonelv1alpha1.TowonelAgent
-		agentReader := client.Reader(r.Client)
-		if r.APIReader != nil {
-			agentReader = r.APIReader
-		}
-		if err := agentReader.Get(ctx, req.NamespacedName, &ta); err != nil {
+		if err := r.reader().Get(ctx, req.NamespacedName, &ta); err != nil {
 			if apierrors.IsNotFound(err) {
 				missing = true
 				return nil
@@ -186,14 +182,19 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return result, nil
 }
 
-func (r *TowonelAgentReconciler) checkAgentUnchanged(ctx context.Context, agent *towonelv1alpha1.TowonelAgent) error {
-	reader := client.Reader(r.Client)
+// reader returns the uncached APIReader when set, else the (cached) client:
+// the authoritative read for the agent, its tunnel, and the change rechecks.
+func (r *TowonelAgentReconciler) reader() client.Reader {
 	if r.APIReader != nil {
-		reader = r.APIReader
+		return r.APIReader
 	}
+	return r.Client
+}
+
+func (r *TowonelAgentReconciler) checkAgentUnchanged(ctx context.Context, agent *towonelv1alpha1.TowonelAgent) error {
 	var current towonelv1alpha1.TowonelAgent
 	key := types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}
-	if err := reader.Get(ctx, key, &current); err != nil {
+	if err := r.reader().Get(ctx, key, &current); err != nil {
 		return fmt.Errorf("recheck agent %s: %w", key, err)
 	}
 	if current.UID != agent.UID || current.Generation != agent.Generation {
@@ -203,13 +204,9 @@ func (r *TowonelAgentReconciler) checkAgentUnchanged(ctx context.Context, agent 
 }
 
 func (r *TowonelAgentReconciler) checkTunnelUnchanged(ctx context.Context, tunnel *towonelv1alpha1.TowonelTunnel) error {
-	reader := client.Reader(r.Client)
-	if r.APIReader != nil {
-		reader = r.APIReader
-	}
 	var current towonelv1alpha1.TowonelTunnel
 	key := types.NamespacedName{Namespace: tunnel.Namespace, Name: tunnel.Name}
-	if err := reader.Get(ctx, key, &current); err != nil {
+	if err := r.reader().Get(ctx, key, &current); err != nil {
 		return fmt.Errorf("recheck tunnel %s: %w", key, err)
 	}
 	if current.ResourceVersion != tunnel.ResourceVersion {
