@@ -30,17 +30,17 @@ var (
 	date    = ""
 )
 
-var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
-)
+var setupLog = ctrl.Log.WithName("setup")
 
-func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(towonelv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(controller.AddExternalDNSToScheme(scheme))
-	utilruntime.Must(gwv1.Install(scheme))
-	utilruntime.Must(gwv1beta1.Install(scheme))
+// newScheme registers every API group the manager reads or writes.
+func newScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(s))
+	utilruntime.Must(towonelv1alpha1.AddToScheme(s))
+	utilruntime.Must(controller.AddExternalDNSToScheme(s))
+	utilruntime.Must(gwv1.Install(s))
+	utilruntime.Must(gwv1beta1.Install(s))
+	return s
 }
 
 func main() {
@@ -99,7 +99,7 @@ func main() {
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
+		Scheme:                 newScheme(),
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         leaderElect,
