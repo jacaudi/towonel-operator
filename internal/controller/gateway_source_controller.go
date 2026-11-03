@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -133,59 +132,14 @@ func deriveGatewayRouting(ctx context.Context, c client.Client, gw *gwv1.Gateway
 	return rt, true
 }
 
-// sourcesForAgent enqueues every tunnel-annotated Gateway whose towonel.io/agent-ref
-// resolves to the changed TowonelAgent, so a Gateway that opted in before its agent
-// existed re-flows once the agent appears (#22). See sourceTargetsAgent for matching
-// (explicit agent-ref only; the default-agent path cannot strand).
+// sourcesForAgent enqueues opted-in Gateways that target the changed TowonelAgent (#22).
 func (r *GatewaySourceReconciler) sourcesForAgent(ctx context.Context, obj client.Object) []reconcile.Request {
-	ta, ok := obj.(*towonelv1alpha1.TowonelAgent)
-	if !ok {
-		return nil
-	}
-	var gws gwv1.GatewayList
-	if err := r.List(ctx, &gws); err != nil {
-		logf.FromContext(ctx).Error(err, "sourcesForAgent: list failed", "agent", client.ObjectKeyFromObject(ta))
-		return nil
-	}
-	var reqs []reconcile.Request
-	for i := range gws.Items {
-		gw := &gws.Items[i]
-		if _, opted := gw.Annotations[AnnotationTunnel]; !opted {
-			continue
-		}
-		if sourceTargetsAgent(gw.Annotations, gw.Namespace, r.AgentNamespace, ta) {
-			reqs = append(reqs, reconcile.Request{Namespace: gw.Namespace, Name: gw.Name})
-		}
-	}
-	return reqs
+	return agentSourceRequests(ctx, r.Client, &gwv1.GatewayList{}, r.AgentNamespace, obj)
 }
 
-// sourcesForTunnel enqueues tunnel-annotated Gateways that would resolve their
-// tunnel to the changed TowonelTunnel, so Gateways stranded by TunnelRefMissing
-// re-flow when the tunnel appears (#52). Matching mirrors resolveTunnel: explicit
-// tunnel-ref is parsed and compared; absent ref matches (sole-tunnel default).
+// sourcesForTunnel enqueues opted-in Gateways that resolve to the changed TowonelTunnel (#52).
 func (r *GatewaySourceReconciler) sourcesForTunnel(ctx context.Context, obj client.Object) []reconcile.Request {
-	tunnel, ok := obj.(*towonelv1alpha1.TowonelTunnel)
-	if !ok {
-		return nil
-	}
-	var gws gwv1.GatewayList
-	if err := r.List(ctx, &gws); err != nil {
-		logf.FromContext(ctx).Error(err, "sourcesForTunnel: list failed", "tunnel", client.ObjectKeyFromObject(tunnel))
-		return nil
-	}
-	tunnelNN := types.NamespacedName{Namespace: tunnel.Namespace, Name: tunnel.Name}
-	var reqs []reconcile.Request
-	for i := range gws.Items {
-		gw := &gws.Items[i]
-		if _, opted := gw.Annotations[AnnotationTunnel]; !opted {
-			continue
-		}
-		if sourceTargetsTunnel(gw.Annotations, gw.Namespace, tunnelNN) {
-			reqs = append(reqs, reconcile.Request{Namespace: gw.Namespace, Name: gw.Name})
-		}
-	}
-	return reqs
+	return tunnelSourceRequests(ctx, r.Client, &gwv1.GatewayList{}, obj)
 }
 
 func (r *GatewaySourceReconciler) SetupWithManager(mgr ctrl.Manager) error {

@@ -8,13 +8,11 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -196,59 +194,14 @@ func (r *ServiceSourceReconciler) applyPublicPorts(ann map[string]string, rt *ro
 	}
 }
 
-// sourcesForAgent enqueues every tunnel-annotated Service whose towonel.io/agent-ref
-// resolves to the changed TowonelAgent, so a Service that opted in before its agent
-// existed re-flows once the agent appears (#22). See sourceTargetsAgent for matching
-// (explicit agent-ref only; the default-agent path cannot strand).
+// sourcesForAgent enqueues opted-in Services that target the changed TowonelAgent (#22).
 func (r *ServiceSourceReconciler) sourcesForAgent(ctx context.Context, obj client.Object) []reconcile.Request {
-	ta, ok := obj.(*towonelv1alpha1.TowonelAgent)
-	if !ok {
-		return nil
-	}
-	var svcs corev1.ServiceList
-	if err := r.List(ctx, &svcs); err != nil {
-		logf.FromContext(ctx).Error(err, "sourcesForAgent: list failed", "agent", client.ObjectKeyFromObject(ta))
-		return nil
-	}
-	var reqs []reconcile.Request
-	for i := range svcs.Items {
-		svc := &svcs.Items[i]
-		if _, opted := svc.Annotations[AnnotationTunnel]; !opted {
-			continue
-		}
-		if sourceTargetsAgent(svc.Annotations, svc.Namespace, r.AgentNamespace, ta) {
-			reqs = append(reqs, reconcile.Request{Namespace: svc.Namespace, Name: svc.Name})
-		}
-	}
-	return reqs
+	return agentSourceRequests(ctx, r.Client, &corev1.ServiceList{}, r.AgentNamespace, obj)
 }
 
-// sourcesForTunnel enqueues tunnel-annotated Services that would resolve their
-// tunnel to the changed TowonelTunnel, so Services stranded by TunnelRefMissing
-// re-flow when the tunnel appears (#52). Matching mirrors resolveTunnel: explicit
-// tunnel-ref is parsed and compared; absent ref matches (sole-tunnel default).
+// sourcesForTunnel enqueues opted-in Services that resolve to the changed TowonelTunnel (#52).
 func (r *ServiceSourceReconciler) sourcesForTunnel(ctx context.Context, obj client.Object) []reconcile.Request {
-	tunnel, ok := obj.(*towonelv1alpha1.TowonelTunnel)
-	if !ok {
-		return nil
-	}
-	var svcs corev1.ServiceList
-	if err := r.List(ctx, &svcs); err != nil {
-		logf.FromContext(ctx).Error(err, "sourcesForTunnel: list failed", "tunnel", client.ObjectKeyFromObject(tunnel))
-		return nil
-	}
-	tunnelNN := types.NamespacedName{Namespace: tunnel.Namespace, Name: tunnel.Name}
-	var reqs []reconcile.Request
-	for i := range svcs.Items {
-		svc := &svcs.Items[i]
-		if _, opted := svc.Annotations[AnnotationTunnel]; !opted {
-			continue
-		}
-		if sourceTargetsTunnel(svc.Annotations, svc.Namespace, tunnelNN) {
-			reqs = append(reqs, reconcile.Request{Namespace: svc.Namespace, Name: svc.Name})
-		}
-	}
-	return reqs
+	return tunnelSourceRequests(ctx, r.Client, &corev1.ServiceList{}, obj)
 }
 
 func (r *ServiceSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
