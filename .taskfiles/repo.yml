@@ -100,7 +100,7 @@ tasks:
             repo=$(yq ".dependencies[${i}].repository" "${c}")
             case "${repo}" in
               oci://*|""|null) : ;;
-              *) echo "helm repo add ${name} ${repo}"; helm repo add "${name}" "${repo}" >/dev/null ;;
+              *) echo "helm repo add ${name} ${repo}"; helm repo add --force-update "${name}" "${repo}" >/dev/null ;;
             esac
             i=$((i + 1))
           done
