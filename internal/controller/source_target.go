@@ -8,8 +8,12 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
@@ -224,4 +228,67 @@ func resolveTarget(
 		return nil, modeSkip, nil
 	}
 	return &ta, modeWrite, nil
+}
+
+// agentSourceRequests is the TowonelAgent->source map function shared by every
+// source kind: it enqueues the opted-in items of list that sourceTargetsAgent
+// matches, so a source that opted in before its agent existed re-flows once the
+// agent appears (#22).
+func agentSourceRequests(ctx context.Context, c client.Reader, list client.ObjectList, agentNSConfig string, obj client.Object) []reconcile.Request {
+	ta, ok := obj.(*towonelv1alpha1.TowonelAgent)
+	if !ok {
+		return nil
+	}
+	reqs, err := optedSourceRequests(ctx, c, list, func(src client.Object) bool {
+		return sourceTargetsAgent(src.GetAnnotations(), src.GetNamespace(), agentNSConfig, ta)
+	})
+	if err != nil {
+		logf.FromContext(ctx).Error(err, "sourcesForAgent: list failed", "agent", client.ObjectKeyFromObject(ta))
+		return nil
+	}
+	return reqs
+}
+
+// tunnelSourceRequests is the TowonelTunnel->source map function for source
+// kinds whose opt-in is the towonel.io/tunnel key alone: it enqueues the opted-in
+// items of list that sourceTargetsTunnel matches, so sources stranded by
+// TunnelRefMissing re-flow when the tunnel appears (#52).
+func tunnelSourceRequests(ctx context.Context, c client.Reader, list client.ObjectList, obj client.Object) []reconcile.Request {
+	tunnel, ok := obj.(*towonelv1alpha1.TowonelTunnel)
+	if !ok {
+		return nil
+	}
+	tunnelNN := client.ObjectKeyFromObject(tunnel)
+	reqs, err := optedSourceRequests(ctx, c, list, func(src client.Object) bool {
+		return sourceTargetsTunnel(src.GetAnnotations(), src.GetNamespace(), tunnelNN)
+	})
+	if err != nil {
+		logf.FromContext(ctx).Error(err, "sourcesForTunnel: list failed", "tunnel", tunnelNN)
+		return nil
+	}
+	return reqs
+}
+
+// optedSourceRequests lists one source kind and returns a request for each item
+// that carries the towonel.io/tunnel key and that match accepts, in list order.
+// The key-presence check is a cheap first cut; Reconcile re-checks truthiness.
+func optedSourceRequests(ctx context.Context, c client.Reader, list client.ObjectList, match func(client.Object) bool) ([]reconcile.Request, error) {
+	if err := c.List(ctx, list); err != nil {
+		return nil, err
+	}
+	var reqs []reconcile.Request
+	err := meta.EachListItem(list, func(o runtime.Object) error {
+		src, ok := o.(client.Object)
+		if !ok {
+			return fmt.Errorf("list item %T is not a client.Object", o)
+		}
+		if _, opted := src.GetAnnotations()[AnnotationTunnel]; opted && match(src) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(src)})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return reqs, nil
 }

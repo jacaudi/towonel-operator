@@ -346,32 +346,9 @@ func (r *HTTPRouteSourceReconciler) routesForGateway(ctx context.Context, obj cl
 	return reqs
 }
 
-// sourcesForAgent enqueues every tunnel-annotated HTTPRoute whose towonel.io/agent-ref
-// resolves to the changed TowonelAgent, so a route that opted in before its agent
-// existed re-flows once the agent appears (#22). Matching is delegated to the shared
-// sourceTargetsAgent predicate (mirrors resolveTarget). The AnnotationTunnel presence
-// check is a cheap first-cut filter; Reconcile re-checks truthiness.
+// sourcesForAgent enqueues opted-in HTTPRoutes that target the changed TowonelAgent (#22).
 func (r *HTTPRouteSourceReconciler) sourcesForAgent(ctx context.Context, obj client.Object) []reconcile.Request {
-	ta, ok := obj.(*towonelv1alpha1.TowonelAgent)
-	if !ok {
-		return nil
-	}
-	var routes gwv1.HTTPRouteList
-	if err := r.List(ctx, &routes); err != nil {
-		logf.FromContext(ctx).Error(err, "sourcesForAgent: list failed", "agent", client.ObjectKeyFromObject(ta))
-		return nil
-	}
-	var reqs []reconcile.Request
-	for i := range routes.Items {
-		rt := &routes.Items[i]
-		if _, opted := rt.Annotations[AnnotationTunnel]; !opted {
-			continue
-		}
-		if sourceTargetsAgent(rt.Annotations, rt.Namespace, r.AgentNamespace, ta) {
-			reqs = append(reqs, reconcile.Request{Namespace: rt.Namespace, Name: rt.Name})
-		}
-	}
-	return reqs
+	return agentSourceRequests(ctx, r.Client, &gwv1.HTTPRouteList{}, r.AgentNamespace, obj)
 }
 
 // sourcesForTunnel enqueues HTTPRoutes that would resolve their tunnel to the
