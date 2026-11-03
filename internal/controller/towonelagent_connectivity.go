@@ -248,8 +248,6 @@ func (r *TowonelAgentReconciler) ensureConnectivity(ctx context.Context, ta *tow
 		return false, err
 	}
 
-	svcNN := types.NamespacedName{Namespace: ta.Namespace, Name: nodePortServiceName(ta)}
-	roleNN := types.NamespacedName{Namespace: ta.Namespace, Name: servicesReaderName(ta.Name)}
 	if p.autodiscover {
 		if err := r.applyOwned(ctx, ta, buildNodePortService(ta, p)); err != nil {
 			return false, err
@@ -273,6 +271,8 @@ func (r *TowonelAgentReconciler) ensureConnectivity(ctx context.Context, ta *tow
 		// This is intentional: the GC backstop is an acceptable safety net and
 		// a label-sweep would add complexity without meaningfully shortening the
 		// window (KISS).
+		svcNN := types.NamespacedName{Namespace: ta.Namespace, Name: nodePortServiceName(ta)}
+		roleNN := types.NamespacedName{Namespace: ta.Namespace, Name: servicesReaderName(ta.Name)}
 		if err := r.deleteOwnedIfExists(ctx, ta, &corev1.Service{}, svcNN); err != nil {
 			return false, err
 		}

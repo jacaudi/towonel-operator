@@ -95,19 +95,17 @@ func (r *TowonelAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				_, failure := r.failStatus(ctx, &ta, orig, err)
 				return failure
 			}
-			if errors.Is(err, errSecretClash) {
-				setAgentCond(&ta, CondConfigRendered, metav1.ConditionFalse, ReasonSecretClash, err.Error())
-				ta.Status.Phase = "Pending"
-				if r.Recorder != nil {
-					r.Recorder.Event(&ta, corev1.EventTypeWarning, ReasonSecretClash, err.Error())
-				}
-				if err := r.writeStatus(ctx, &ta, orig); err != nil {
-					return err
-				}
-				result = ctrl.Result{RequeueAfter: waitingRequeue}
-				reconciled = &ta
-				return nil
+			setAgentCond(&ta, CondConfigRendered, metav1.ConditionFalse, ReasonSecretClash, err.Error())
+			ta.Status.Phase = "Pending"
+			if r.Recorder != nil {
+				r.Recorder.Event(&ta, corev1.EventTypeWarning, ReasonSecretClash, err.Error())
 			}
+			if err := r.writeStatus(ctx, &ta, orig); err != nil {
+				return err
+			}
+			result = ctrl.Result{RequeueAfter: waitingRequeue}
+			reconciled = &ta
+			return nil
 		}
 
 		// Connectivity is optional; apply it before the Deployment so its
