@@ -14,13 +14,20 @@ import (
 
 var agentGVK = schema.GroupVersionKind{Group: "towonel.io", Version: "v1alpha1", Kind: "TowonelAgent"}
 
-// applyServices server-side-applies ONLY spec.services for the given hostnames
-// under fieldMgr, with no force. Mirrors how a source controller contributes.
-func applyServices(ctx context.Context, c client.Client, nn types.NamespacedName, fieldMgr string, hostnames ...string) error {
+// agentObj is the bare unstructured identity of the agent at nn: the SSA target
+// both apply helpers patch.
+func agentObj(nn types.NamespacedName) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(agentGVK)
 	u.SetNamespace(nn.Namespace)
 	u.SetName(nn.Name)
+	return u
+}
+
+// applyServices server-side-applies ONLY spec.services for the given hostnames
+// under fieldMgr, with no force. Mirrors how a source controller contributes.
+func applyServices(ctx context.Context, c client.Client, nn types.NamespacedName, fieldMgr string, hostnames ...string) error {
+	u := agentObj(nn)
 	svcs := make([]any, 0, len(hostnames))
 	for _, h := range hostnames {
 		svcs = append(svcs, map[string]any{"hostname": h, "origin": h + ":8080"})
@@ -34,11 +41,7 @@ func applyServices(ctx context.Context, c client.Client, nn types.NamespacedName
 // releaseServices applies a spec-less object under fieldMgr, releasing all of
 // that manager's owned spec fields.
 func releaseServices(ctx context.Context, c client.Client, nn types.NamespacedName, fieldMgr string) error {
-	u := &unstructured.Unstructured{}
-	u.SetGroupVersionKind(agentGVK)
-	u.SetNamespace(nn.Namespace)
-	u.SetName(nn.Name)
-	return c.Patch(ctx, u, client.Apply, client.FieldOwner(fieldMgr))
+	return c.Patch(ctx, agentObj(nn), client.Apply, client.FieldOwner(fieldMgr))
 }
 
 func hostSet(ta *towonelv1alpha1.TowonelAgent) map[string]bool {
@@ -50,19 +53,16 @@ func hostSet(ta *towonelv1alpha1.TowonelAgent) map[string]bool {
 }
 
 func TestSSACoOwnershipOfServices(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	ns := mustNamespace(t)
 	c := k8sClient
 
 	// Ensure-path: create the agent shell with tunnelRef (typed) under the
 	// operator field manager. tunnelRef must NOT be touched by source managers.
-	agent := &towonelv1alpha1.TowonelAgent{}
-	agent.Namespace = ns
-	agent.Name = "shared"
-	agent.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "t", Namespace: ns}
-	if err := c.Create(ctx, agent); err != nil {
-		t.Fatalf("create agent: %v", err)
-	}
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
+		Namespace: ns, Name: "shared",
+		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "t", Namespace: ns}},
+	})
 	nn := types.NamespacedName{Namespace: ns, Name: "shared"}
 
 	// Two managers contribute disjoint hostnames.

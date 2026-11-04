@@ -2,6 +2,7 @@ package envtest_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -23,11 +24,13 @@ import (
 // isn't reachable from this package, so the literal is hardcoded here.
 const nodeReader = "towonel-operator-agent-node-reader"
 
-// mustCreate creates an object or fails the test.
-func mustCreate(t *testing.T, c client.Client, obj client.Object) {
+// mustCreate creates the objects in order or fails the test.
+func mustCreate(t *testing.T, c client.Client, objs ...client.Object) {
 	t.Helper()
-	if err := c.Create(t.Context(), obj); err != nil {
-		t.Fatalf("create %T %s: %v", obj, obj.GetName(), err)
+	for _, obj := range objs {
+		if err := c.Create(t.Context(), obj); err != nil {
+			t.Fatalf("create %T %s: %v", obj, obj.GetName(), err)
+		}
 	}
 }
 
@@ -37,17 +40,14 @@ func mustCreate(t *testing.T, c client.Client, obj client.Object) {
 // across the whole suite (envtest has no GC, so agents from earlier tests
 // linger in the `default` namespace). Tests therefore assert on their OWN
 // subject's presence/absence rather than the binding's total subject count.
-func hasNodeReaderSubject(c client.Client, ctx context.Context, name, namespace string) bool {
+func hasNodeReaderSubject(ctx context.Context, c client.Client, name, namespace string) bool {
 	var crb rbacv1.ClusterRoleBinding
 	if c.Get(ctx, types.NamespacedName{Name: nodeReader}, &crb) != nil {
 		return false
 	}
-	for _, s := range crb.Subjects {
-		if s.Kind == "ServiceAccount" && s.Name == name && s.Namespace == namespace {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(crb.Subjects, func(s rbacv1.Subject) bool {
+		return s.Kind == "ServiceAccount" && s.Name == name && s.Namespace == namespace
+	})
 }
 
 // installNodeReaderShell creates the chart-owned ClusterRole + ClusterRoleBinding
@@ -95,9 +95,7 @@ func installNodeReaderShell(t *testing.T, c client.Client) {
 }
 
 func TestConnectivitySAAlwaysSet(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "sa", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"sa.example"}}}) // #14(a): needs a hostname to issue an invite/token
@@ -120,9 +118,7 @@ func TestConnectivitySAAlwaysSet(t *testing.T) {
 }
 
 func TestConnectivityAutodiscoverObjectsAndSharedSubjects(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 	mustCreate(t, c, &rbacv1.ClusterRole{Name: nodeReader,
 		Rules: []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"nodes"}, Verbs: []string{"get", "list", "watch"}}}})
@@ -158,9 +154,7 @@ func TestConnectivityAutodiscoverObjectsAndSharedSubjects(t *testing.T) {
 }
 
 func TestConnectivityDisablePrunes(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 	installNodeReaderShell(t, c)
 	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "dp", Namespace: "default",
@@ -178,7 +172,7 @@ func TestConnectivityDisablePrunes(t *testing.T) {
 		if c.Get(ctx, types.NamespacedName{Name: "dp-a-iroh", Namespace: "default"}, &svc) != nil {
 			return false
 		}
-		return hasNodeReaderSubject(c, ctx, "dp-a", "default")
+		return hasNodeReaderSubject(ctx, c, "dp-a", "default")
 	})
 	// Disable connectivity (conflict-retrying: the agent controller also writes status).
 	agentNN := types.NamespacedName{Name: "dp-a", Namespace: "default"}
@@ -196,7 +190,7 @@ func TestConnectivityDisablePrunes(t *testing.T) {
 		if !apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Name: "dp-a-iroh", Namespace: "default"}, &svc)) {
 			return false
 		}
-		return !hasNodeReaderSubject(c, ctx, "dp-a", "default")
+		return !hasNodeReaderSubject(ctx, c, "dp-a", "default")
 	})
 	// The per-agent ServiceAccount survives (it is always set, never pruned).
 	var sa corev1.ServiceAccount
@@ -206,9 +200,7 @@ func TestConnectivityDisablePrunes(t *testing.T) {
 }
 
 func TestConnectivityInvalidStillReady(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "inv", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"inv.example"}}}) // #14(a): needs a hostname to issue an invite/token
@@ -236,9 +228,7 @@ func TestConnectivityInvalidStillReady(t *testing.T) {
 }
 
 func TestConnectivityDeleteDropsSubject(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 	installNodeReaderShell(t, c)
 	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "del", Namespace: "default",
@@ -249,7 +239,7 @@ func TestConnectivityDeleteDropsSubject(t *testing.T) {
 	mustCreate(t, c, ta)
 	// This agent's SA subject lands in the shared binding.
 	waitFor(t, 20*time.Second, func() bool {
-		return hasNodeReaderSubject(c, ctx, "del-a", "default")
+		return hasNodeReaderSubject(ctx, c, "del-a", "default")
 	})
 	if err := c.Delete(ctx, ta); err != nil {
 		t.Fatalf("delete agent: %v", err)
@@ -257,14 +247,12 @@ func TestConnectivityDeleteDropsSubject(t *testing.T) {
 	// Deleting the agent drops its subject (no finalizer; the NotFound reconcile
 	// recomputes the shared binding's subjects).
 	waitFor(t, 20*time.Second, func() bool {
-		return !hasNodeReaderSubject(c, ctx, "del-a", "default")
+		return !hasNodeReaderSubject(ctx, c, "del-a", "default")
 	})
 }
 
 func TestConnectivityToggleRollsDeployment(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "tog", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"tog.example"}}}) // #14(a): needs a hostname to issue an invite/token

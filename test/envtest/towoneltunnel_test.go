@@ -34,22 +34,24 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 }
 
 // startManager wires the reconciler to envtest + a fresh fake hub.
-func startManager(t *testing.T) (client.Client, *towoneltest.Hub, func()) {
+func startManager(t *testing.T) (client.Client, *towoneltest.Hub) {
 	t.Helper()
 	return startManagerOn(t, sharedCfg, nil)
 }
 
 // startManagerOn is startManager against an explicit API server and
-// --dns-edge-target map (design §6.1).
-func startManagerOn(t *testing.T, cfg *rest.Config, edgeTargets map[string]string) (client.Client, *towoneltest.Hub, func()) {
+// --dns-edge-target map (design §6.1). The tunnel reconciler resolves its hub
+// API key from TOWONEL_API_KEY; the manager and fake hub stop at test end.
+func startManagerOn(t *testing.T, cfg *rest.Config, edgeTargets map[string]string) (client.Client, *towoneltest.Hub) {
 	t.Helper()
+	t.Setenv("TOWONEL_API_KEY", "twk_env")
 	hub := towoneltest.NewHub()
 	srv, _ := hub.Server()
 	mgr, err := ctrl.NewManager(cfg, managerOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.RegisterIndexes(context.Background(), mgr); err != nil {
+	if err := controller.RegisterIndexes(t.Context(), mgr); err != nil {
 		t.Fatal(err)
 	}
 	r := &controller.TowonelTunnelReconciler{
@@ -73,26 +75,22 @@ func startManagerOn(t *testing.T, cfg *rest.Config, edgeTargets map[string]strin
 	if err := ar.SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	go func() { _ = mgr.Start(ctx) }()
 	if !mgr.GetCache().WaitForCacheSync(ctx) {
 		t.Fatal("cache sync failed")
 	}
-	return mgr.GetClient(), hub, func() { cancel(); srv.Close() }
+	t.Cleanup(func() { cancel(); srv.Close() })
+	return mgr.GetClient(), hub
 }
 
 func TestReconcileCreatesInviteAndSecret(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
-	tt := &towonelv1alpha1.TowonelTunnel{
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{
 		Name: "app8", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"a.example"}},
-	}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
+	})
 	waitFor(t, 15*time.Second, func() bool {
 		var got towonelv1alpha1.TowonelTunnel
 		if err := c.Get(ctx, types.NamespacedName{Name: "app8", Namespace: "default"}, &got); err != nil {
@@ -106,18 +104,11 @@ func TestReconcileCreatesInviteAndSecret(t *testing.T) {
 }
 
 func TestReconcileDefersWhenNoHostnames(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, hub, stop := startManager(t)
-	defer stop()
+	c, hub := startManager(t)
 	ctx := t.Context()
 	// No extraHostnames and no referencing agents -> nothing to authorize yet.
 	// #14(a): must NOT create an invite (API requires >=1 hostname); defer to Pending.
-	tt := &towonelv1alpha1.TowonelTunnel{
-		Name: "nohosts", Namespace: "default",
-	}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "nohosts", Namespace: "default"})
 	waitFor(t, 15*time.Second, func() bool {
 		var got towonelv1alpha1.TowonelTunnel
 		if c.Get(ctx, types.NamespacedName{Name: "nohosts", Namespace: "default"}, &got) != nil {
@@ -141,9 +132,7 @@ func TestReconcileDefersWhenNoHostnames(t *testing.T) {
 }
 
 func TestReconcileDeletePolicy(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, hub, stop := startManager(t)
-	defer stop()
+	c, hub := startManager(t)
 	ctx := t.Context()
 	for _, policy := range []towonelv1alpha1.DeletionPolicy{towonelv1alpha1.DeletionPolicyDelete, towonelv1alpha1.DeletionPolicyRetain} {
 		name := "del-" + strings.ToLower(string(policy))
@@ -156,9 +145,7 @@ func TestReconcileDeletePolicy(t *testing.T) {
 				ExtraHostnames: []string{name + ".example"},
 			},
 		}
-		if err := c.Create(ctx, tt); err != nil {
-			t.Fatal(err)
-		}
+		mustCreate(t, c, tt)
 		var inviteID string
 		waitFor(t, 15*time.Second, func() bool {
 			var g towonelv1alpha1.TowonelTunnel
@@ -186,17 +173,12 @@ func TestReconcileDeletePolicy(t *testing.T) {
 }
 
 func TestTunnelAggregatesAgents(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, hub, stop := startManager(t)
-	defer stop()
+	c, hub := startManager(t)
 	ctx := t.Context()
-	tt := &towonelv1alpha1.TowonelTunnel{
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{
 		Name: "agg", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelTunnelSpec{ExtraHostnames: []string{"extra.example"}},
-	}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
+	})
 	ta := &towonelv1alpha1.TowonelAgent{
 		Name: "edge-a", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
@@ -205,9 +187,7 @@ func TestTunnelAggregatesAgents(t *testing.T) {
 			TCP:       []towonelv1alpha1.AgentL4Service{{Name: "ssh", Origin: "app:22", PreferredPort: 2222}},
 		},
 	}
-	if err := c.Create(ctx, ta); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, ta)
 	var tenant string
 	waitFor(t, 15*time.Second, func() bool {
 		var got towonelv1alpha1.TowonelTunnel

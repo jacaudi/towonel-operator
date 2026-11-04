@@ -53,26 +53,18 @@ func agentEnvValue(dep *appsv1.Deployment, name string) (string, bool) {
 }
 
 func TestAgentRoundTrip(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "rt", Namespace: "default"}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
-	ta := &towonelv1alpha1.TowonelAgent{
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "rt", Namespace: "default"})
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 		Name: "rt-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "rt"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "rt.example", Origin: "rt:8080"}},
 			TCP:       []towonelv1alpha1.AgentL4Service{{Name: "ssh", Origin: "rt:22", PreferredPort: 2222}},
 		},
-	}
-	if err := c.Create(ctx, ta); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	// Deployment renders with listen_port from the tunnel's allocation.
 	depNN := types.NamespacedName{Name: "rt-edge", Namespace: "default"}
@@ -115,26 +107,18 @@ func TestAgentRoundTrip(t *testing.T) {
 }
 
 func TestAgentConvergesAfterSpecBurst(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 
-	tunnel := &towonelv1alpha1.TowonelTunnel{Name: "burst", Namespace: "default"}
-	if err := c.Create(ctx, tunnel); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "burst", Namespace: "default"})
 	key := types.NamespacedName{Name: "burst-edge", Namespace: "default"}
-	agent := &towonelv1alpha1.TowonelAgent{
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 		Name: key.Name, Namespace: key.Namespace,
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "burst"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "one.example", Origin: "one:80"}},
 		},
-	}
-	if err := c.Create(ctx, agent); err != nil {
-		t.Fatal(err)
-	}
+	})
 	waitFor(t, 20*time.Second, func() bool {
 		var got towonelv1alpha1.TowonelAgent
 		return c.Get(ctx, key, &got) == nil && got.Status.ObservedConfigHash != ""
@@ -204,21 +188,16 @@ func TestAgentConvergesAfterSpecBurst(t *testing.T) {
 }
 
 func TestAgentWaitsForTunnelThenRenders(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 
-	ta := &towonelv1alpha1.TowonelAgent{
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 		Name: "wait-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "wait"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "w.example", Origin: "w:80"}},
 		},
-	}
-	if err := c.Create(ctx, ta); err != nil {
-		t.Fatal(err)
-	}
+	})
 	waitFor(t, 15*time.Second, func() bool {
 		var got towonelv1alpha1.TowonelAgent
 		return c.Get(ctx, types.NamespacedName{Name: "wait-edge", Namespace: "default"}, &got) == nil &&
@@ -230,37 +209,26 @@ func TestAgentWaitsForTunnelThenRenders(t *testing.T) {
 	}
 
 	// Tunnel arrives -> the watch (not the 30s fallback) wakes the agent fast.
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "wait", Namespace: "default"}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "wait", Namespace: "default"})
 	waitFor(t, 20*time.Second, func() bool {
 		return c.Get(ctx, types.NamespacedName{Name: "wait-edge", Namespace: "default"}, &dep) == nil
 	})
 }
 
 func TestTwoAgentsShareTunnel(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, hub, stop := startManager(t)
-	defer stop()
+	c, hub := startManager(t)
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "share", Namespace: "default"}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "share", Namespace: "default"})
 	for _, name := range []string{"share-a", "share-b"} {
-		ta := &towonelv1alpha1.TowonelAgent{
+		mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 			Name: name, Namespace: "default",
 			Spec: towonelv1alpha1.TowonelAgentSpec{
 				TunnelRef: towonelv1alpha1.TunnelReference{Name: "share"},
 				Services:  []towonelv1alpha1.AgentService{{Hostname: "shared.example", Origin: name + ":80"}},
 				TCP:       []towonelv1alpha1.AgentL4Service{{Name: "game", Origin: name + ":4086"}},
 			},
-		}
-		if err := c.Create(ctx, ta); err != nil {
-			t.Fatal(err)
-		}
+		})
 	}
 	var tenant string
 	waitFor(t, 20*time.Second, func() bool {
@@ -295,25 +263,17 @@ func TestTwoAgentsShareTunnel(t *testing.T) {
 }
 
 func TestAgentRotationRollsDeployment(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "rot", Namespace: "default"}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
-	ta := &towonelv1alpha1.TowonelAgent{
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "rot", Namespace: "default"})
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 		Name: "rot-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "rot"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "rot.example", Origin: "rot:80"}},
 		},
-	}
-	if err := c.Create(ctx, ta); err != nil {
-		t.Fatal(err)
-	}
+	})
 	var hashBefore string
 	waitFor(t, 20*time.Second, func() bool {
 		var got towonelv1alpha1.TowonelAgent
@@ -359,25 +319,17 @@ func TestAgentRotationRollsDeployment(t *testing.T) {
 }
 
 func TestAgentAffinityChangeRollsDeployment(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "aff", Namespace: "default"}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
-	ta := &towonelv1alpha1.TowonelAgent{
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "aff", Namespace: "default"})
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 		Name: "aff-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "aff"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "aff.example", Origin: "aff:80"}},
 		},
-	}
-	if err := c.Create(ctx, ta); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	depNN := types.NamespacedName{Name: "aff-edge", Namespace: "default"}
 	waitFor(t, 20*time.Second, func() bool {
@@ -410,25 +362,17 @@ func TestAgentAffinityChangeRollsDeployment(t *testing.T) {
 }
 
 func TestAgentNoChurn(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "calm", Namespace: "default"}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
-	ta := &towonelv1alpha1.TowonelAgent{
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "calm", Namespace: "default"})
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 		Name: "calm-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "calm"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "calm.example", Origin: "calm:80"}},
 		},
-	}
-	if err := c.Create(ctx, ta); err != nil {
-		t.Fatal(err)
-	}
+	})
 	depNN := types.NamespacedName{Name: "calm-edge", Namespace: "default"}
 	var dep appsv1.Deployment
 	waitFor(t, 20*time.Second, func() bool { return c.Get(ctx, depNN, &dep) == nil })
@@ -474,29 +418,21 @@ func TestAgentNoChurn(t *testing.T) {
 }
 
 func TestCrossNamespaceTunnelRef(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManager(t)
-	defer stop()
+	c, _ := startManager(t)
 	ctx := t.Context()
 
 	ns := &corev1.Namespace{Name: "p4-net"}
 	if err := c.Create(ctx, ns); err != nil && !strings.Contains(err.Error(), "already exists") {
 		t.Fatal(err)
 	}
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "xns", Namespace: "p4-net"}
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
-	ta := &towonelv1alpha1.TowonelAgent{
+	mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: "xns", Namespace: "p4-net"})
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 		Name: "xns-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "xns", Namespace: "p4-net"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "xns.example", Origin: "x:80"}},
 		},
-	}
-	if err := c.Create(ctx, ta); err != nil {
-		t.Fatal(err)
-	}
+	})
 	// Agent secret lands in the AGENT's namespace; tunnel aggregated the hostname.
 	waitFor(t, 20*time.Second, func() bool {
 		var sec corev1.Secret
@@ -512,28 +448,20 @@ func TestCrossNamespaceTunnelRef(t *testing.T) {
 }
 
 func TestAgentRetargetsTunnel(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, hub, stop := startManager(t)
-	defer stop()
+	c, hub := startManager(t)
 	ctx := t.Context()
 
 	for _, name := range []string{"ret-a", "ret-b"} {
-		tt := &towonelv1alpha1.TowonelTunnel{Name: name, Namespace: "default"}
-		if err := c.Create(ctx, tt); err != nil {
-			t.Fatal(err)
-		}
+		mustCreate(t, c, &towonelv1alpha1.TowonelTunnel{Name: name, Namespace: "default"})
 	}
-	ta := &towonelv1alpha1.TowonelAgent{
+	mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 		Name: "ret-edge", Namespace: "default",
 		Spec: towonelv1alpha1.TowonelAgentSpec{
 			TunnelRef: towonelv1alpha1.TunnelReference{Name: "ret-a"},
 			Services:  []towonelv1alpha1.AgentService{{Hostname: "ret.example", Origin: "r:80"}},
 			TCP:       []towonelv1alpha1.AgentL4Service{{Name: "ssh", Origin: "r:22"}},
 		},
-	}
-	if err := c.Create(ctx, ta); err != nil {
-		t.Fatal(err)
-	}
+	})
 	var tenantA string
 	waitFor(t, 20*time.Second, func() bool {
 		var a towonelv1alpha1.TowonelTunnel
@@ -568,9 +496,7 @@ func TestAgentRetargetsTunnel(t *testing.T) {
 }
 
 func TestTunnelDeleteReleasesAgentPorts(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, hub, stop := startManager(t)
-	defer stop()
+	c, hub := startManager(t)
 	ctx := t.Context()
 
 	for _, tc := range []struct {
@@ -591,19 +517,14 @@ func TestTunnelDeleteReleasesAgentPorts(t *testing.T) {
 				ExtraHostnames: []string{tc.name + ".example"},
 			},
 		}
-		if err := c.Create(ctx, tt); err != nil {
-			t.Fatal(err)
-		}
-		ta := &towonelv1alpha1.TowonelAgent{
+		mustCreate(t, c, tt)
+		mustCreate(t, c, &towonelv1alpha1.TowonelAgent{
 			Name: tc.name + "-edge", Namespace: "default",
 			Spec: towonelv1alpha1.TowonelAgentSpec{
 				TunnelRef: towonelv1alpha1.TunnelReference{Name: tc.name},
 				TCP:       []towonelv1alpha1.AgentL4Service{{Name: "ssh", Origin: "o:22"}},
 			},
-		}
-		if err := c.Create(ctx, ta); err != nil {
-			t.Fatal(err)
-		}
+		})
 		var tenant string
 		waitFor(t, 20*time.Second, func() bool {
 			var got towonelv1alpha1.TowonelTunnel

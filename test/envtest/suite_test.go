@@ -87,13 +87,7 @@ func TestMain(m *testing.M) {
 	// Start a single shared source manager (gateway-api enabled) for all source
 	// tests. This avoids per-test manager startup/teardown races that cause flakes
 	// when the Service informer watch stream is torn down and reopened rapidly.
-	sharedSourceMgr, err = ctrl.NewManager(sharedCfg, ctrl.Options{
-		Scheme:  testScheme,
-		Metrics: metricsserver.Options{BindAddress: "0"},
-		Controller: crconfig.Controller{
-			SkipNameValidation: new(true),
-		},
-	})
+	sharedSourceMgr, err = ctrl.NewManager(sharedCfg, managerOptions())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "source manager init: %v\n", err)
 		os.Exit(1)
@@ -141,9 +135,7 @@ func TestMain(m *testing.M) {
 func mustNamespace(t *testing.T) string {
 	t.Helper()
 	ns := &corev1.Namespace{GenerateName: "src-test-"}
-	if err := k8sClient.Create(context.Background(), ns); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, ns)
 	return ns.Name
 }
 
@@ -172,14 +164,13 @@ func managerOptions() ctrl.Options {
 // watch connection is closed quickly, preventing interference with the shared manager.
 func startSourceManagerWith(t *testing.T, agentNS, enable string) {
 	t.Helper()
-	shortShutdown := 1 * time.Second
 	opts := managerOptions()
-	opts.GracefulShutdownTimeout = &shortShutdown
+	opts.GracefulShutdownTimeout = new(1 * time.Second)
 	mgr, err := ctrl.NewManager(sharedCfg, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.RegisterIndexes(context.Background(), mgr); err != nil {
+	if err := controller.RegisterIndexes(t.Context(), mgr); err != nil {
 		t.Fatal(err)
 	}
 	if err := controller.SetupSourceControllers(mgr, controller.SourceConfig{
@@ -188,7 +179,7 @@ func startSourceManagerWith(t *testing.T, agentNS, enable string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)

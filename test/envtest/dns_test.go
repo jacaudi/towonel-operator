@@ -4,9 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -93,9 +93,7 @@ func mutateTunnel(t *testing.T, c client.Client, ns, name string, mut func(*towo
 }
 
 func TestDNSEndpointPublishedForConfirmedHostnames(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
 	dns := enabled(func(d *towonelv1alpha1.TunnelDNSSpec) {
@@ -104,9 +102,7 @@ func TestDNSEndpointPublishedForConfirmedHostnames(t *testing.T) {
 		d.Annotations = map[string]string{"note": "x"}
 		d.ProviderSpecific = []towonelv1alpha1.DNSProviderProperty{{Name: "cloudflare/proxied", Value: "false"}}
 	})
-	if err := c.Create(ctx, dnsTunnelObj(ns, "pub", []string{"b.example.com", "a.example.com", "*.example.com"}, dns)); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "pub", []string{"b.example.com", "a.example.com", "*.example.com"}, dns))
 	waitFor(t, 20*time.Second, func() bool {
 		o, err := getDNS(ctx, ns, dnsName(ns, "pub"))
 		return err == nil && slices.Equal(dnsNames(o), []string{"a.example.com", "b.example.com"})
@@ -130,14 +126,10 @@ func TestDNSEndpointPublishedForConfirmedHostnames(t *testing.T) {
 
 // Review Focus 1: removed hostnames leave the object; the last one deletes it.
 func TestDNSEndpointShrinksThenRemoved(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
-	if err := c.Create(ctx, dnsTunnelObj(ns, "shrink", []string{"a.example.com", "b.example.com", "*.wild.example.com"}, enabled())); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "shrink", []string{"a.example.com", "b.example.com", "*.wild.example.com"}, enabled()))
 	waitFor(t, 20*time.Second, func() bool {
 		o, err := getDNS(ctx, ns, dnsName(ns, "shrink"))
 		return err == nil && len(o.Spec.Endpoints) == 2
@@ -161,14 +153,10 @@ func TestDNSEndpointShrinksThenRemoved(t *testing.T) {
 }
 
 func TestDNSEndpointMovesWithNamespace(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns, ns2 := mustNamespace(t), mustNamespace(t)
-	if err := c.Create(ctx, dnsTunnelObj(ns, "mv", []string{"a.example.com"}, enabled())); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "mv", []string{"a.example.com"}, enabled()))
 	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, "mv")); return err == nil })
 	mutateTunnel(t, c, ns, "mv", func(tt *towonelv1alpha1.TowonelTunnel) { tt.Spec.DNS.Namespace = ns2 })
 	waitFor(t, 20*time.Second, func() bool {
@@ -180,18 +168,12 @@ func TestDNSEndpointMovesWithNamespace(t *testing.T) {
 
 // Review Focus 2: two tunnels sharing one spec.dns.namespace never sweep each other.
 func TestDNSTwoTunnelsShareDNSNamespace(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	nsA, nsB, shared := mustNamespace(t), mustNamespace(t), mustNamespace(t)
 	in := func(d *towonelv1alpha1.TunnelDNSSpec) { d.Namespace = shared }
-	if err := c.Create(ctx, dnsTunnelObj(nsA, "x", []string{"a.example.com"}, enabled(in))); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Create(ctx, dnsTunnelObj(nsB, "x", []string{"b.example.com"}, enabled(in))); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(nsA, "x", []string{"a.example.com"}, enabled(in)))
+	mustCreate(t, c, dnsTunnelObj(nsB, "x", []string{"b.example.com"}, enabled(in)))
 	waitFor(t, 20*time.Second, func() bool {
 		_, errA := getDNS(ctx, shared, dnsName(nsA, "x"))
 		_, errB := getDNS(ctx, shared, dnsName(nsB, "x"))
@@ -205,14 +187,10 @@ func TestDNSTwoTunnelsShareDNSNamespace(t *testing.T) {
 }
 
 func TestDNSDisabledSweepsAndClearsCondition(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
-	if err := c.Create(ctx, dnsTunnelObj(ns, "off", []string{"a.example.com"}, enabled())); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "off", []string{"a.example.com"}, enabled()))
 	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, "off")); return err == nil })
 	mutateTunnel(t, c, ns, "off", func(tt *towonelv1alpha1.TowonelTunnel) { tt.Spec.DNS.Mode = towonelv1alpha1.DNSModeDisabled })
 	waitFor(t, 20*time.Second, func() bool {
@@ -224,14 +202,10 @@ func TestDNSDisabledSweepsAndClearsCondition(t *testing.T) {
 }
 
 func TestDNSRevokedInviteWithdrawsRecords(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, hub, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, hub := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
-	if err := c.Create(ctx, dnsTunnelObj(ns, "rev", []string{"a.example.com"}, enabled())); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "rev", []string{"a.example.com"}, enabled()))
 	var inviteID string
 	waitFor(t, 20*time.Second, func() bool {
 		_, err := getDNS(ctx, ns, dnsName(ns, "rev"))
@@ -260,14 +234,10 @@ func TestDNSRevokedInviteWithdrawsRecords(t *testing.T) {
 // A hub-deleted invite (GET /v1/invites/{id} -> 404) cannot be confirmed, so
 // DNS fails closed: the records are withdrawn rather than left published.
 func TestDNSInviteDeletedHubSideWithdrawsRecords(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, hub, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, hub := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
-	if err := c.Create(ctx, dnsTunnelObj(ns, "gone", []string{"a.example.com"}, enabled())); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "gone", []string{"a.example.com"}, enabled()))
 	var inviteID string
 	waitFor(t, 20*time.Second, func() bool {
 		_, err := getDNS(ctx, ns, dnsName(ns, "gone"))
@@ -301,14 +271,10 @@ func TestDNSInviteDeletedHubSideWithdrawsRecords(t *testing.T) {
 // reconcile fails, but the published records must stay: only a 404 on
 // GET /v1/invites/{id} withdraws them.
 func TestDNSHostnameRemove404KeepsRecords(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, hub, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, hub := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
-	if err := c.Create(ctx, dnsTunnelObj(ns, "race", []string{"a.example.com", "b.example.com"}, enabled())); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "race", []string{"a.example.com", "b.example.com"}, enabled()))
 	var inviteID string
 	waitFor(t, 20*time.Second, func() bool {
 		o, err := getDNS(ctx, ns, dnsName(ns, "race"))
@@ -353,20 +319,16 @@ func pokeTunnel(t *testing.T, c client.Client, ns, name string) {
 		if tt.Annotations == nil {
 			tt.Annotations = map[string]string{}
 		}
-		tt.Annotations["test.towonel.io/poke"] = fmt.Sprint(time.Now().UnixNano())
+		tt.Annotations["test.towonel.io/poke"] = strconv.FormatInt(time.Now().UnixNano(), 10)
 	})
 }
 
 func TestDNSNoEdgeTargetSweeps(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, map[string]string{}) // a self-hosted hub with no map
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, map[string]string{}) // a self-hosted hub with no map
 	ctx := t.Context()
 	ns := mustNamespace(t)
 	dns := enabled(func(d *towonelv1alpha1.TunnelDNSSpec) { d.CNAMETarget = "custom.example.com" })
-	if err := c.Create(ctx, dnsTunnelObj(ns, "nt", []string{"a.example.com"}, dns)); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "nt", []string{"a.example.com"}, dns))
 	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, "nt")); return err == nil })
 	mutateTunnel(t, c, ns, "nt", func(tt *towonelv1alpha1.TowonelTunnel) { tt.Spec.DNS.CNAMETarget = "" })
 	waitFor(t, 20*time.Second, func() bool {
@@ -377,9 +339,7 @@ func TestDNSNoEdgeTargetSweeps(t *testing.T) {
 }
 
 func TestDNSForeignObjectNotOverwritten(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns, ns2 := mustNamespace(t), mustNamespace(t)
 	foreign := &externaldnsv1alpha1.DNSEndpoint{
@@ -388,18 +348,12 @@ func TestDNSForeignObjectNotOverwritten(t *testing.T) {
 			DNSName: "keep.example.com", RecordType: endpoint.RecordTypeA, Targets: endpoint.Targets{"192.0.2.1"},
 		}}},
 	}
-	if err := k8sClient.Create(ctx, foreign); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, foreign)
 	stale := &externaldnsv1alpha1.DNSEndpoint{Name: "stale", Namespace: ns2, Labels: map[string]string{
 		"app.kubernetes.io/managed-by": "towonel-operator", controller.LabelOwnerTunnel: testOwnerHash(ns, "fo"),
 	}}
-	if err := k8sClient.Create(ctx, stale); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Create(ctx, dnsTunnelObj(ns, "fo", []string{"a.example.com"}, enabled())); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, stale)
+	mustCreate(t, c, dnsTunnelObj(ns, "fo", []string{"a.example.com"}, enabled()))
 	waitFor(t, 20*time.Second, func() bool {
 		cond, _ := tunnelCond(ctx, c, ns, "fo")
 		_, errStale := getDNS(ctx, ns2, "stale")
@@ -420,16 +374,12 @@ func TestDNSForeignObjectNotOverwritten(t *testing.T) {
 }
 
 func TestDNSDeletePolicyWithdrawsRecords(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
 	tt := dnsTunnelObj(ns, "del", []string{"a.example.com"}, enabled())
 	tt.Spec.DeletionPolicy = towonelv1alpha1.DeletionPolicyDelete
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, tt)
 	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, "del")); return err == nil })
 	if err := c.Delete(ctx, tt); err != nil {
 		t.Fatal(err)
@@ -445,16 +395,12 @@ func TestDNSDeletePolicyWithdrawsRecords(t *testing.T) {
 // runs before resolveAPIKey — DNS is withdrawn even while the finalizer is
 // stuck on an unresolvable API key.
 func TestDNSDeleteSweepsWithoutAPIKey(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
 	tt := dnsTunnelObj(ns, "nokey", []string{"a.example.com"}, enabled())
 	tt.Spec.DeletionPolicy = towonelv1alpha1.DeletionPolicyDelete
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, tt)
 	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, "nokey")); return err == nil })
 	// The DNSEndpoint is applied before status is written; mutating the spec in
 	// that window conflicts the status write, losing inviteId, and an invite-less
@@ -489,9 +435,7 @@ func retainDeleted(t *testing.T, c client.Client, ns, name string) func() *towon
 		return tt
 	}
 	tt := mk()
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, tt)
 	waitFor(t, 20*time.Second, func() bool { _, err := getDNS(ctx, ns, dnsName(ns, name)); return err == nil })
 	if err := c.Delete(ctx, tt); err != nil {
 		t.Fatal(err)
@@ -511,15 +455,11 @@ func retainDeleted(t *testing.T, c client.Client, ns, name string) func() *towon
 // survives here. In a real cluster GC deletes it, and the recreated tunnel
 // stops at errAdoptedNoToken before DNS runs; that path is the next test.
 func TestDNSRetainKeepsRecordsAndReadoptsWithToken(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
 	mk := retainDeleted(t, c, ns, "keep")
-	if err := c.Create(ctx, mk()); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, mk())
 	waitFor(t, 20*time.Second, func() bool {
 		cond, _ := tunnelCond(ctx, c, ns, "keep")
 		return cond != nil && cond.Status == metav1.ConditionTrue && cond.Reason == controller.ReasonSynced
@@ -531,9 +471,7 @@ func TestDNSRetainKeepsRecordsAndReadoptsWithToken(t *testing.T) {
 // (Ready=False/Reconciling, Phase Pending) before DNS runs. The records stay
 // published but UNMANAGED, and the tunnel never reports DNSEndpointSynced.
 func TestDNSRetainWithoutTokenLeavesRecordsUnmanaged(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
 	mk := retainDeleted(t, c, ns, "keepnotoken")
@@ -546,9 +484,7 @@ func TestDNSRetainWithoutTokenLeavesRecordsUnmanaged(t *testing.T) {
 		var s corev1.Secret
 		return apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "keepnotoken-token"}, &s))
 	})
-	if err := c.Create(ctx, mk()); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, mk())
 	waitFor(t, 20*time.Second, func() bool {
 		cond, got := tunnelCond(ctx, c, ns, "keepnotoken")
 		if got == nil {
@@ -580,14 +516,10 @@ func dnsCondEventually(t *testing.T, c client.Client, ns, name, reason string) *
 // A label key the API server rejects (the CRD only bounds the map shape) must
 // surface as InvalidConfig, not a retry loop.
 func TestDNSInvalidLabelsReportInvalidConfig(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ns := mustNamespace(t)
 	dns := enabled(func(d *towonelv1alpha1.TunnelDNSSpec) { d.Labels = map[string]string{"bad key!": "x"} })
-	if err := c.Create(t.Context(), dnsTunnelObj(ns, "badlabels", []string{"a.example.com"}, dns)); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "badlabels", []string{"a.example.com"}, dns))
 	dnsCondEventually(t, c, ns, "badlabels", controller.ReasonInvalidConfig)
 	if _, err := getDNS(t.Context(), ns, dnsName(ns, "badlabels")); !apierrors.IsNotFound(err) {
 		t.Fatalf("DNSEndpoint must not exist for invalid labels, got err=%v", err)
@@ -597,14 +529,10 @@ func TestDNSInvalidLabelsReportInvalidConfig(t *testing.T) {
 // spec.dns.namespace naming a namespace that does not exist is an APIError
 // that says why (the operator retries; creating the namespace fixes it).
 func TestDNSMissingNamespaceReportsAPIError(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ns := mustNamespace(t)
 	dns := enabled(func(d *towonelv1alpha1.TunnelDNSSpec) { d.Namespace = ns + "-missing" })
-	if err := c.Create(t.Context(), dnsTunnelObj(ns, "nonamespace", []string{"a.example.com"}, dns)); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "nonamespace", []string{"a.example.com"}, dns))
 	cond := dnsCondEventually(t, c, ns, "nonamespace", controller.ReasonAPIError)
 	if !strings.Contains(cond.Message, "not found") {
 		t.Fatalf("message = %q, want it to contain %q", cond.Message, "not found")
@@ -620,12 +548,8 @@ const optOutPrivate, optOutPublic, optOutExtra = "private.example.com", "public.
 func optOutFixture(t *testing.T, c client.Client, ns string) {
 	t.Helper()
 	ctx := t.Context()
-	if err := c.Create(ctx, annService(ns, "envoy", nil, corev1.ServicePort{Port: 443})); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Create(ctx, autoRoutesGateway(ns, "gw", "envoy")); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, annService(ns, "envoy", nil, corev1.ServicePort{Port: 443}))
+	mustCreate(t, c, autoRoutesGateway(ns, "gw", "envoy"))
 	routeAnn := func(extra map[string]string) map[string]string {
 		ann := map[string]string{controller.AnnotationTunnel: "true", controller.AnnotationTunnelRef: "dnstun"}
 		maps.Copy(ann, extra)
@@ -635,13 +559,9 @@ func optOutFixture(t *testing.T, c client.Client, ns string) {
 		httpRoute(ns, "private", routeAnn(map[string]string{controller.AnnotationDNSRecord: "false"}), "gw", optOutPrivate),
 		httpRoute(ns, "public", routeAnn(nil), "gw", optOutPublic),
 	} {
-		if err := c.Create(ctx, rt); err != nil {
-			t.Fatal(err)
-		}
+		mustCreate(t, c, rt)
 	}
-	if err := c.Create(ctx, dnsTunnelObj(ns, "dnstun", []string{optOutExtra}, enabled())); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, dnsTunnelObj(ns, "dnstun", []string{optOutExtra}, enabled()))
 	waitFor(t, 60*time.Second, func() bool {
 		_, tt := tunnelCond(ctx, c, ns, "dnstun")
 		o, err := getDNS(ctx, ns, dnsName(ns, "dnstun"))
@@ -655,9 +575,7 @@ func optOutFixture(t *testing.T, c client.Client, ns string) {
 // (it lands in status.authorizedHostnames) but is kept out of the DNSEndpoint and
 // status.dnsRecords; its un-annotated sibling and spec.extraHostnames publish.
 func TestDNSRecordAnnotationKeepsHostnameOutOfDNSEndpoint(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
 	optOutFixture(t, c, ns)
@@ -687,9 +605,7 @@ func TestDNSRecordAnnotationKeepsHostnameOutOfDNSEndpoint(t *testing.T) {
 // drops the field it owned), so the agent field returns to nil and the hostname is
 // republished.
 func TestDNSRecordAnnotationRemovalRepublishesHostname(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
-	c, _, stop := startManagerOn(t, sharedCfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, sharedCfg, testEdgeTargets)
 	ctx := t.Context()
 	ns := mustNamespace(t)
 	optOutFixture(t, c, ns)
