@@ -1,7 +1,6 @@
 package towoneltest
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -14,7 +13,7 @@ func TestHubAddHostnameConflict(t *testing.T) {
 	hub := NewHub()
 	srv, tc := hub.Server()
 	t.Cleanup(srv.Close)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	created, err := tc.CreateInvite(ctx, towonel.CreateInviteRequest{Hostnames: []string{"a.example"}})
 	if err != nil {
@@ -41,7 +40,7 @@ func TestHubDeleteInviteFreesHostnames(t *testing.T) {
 	hub := NewHub()
 	srv, tc := hub.Server()
 	t.Cleanup(srv.Close)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	first, err := tc.CreateInvite(ctx, towonel.CreateInviteRequest{Hostnames: []string{"a.example"}})
 	if err != nil {
@@ -121,8 +120,7 @@ func TestHubPorts(t *testing.T) {
 		t.Fatalf("release: %v", err)
 	}
 	err = c.ReleasePort(ctx, "ten-1", "tcp", 4086)
-	var apiErr *towonel.APIError
-	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+	if apiErr, ok := errors.AsType[*towonel.APIError](err); !ok || apiErr.StatusCode != http.StatusNotFound {
 		t.Fatalf("second release: want 404 APIError, got %v", err)
 	}
 	if !h.HasReservation("ten-1", "udp", resp2.Port) {
@@ -137,7 +135,7 @@ func TestHubInviteStatusRoute(t *testing.T) {
 	hub := NewHub()
 	srv, tc := hub.Server()
 	t.Cleanup(srv.Close)
-	ctx := context.Background()
+	ctx := t.Context()
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t"})
 	hub.SeedInviteStatus(towonel.InviteStatus{InviteID: "inv-1", TenantID: "ten-1", Regions: []towonel.RegionStatus{
 		{Region: "CA", Role: "primary", Edges: []towonel.EdgeStatus{{NodeID: "n1", PublicIPs: []string{"203.0.113.7"}}}},
@@ -160,9 +158,8 @@ func TestHubCreateRecordsRegionAndRevoke(t *testing.T) {
 	hub := NewHub()
 	srv, tc := hub.Server()
 	t.Cleanup(srv.Close)
-	ctx := context.Background()
-	region := "CA"
-	created, err := tc.CreateInvite(ctx, towonel.CreateInviteRequest{Hostnames: []string{"a.example"}, Region: &region})
+	ctx := t.Context()
+	created, err := tc.CreateInvite(ctx, towonel.CreateInviteRequest{Hostnames: []string{"a.example"}, Region: new("CA")})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -185,7 +182,7 @@ func TestHubCreateRecordsRegionAndRevoke(t *testing.T) {
 
 // TestHubInviteIDsAreUniqueAcrossHubs pins the per-Hub ID prefix (hubSeq).
 func TestHubInviteIDsAreUniqueAcrossHubs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	first := func() string {
 		hub := NewHub()
 		srv, tc := hub.Server()
@@ -209,7 +206,7 @@ func TestHubHostnameDeleteNotFound(t *testing.T) {
 	hub := NewHub()
 	srv, tc := hub.Server()
 	t.Cleanup(srv.Close)
-	ctx := context.Background()
+	ctx := t.Context()
 	created, err := tc.CreateInvite(ctx, towonel.CreateInviteRequest{Hostnames: []string{"a.example", "b.example"}})
 	if err != nil {
 		t.Fatalf("create: %v", err)

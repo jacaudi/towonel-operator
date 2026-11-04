@@ -66,10 +66,9 @@ func NewHub() *Hub {
 func (h *Hub) Seed(inv towonel.Invite) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	cp := inv
-	h.invites[inv.InviteID] = &cp
-	for _, hn := range cp.Hostnames {
-		h.reservedHosts[hn] = cp.InviteID
+	h.invites[inv.InviteID] = &inv
+	for _, hn := range inv.Hostnames {
+		h.reservedHosts[hn] = inv.InviteID
 	}
 }
 
@@ -133,11 +132,14 @@ func (h *Hub) HasHostname(inviteID, host string) bool {
 	return slices.Contains(inv.Hostnames, host)
 }
 
+// portKey is the "proto/port" key of the hub-wide taken set.
+func portKey(protocol string, port int32) string { return fmt.Sprintf("%s/%d", protocol, port) }
+
 // SeedTakenPort marks a port as taken hub-wide (conflicts any preferred reserve).
 func (h *Hub) SeedTakenPort(protocol string, port int32) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.taken[fmt.Sprintf("%s/%d", protocol, port)] = true
+	h.taken[portKey(protocol, port)] = true
 }
 
 // SeedReservation inserts a pre-existing reservation (adoption tests).
@@ -145,21 +147,17 @@ func (h *Hub) SeedTakenPort(protocol string, port int32) {
 func (h *Hub) SeedReservation(tenantID string, r towonel.ReservePortResponse) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	cp := r
-	h.ports[tenantID] = append(h.ports[tenantID], &cp)
-	h.taken[fmt.Sprintf("%s/%d", r.Protocol, r.Port)] = true
+	h.ports[tenantID] = append(h.ports[tenantID], &r)
+	h.taken[portKey(r.Protocol, r.Port)] = true
 }
 
 // HasReservation reports whether a tenant holds (protocol, port).
 func (h *Hub) HasReservation(tenantID, protocol string, port int32) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, r := range h.ports[tenantID] {
-		if r.Protocol == protocol && r.Port == port {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(h.ports[tenantID], func(r *towonel.ReservePortResponse) bool {
+		return r.Protocol == protocol && r.Port == port
+	})
 }
 
 // ReservationCount returns a tenant's live reservation count.
@@ -255,8 +253,7 @@ func (h *Hub) handler() http.HandlerFunc {
 			// a full-set echo would mask issue #26's stranding bug.
 			_ = json.NewEncoder(w).Encode(towonel.AddHostnamesResponse{Status: "ok", Hostnames: body.Hostnames})
 		case req.Method == http.MethodDelete && strings.Contains(p, "/hostnames/"):
-			parts := strings.SplitN(strings.TrimPrefix(p, "/v1/invites/"), "/hostnames/", 2)
-			id, host := parts[0], parts[1]
+			id, host, _ := strings.Cut(strings.TrimPrefix(p, "/v1/invites/"), "/hostnames/")
 			if h.hostnameDeleteNotFound[hostnameKey{id, host}] {
 				w.WriteHeader(http.StatusNotFound)
 				_, _ = w.Write([]byte(`{"error":"hostname not found on invite"}`))
@@ -287,7 +284,7 @@ func (h *Hub) handler() http.HandlerFunc {
 			_ = json.NewDecoder(req.Body).Decode(&body)
 			port := h.nextPort
 			if body.Preferred != nil {
-				if h.taken[fmt.Sprintf("%s/%d", body.Protocol, *body.Preferred)] {
+				if h.taken[portKey(body.Protocol, *body.Preferred)] {
 					w.WriteHeader(http.StatusConflict)
 					_, _ = w.Write([]byte(`{"error":"port taken"}`))
 					return
@@ -296,7 +293,7 @@ func (h *Hub) handler() http.HandlerFunc {
 			} else {
 				h.nextPort++
 			}
-			h.taken[fmt.Sprintf("%s/%d", body.Protocol, port)] = true
+			h.taken[portKey(body.Protocol, port)] = true
 			resp := &towonel.ReservePortResponse{
 				Status: "ok", Port: port, Protocol: body.Protocol, ClaimedAtMs: 1,
 				Label: body.Label,
@@ -312,19 +309,14 @@ func (h *Hub) handler() http.HandlerFunc {
 			}
 			_ = json.NewEncoder(w).Encode(out)
 		case req.Method == http.MethodDelete && strings.HasPrefix(p, "/v1/tenants/") && strings.Contains(p, "/ports/"):
-			rest := strings.TrimPrefix(p, "/v1/tenants/")
-			parts := strings.SplitN(rest, "/ports/", 2) // tenant, "proto/port"
-			if len(parts) != 2 {
+			tenant, protoPort, ok := strings.Cut(strings.TrimPrefix(p, "/v1/tenants/"), "/ports/")
+			proto, portStr, ok2 := strings.Cut(protoPort, "/")
+			if !ok || !ok2 {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			pp := strings.SplitN(parts[1], "/", 2)
-			if len(pp) != 2 {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			port64, _ := strconv.ParseInt(pp[1], 10, 32)
-			tenant, proto, port := parts[0], pp[0], int32(port64)
+			port64, _ := strconv.ParseInt(portStr, 10, 32)
+			port := int32(port64)
 			before := len(h.ports[tenant])
 			h.ports[tenant] = slices.DeleteFunc(h.ports[tenant], func(r *towonel.ReservePortResponse) bool {
 				return r.Protocol == proto && r.Port == port
@@ -333,7 +325,7 @@ func (h *Hub) handler() http.HandlerFunc {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			delete(h.taken, fmt.Sprintf("%s/%d", proto, port))
+			delete(h.taken, portKey(proto, port))
 			w.WriteHeader(http.StatusOK)
 		default:
 			w.WriteHeader(http.StatusNotFound)

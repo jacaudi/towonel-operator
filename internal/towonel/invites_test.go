@@ -1,7 +1,6 @@
 package towonel
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,7 +18,7 @@ func TestCreateInvite(t *testing.T) {
 		_, _ = w.Write([]byte(`{"status":"ok","token":"tt_inv_2_abc","invite_id":"inv1","tenant_id":"ten1","name":"app"}`))
 	})
 
-	resp, err := c.CreateInvite(context.Background(), CreateInviteRequest{
+	resp, err := c.CreateInvite(t.Context(), CreateInviteRequest{
 		Hostnames: []string{"app.towonel.dev"},
 	})
 	if err != nil {
@@ -46,7 +45,7 @@ func TestAddHostnames(t *testing.T) {
 		_, _ = w.Write([]byte(`{"status":"ok","hostnames":["a.dev","b.dev"]}`))
 	})
 
-	resp, err := c.AddHostnames(context.Background(), "inv1", []string{"b.dev"})
+	resp, err := c.AddHostnames(t.Context(), "inv1", []string{"b.dev"})
 	if err != nil {
 		t.Fatalf("AddHostnames() error = %v", err)
 	}
@@ -67,7 +66,7 @@ func TestRemoveHostname(t *testing.T) {
 		gotMethod, gotPath = r.Method, r.URL.Path
 		_, _ = w.Write([]byte(`{"status":"ok","hostname":"a.dev","remaining_hostnames":["b.dev","c.dev"]}`))
 	})
-	resp, err := c.RemoveHostname(context.Background(), "inv1", "a.dev")
+	resp, err := c.RemoveHostname(t.Context(), "inv1", "a.dev")
 	if err != nil {
 		t.Fatalf("RemoveHostname() error = %v", err)
 	}
@@ -91,7 +90,7 @@ func TestRemoveHostname_EscapedPathParams(t *testing.T) {
 		gotPath = r.URL.EscapedPath()
 		_, _ = w.Write([]byte(`{"status":"ok","hostname":"host/name","remaining_hostnames":[]}`))
 	})
-	_, err := c.RemoveHostname(context.Background(), "inv/1", "host/name")
+	_, err := c.RemoveHostname(t.Context(), "inv/1", "host/name")
 	if err != nil {
 		t.Fatalf("RemoveHostname() error = %v", err)
 	}
@@ -106,7 +105,7 @@ func TestDeleteInvite(t *testing.T) {
 		gotMethod, gotPath = r.Method, r.URL.Path
 		w.WriteHeader(http.StatusOK)
 	})
-	if err := c.DeleteInvite(context.Background(), "inv1"); err != nil {
+	if err := c.DeleteInvite(t.Context(), "inv1"); err != nil {
 		t.Fatalf("DeleteInvite() error = %v", err)
 	}
 	if gotMethod != http.MethodDelete || gotPath != "/v1/invites/inv1" {
@@ -120,7 +119,7 @@ func TestGetInvite(t *testing.T) {
 		gotMethod, gotPath = r.Method, r.URL.Path
 		_, _ = w.Write([]byte(`{"invite_id":"inv1","tenant_id":"ten1","name":"app","hostnames":["a.dev","b.dev"],"region":"EU"}`))
 	})
-	got, err := c.GetInvite(context.Background(), "inv1")
+	got, err := c.GetInvite(t.Context(), "inv1")
 	if err != nil {
 		t.Fatalf("GetInvite() error = %v", err)
 	}
@@ -141,7 +140,7 @@ func TestGetInvite_EscapedPathParam(t *testing.T) {
 		gotPath = r.URL.EscapedPath()
 		_, _ = w.Write([]byte(`{"invite_id":"inv/1","hostnames":[]}`))
 	})
-	if _, err := c.GetInvite(context.Background(), "inv/1"); err != nil {
+	if _, err := c.GetInvite(t.Context(), "inv/1"); err != nil {
 		t.Fatalf("GetInvite() error = %v", err)
 	}
 	if gotPath != "/v1/invites/inv%2F1" {
@@ -155,7 +154,7 @@ func TestListInvites(t *testing.T) {
 		gotMethod, gotPath = r.Method, r.URL.Path
 		_, _ = w.Write([]byte(`[{"invite_id":"inv1","tenant_id":"ten1","name":"app","hostnames":["a.dev"],"region":"EU"}]`))
 	})
-	got, err := c.ListInvites(context.Background())
+	got, err := c.ListInvites(t.Context())
 	if err != nil {
 		t.Fatalf("ListInvites() error = %v", err)
 	}
@@ -171,7 +170,7 @@ func TestGetInviteDecodesStatusAndRegion(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"invite_id":"inv1","tenant_id":"ten1","name":"ns/t","hostnames":["a.dev"],"status":"revoked","region":null}`))
 	})
-	inv, err := c.GetInvite(context.Background(), "inv1")
+	inv, err := c.GetInvite(t.Context(), "inv1")
 	if err != nil {
 		t.Fatalf("GetInvite: %v", err)
 	}
@@ -186,7 +185,7 @@ func TestGetInviteStatus(t *testing.T) {
 		gotMethod, gotPath = r.Method, r.URL.Path
 		_, _ = w.Write([]byte(`{"invite_id":"inv1","tenant_id":"ten1","regions":[{"region":"CA","role":"primary","edges":[{"node_id":"n1","public_ips":["51.79.11.238"]}]},{"region":"EU","role":"failover","edges":[]}]}`))
 	})
-	st, err := c.GetInviteStatus(context.Background(), "inv1")
+	st, err := c.GetInviteStatus(t.Context(), "inv1")
 	if err != nil {
 		t.Fatalf("GetInviteStatus: %v", err)
 	}
@@ -204,7 +203,7 @@ func TestGetInviteStatus404(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	})
-	_, err := c.GetInviteStatus(context.Background(), "inv1")
+	_, err := c.GetInviteStatus(t.Context(), "inv1")
 	apiErr, ok := errors.AsType[*APIError](err)
 	if !ok || apiErr.StatusCode != http.StatusNotFound {
 		t.Fatalf("err = %v, want 404 APIError", err)
@@ -215,7 +214,7 @@ func TestGetInviteStatusDecodeError(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{not json`))
 	})
-	if _, err := c.GetInviteStatus(context.Background(), "inv1"); err == nil {
+	if _, err := c.GetInviteStatus(t.Context(), "inv1"); err == nil {
 		t.Fatal("want decode error, got nil")
 	}
 }
