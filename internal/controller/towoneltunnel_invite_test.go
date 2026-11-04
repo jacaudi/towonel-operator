@@ -19,6 +19,11 @@ import (
 
 func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 	t.Helper()
+	return fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
+}
+
+func testScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
 	s := runtime.NewScheme()
 	if err := towonelv1alpha1.AddToScheme(s); err != nil {
 		t.Fatal(err)
@@ -26,14 +31,6 @@ func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 	if err := corev1.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
-	return fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).Build()
-}
-
-func testScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-	s := runtime.NewScheme()
-	_ = towonelv1alpha1.AddToScheme(s)
-	_ = corev1.AddToScheme(s)
 	return s
 }
 
@@ -178,12 +175,9 @@ func TestConvergeHostnames(t *testing.T) {
 	if _, err := r.convergeHostnames(t.Context(), tc, tt, desiredHostnames(tt, nil)); err != nil {
 		t.Fatalf("converge: %v", err)
 	}
-	got := map[string]bool{}
-	for _, h := range tt.Status.AuthorizedHostnames {
-		got[h] = true
-	}
-	if !got["a.example"] || !got["c.example"] || got["b.example"] {
-		t.Errorf("authorized = %v, want {a,c}", tt.Status.AuthorizedHostnames)
+	got := tt.Status.AuthorizedHostnames
+	if !slices.Contains(got, "a.example") || !slices.Contains(got, "c.example") || slices.Contains(got, "b.example") {
+		t.Errorf("authorized = %v, want {a,c}", got)
 	}
 }
 
@@ -227,8 +221,7 @@ func TestConvergeHostnamesAddsNewHostname(t *testing.T) {
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example"}})
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
-	tt.Status.InviteID = "inv-1"
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns", Status: towonelv1alpha1.TowonelTunnelStatus{InviteID: "inv-1"}}
 	tt.Status.AuthorizedHostnames = []string{"a.example"}
 
 	if _, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"}); err != nil {
@@ -272,8 +265,7 @@ func TestConvergeHostnamesDoesNotStrandOnAdd(t *testing.T) {
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example"}})
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
-	tt.Status.InviteID = "inv-1"
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns", Status: towonelv1alpha1.TowonelTunnelStatus{InviteID: "inv-1"}}
 	tt.Status.AuthorizedHostnames = []string{"a.example", "b.example"} // in sync with hub
 
 	if _, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example", "c.example"}); err != nil {
@@ -304,8 +296,7 @@ func TestConvergeHostnamesRepairsCorruptStatusFromHubTruth(t *testing.T) {
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example"}})
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
-	tt.Status.InviteID = "inv-1"
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns", Status: towonelv1alpha1.TowonelTunnelStatus{InviteID: "inv-1"}}
 	tt.Status.AuthorizedHostnames = []string{"a.example"} // corrupted: dropped b.example
 
 	if _, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example", "c.example"}); err != nil {
@@ -336,8 +327,7 @@ func TestConvergeHostnamesRemovesAgainstHubTruth(t *testing.T) {
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example", "c.example"}})
 
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
-	tt.Status.InviteID = "inv-1"
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns", Status: towonelv1alpha1.TowonelTunnelStatus{InviteID: "inv-1"}}
 	tt.Status.AuthorizedHostnames = []string{"a.example"} // corrupt: dropped b and c
 
 	if _, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"}); err != nil {
@@ -398,8 +388,7 @@ func TestConvergeHostnamesViewTracksHubTruth(t *testing.T) {
 	t.Cleanup(srv.Close)
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "b.example"}})
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
-	tt.Status.InviteID = "inv-1"
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns", Status: towonelv1alpha1.TowonelTunnelStatus{InviteID: "inv-1"}}
 
 	view, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "c.example"})
 	if err != nil {
@@ -443,8 +432,7 @@ func TestConvergeHostnamesRevokedInvitePublishesNothing(t *testing.T) {
 	// live invite converge would ADD b and REMOVE gone — on a revoked one it must do neither.
 	hub.Seed(towonel.Invite{InviteID: "inv-1", TenantID: "ten-1", Name: "ns/t1", Hostnames: []string{"a.example", "gone.example"}, Status: "revoked"})
 	r := &TowonelTunnelReconciler{Recorder: record.NewFakeRecorder(8)}
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
-	tt.Status.InviteID = "inv-1"
+	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns", Status: towonelv1alpha1.TowonelTunnelStatus{InviteID: "inv-1"}}
 
 	view, err := r.convergeHostnames(t.Context(), tc, tt, []string{"a.example", "b.example"})
 	if err != nil {

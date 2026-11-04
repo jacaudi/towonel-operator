@@ -81,12 +81,7 @@ func TestReadTunnelTokenGates(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			objs := tc.objs()
-			builder := fake.NewClientBuilder().WithScheme(agentScheme(t))
-			if len(objs) > 0 {
-				builder = builder.WithObjects(objs...)
-			}
-			c := builder.Build()
+			c := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithObjects(tc.objs()...).Build()
 			r := &TowonelAgentReconciler{Client: c, Scheme: agentScheme(t)}
 			tunnel, token, gate, err := r.readTunnelToken(t.Context(), ta)
 			if err != nil {

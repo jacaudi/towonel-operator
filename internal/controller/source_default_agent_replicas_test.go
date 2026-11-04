@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -21,7 +20,7 @@ func TestEnsureDefaultAgentAppliesReplicas(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
 
-	ta, err := ensureDefaultAgent(context.Background(), c, "net", new(int32(2)), tunnel)
+	ta, err := ensureDefaultAgent(t.Context(), c, "net", new(int32(2)), tunnel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +29,7 @@ func TestEnsureDefaultAgentAppliesReplicas(t *testing.T) {
 	}
 	// The value must be persisted, not just returned in-memory.
 	var got towonelv1alpha1.TowonelAgent
-	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ta.Namespace, Name: ta.Name}, &got); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: ta.Namespace, Name: ta.Name}, &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.Spec.Workload.Replicas == nil || *got.Spec.Workload.Replicas != 2 {
@@ -44,7 +43,7 @@ func TestEnsureDefaultAgentNilReplicasLeavesUnset(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
 
-	ta, err := ensureDefaultAgent(context.Background(), c, "net", nil, tunnel)
+	ta, err := ensureDefaultAgent(t.Context(), c, "net", nil, tunnel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +59,7 @@ func TestEnsureDefaultAgentBoundaryReplicaValues(t *testing.T) {
 	for _, n := range []int32{1, 3, 10} {
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 		tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
-		ta, err := ensureDefaultAgent(context.Background(), c, "net", new(n), tunnel)
+		ta, err := ensureDefaultAgent(t.Context(), c, "net", new(n), tunnel)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +78,7 @@ func TestEnsureDefaultAgentReplicasCreateOnlyAndUnaliased(t *testing.T) {
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
 
 	flagVal := int32(2)
-	first, err := ensureDefaultAgent(context.Background(), c, "net", &flagVal, tunnel)
+	first, err := ensureDefaultAgent(t.Context(), c, "net", &flagVal, tunnel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +91,7 @@ func TestEnsureDefaultAgentReplicasCreateOnlyAndUnaliased(t *testing.T) {
 
 	// Second call with a NEW replica value must GET the existing agent, not
 	// re-stamp it (the value persisted at create time stays authoritative).
-	second, err := ensureDefaultAgent(context.Background(), c, "net", new(int32(5)), tunnel)
+	second, err := ensureDefaultAgent(t.Context(), c, "net", new(int32(5)), tunnel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,13 +108,12 @@ func TestEnsureDefaultAgentReplicasCreateOnlyAndUnaliased(t *testing.T) {
 // agent-ref) path. resolveTarget threads the flag but must ignore it here.
 func TestResolveTargetAgentRefIgnoresDefaultReplicas(t *testing.T) {
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
-	mine := &towonelv1alpha1.TowonelAgent{}
-	mine.Namespace, mine.Name = "net", "mine"
+	mine := &towonelv1alpha1.TowonelAgent{Namespace: "net", Name: "mine"}
 	mine.Spec.Workload.Replicas = new(int32(1)) // user's own choice
 	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: tunnel.Name, Namespace: tunnel.Namespace}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
 
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", new(int32(4)), tunnel, "mine")
+	ta, mode, err := resolveTarget(t.Context(), c, func(string, string) {}, "", new(int32(4)), tunnel, "mine")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v; want write", mode, err)
 	}
@@ -130,7 +128,7 @@ func TestResolveTargetDefaultAgentAppliesReplicas(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
 
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", new(int32(2)), tunnel, "")
+	ta, mode, err := resolveTarget(t.Context(), c, func(string, string) {}, "", new(int32(2)), tunnel, "")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v; want write", mode, err)
 	}

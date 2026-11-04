@@ -8,7 +8,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -60,11 +59,10 @@ func TestCrossWatchPredicateSkipsStatusOnlyUpdates(t *testing.T) {
 }
 
 func TestObserveUserAgentWarnsOnUnservedHostname(t *testing.T) {
-	user := &towonelv1alpha1.TowonelAgent{}
-	user.Namespace, user.Name = "net", "mine"
-	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
-	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(user).Build()
-
+	user := &towonelv1alpha1.TowonelAgent{
+		Namespace: "net", Name: "mine",
+		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}},
+	}
 	rec := record.NewFakeRecorder(8)
 	b := &sourceBase{}
 	b.ensure(rec)
@@ -80,13 +78,11 @@ func TestObserveUserAgentWarnsOnUnservedHostname(t *testing.T) {
 	default:
 		t.Fatal("expected an Event for an unserved hostname")
 	}
-	_ = c
 }
 
 func TestObserveUserAgentActionableMessage(t *testing.T) {
 	b := &sourceBase{}
-	target := &towonelv1alpha1.TowonelAgent{}
-	target.Namespace, target.Name = "net", "mine"
+	target := &towonelv1alpha1.TowonelAgent{Namespace: "net", Name: "mine"}
 	target.Spec.Mode = towonelv1alpha1.ModeObserveOnly
 	target.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
 
@@ -118,8 +114,7 @@ func TestObserveUserAgentWarnsWhenDNSOptOutNotOnAgent(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			target := &towonelv1alpha1.TowonelAgent{}
-			target.Namespace, target.Name = "net", "mine"
+			target := &towonelv1alpha1.TowonelAgent{Namespace: "net", Name: "mine"}
 			target.Spec.Mode = towonelv1alpha1.ModeObserveOnly
 			target.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
 			target.Spec.Services = []towonelv1alpha1.AgentService{{Hostname: "a.example", Origin: "o:1", DNSRecord: tc.dnsRecord}}

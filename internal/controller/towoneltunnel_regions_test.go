@@ -15,9 +15,7 @@ import (
 )
 
 func regionTunnel(inviteID string) *towonelv1alpha1.TowonelTunnel {
-	tt := &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns"}
-	tt.Status.InviteID = inviteID
-	return tt
+	return &towonelv1alpha1.TowonelTunnel{Name: "t1", Namespace: "ns", Status: towonelv1alpha1.TowonelTunnelStatus{InviteID: inviteID}}
 }
 
 func TestPopulateRegionEndpointsSuccess(t *testing.T) {

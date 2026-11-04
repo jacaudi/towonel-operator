@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -121,13 +122,9 @@ func TestBuildDeployment(t *testing.T) {
 	}
 	// #36: the agent container always declares the metrics port so the chart
 	// PodMonitor can scrape /metrics on 9090.
-	var hasMetrics bool
-	for _, p := range ctr.Ports {
-		if p.Name == "metrics" && p.ContainerPort == agentHealthPort && p.Protocol == corev1.ProtocolTCP {
-			hasMetrics = true
-		}
-	}
-	if !hasMetrics {
+	if !slices.ContainsFunc(ctr.Ports, func(p corev1.ContainerPort) bool {
+		return p.Name == "metrics" && p.ContainerPort == agentHealthPort && p.Protocol == corev1.ProtocolTCP
+	}) {
 		t.Errorf("agent container must declare the metrics port (9090/TCP); got %+v", ctr.Ports)
 	}
 	// #36: pod-template labels the chart PodMonitor selects on. Regression guard —
@@ -318,10 +315,8 @@ func TestDisableUDPGSO(t *testing.T) {
 	}
 	original := buildDeployment(base, baseCfg)
 	const envName = "TOWONEL_DISABLE_UDP_GSO"
-	for _, env := range original.Spec.Template.Spec.Containers[0].Env {
-		if env.Name == envName {
-			t.Fatal("omitted setting must preserve the agent default")
-		}
+	if slices.ContainsFunc(original.Spec.Template.Spec.Containers[0].Env, func(e corev1.EnvVar) bool { return e.Name == envName }) {
+		t.Fatal("omitted setting must preserve the agent default")
 	}
 
 	enabled := base.DeepCopy()

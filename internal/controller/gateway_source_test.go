@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"context"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -11,11 +11,8 @@ import (
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
 
-func hn(s string) *gwv1.Hostname { h := gwv1.Hostname(s); return &h }
-
 func TestSourcesForAgentGatewayMatchesByAgentRefAndNamespace(t *testing.T) {
-	agent := &towonelv1alpha1.TowonelAgent{}
-	agent.Namespace, agent.Name = "app", "my-agent"
+	agent := &towonelv1alpha1.TowonelAgent{Namespace: "app", Name: "my-agent"}
 	mk := func(name string, ann map[string]string) *gwv1.Gateway {
 		return &gwv1.Gateway{Name: name, Namespace: "app", Annotations: ann}
 	}
@@ -28,7 +25,7 @@ func TestSourcesForAgentGatewayMatchesByAgentRefAndNamespace(t *testing.T) {
 	// D: agent-ref==my-agent but tunnel-ref ns "other" != agent ns → MUST NOT match
 	gwD := mk("d", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "other/t", AnnotationAgentRef: "my-agent"})
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gwA, gwB, gwC, gwD).Build()
-	reqs := (&GatewaySourceReconciler{Client: c}).sourcesForAgent(context.Background(), agent)
+	reqs := (&GatewaySourceReconciler{Client: c}).sourcesForAgent(t.Context(), agent)
 	if len(reqs) != 1 || reqs[0].NamespacedName.String() != "app/a" {
 		t.Fatalf("want exactly {app/a}, got %v", reqs)
 	}
@@ -40,8 +37,7 @@ func TestSourcesForAgentGatewayMatchesByAgentRefAndNamespace(t *testing.T) {
 // Gateways pinned to a different tunnel. This is what unstrands a Gateway that
 // reconciled before its tunnel existed (emitting TunnelRefMissing).
 func TestSourcesForTunnelGatewayMatchesRefAndNoRef(t *testing.T) {
-	tunnel := &towonelv1alpha1.TowonelTunnel{}
-	tunnel.Namespace, tunnel.Name = "net", "app"
+	tunnel := &towonelv1alpha1.TowonelTunnel{Namespace: "net", Name: "app"}
 	mk := func(name, ns string, ann map[string]string) *gwv1.Gateway {
 		return &gwv1.Gateway{Name: name, Namespace: ns, Annotations: ann}
 	}
@@ -54,12 +50,8 @@ func TestSourcesForTunnelGatewayMatchesRefAndNoRef(t *testing.T) {
 	// D: NOT opted in (no towonel.io/tunnel) → MUST NOT match even though its ref would
 	gwD := mk("d", "net", map[string]string{AnnotationTunnelRef: "net/app"})
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gwA, gwB, gwC, gwD).Build()
-	reqs := (&GatewaySourceReconciler{Client: c}).sourcesForTunnel(context.Background(), tunnel)
-	got := map[string]bool{}
-	for _, r := range reqs {
-		got[r.NamespacedName.String()] = true
-	}
-	if len(reqs) != 2 || !got["app/a"] || !got["net/b"] {
+	reqs := (&GatewaySourceReconciler{Client: c}).sourcesForTunnel(t.Context(), tunnel)
+	if got := requestKeys(reqs); !slices.Equal(got, []string{"app/a", "net/b"}) {
 		t.Fatalf("want exactly {app/a, net/b}, got %v", reqs)
 	}
 }
@@ -75,11 +67,11 @@ func TestDeriveGatewayRoutingForwardsToProxy(t *testing.T) {
 			AnnotationGatewayService: "infra/envoy:443",
 		},
 		Spec: gwv1.GatewaySpec{Listeners: []gwv1.Listener{
-			{Name: "https", Hostname: hn("a.example")},
-			{Name: "https2", Hostname: hn("b.example")},
+			{Name: "https", Hostname: new(gwv1.Hostname("a.example"))},
+			{Name: "https2", Hostname: new(gwv1.Hostname("b.example"))},
 		}},
 	}
-	rt, ok := deriveGatewayRouting(context.Background(), c, gw, func(string, string) {})
+	rt, ok := deriveGatewayRouting(t.Context(), c, gw, func(string, string) {})
 	if !ok || len(rt.services) != 2 {
 		t.Fatalf("ok=%v rt=%+v", ok, rt)
 	}
@@ -106,11 +98,11 @@ func TestDeriveGatewayRoutingDedupesListenerHostnames(t *testing.T) {
 			AnnotationGatewayService: "infra/envoy:443",
 		},
 		Spec: gwv1.GatewaySpec{Listeners: []gwv1.Listener{
-			{Name: "http", Hostname: hn("*.example"), Protocol: gwv1.HTTPProtocolType, Port: 80},
-			{Name: "https", Hostname: hn("*.example"), Protocol: gwv1.HTTPSProtocolType, Port: 443},
+			{Name: "http", Hostname: new(gwv1.Hostname("*.example")), Protocol: gwv1.HTTPProtocolType, Port: 80},
+			{Name: "https", Hostname: new(gwv1.Hostname("*.example")), Protocol: gwv1.HTTPSProtocolType, Port: 443},
 		}},
 	}
-	rt, ok := deriveGatewayRouting(context.Background(), c, gw, func(string, string) {})
+	rt, ok := deriveGatewayRouting(t.Context(), c, gw, func(string, string) {})
 	if !ok || len(rt.services) != 1 {
 		t.Fatalf("want exactly 1 deduped service, got ok=%v services=%+v", ok, rt.services)
 	}
@@ -123,7 +115,7 @@ func TestDeriveGatewayRoutingRequiresAnnotation(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	gw := &gwv1.Gateway{Namespace: "net", Name: "gw"}
 	var reason string
-	if _, ok := deriveGatewayRouting(context.Background(), c, gw, func(r, _ string) { reason = r }); ok || reason != ReasonGatewayServiceUnset {
+	if _, ok := deriveGatewayRouting(t.Context(), c, gw, func(r, _ string) { reason = r }); ok || reason != ReasonGatewayServiceUnset {
 		t.Fatalf("ok=%v reason=%q", ok, reason)
 	}
 }

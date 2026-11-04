@@ -10,7 +10,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -102,12 +101,8 @@ func TestTunnelAgentWatchFiltersStatusOnlyUpdates(t *testing.T) {
 }
 
 func TestTunnelStatusWriteConflictPreservesNewerStatus(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
 	tunnel := &towonelv1alpha1.TowonelTunnel{Name: "edge", Namespace: "default", Generation: 2}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme(t)).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
 	key := types.NamespacedName{Namespace: "default", Name: "edge"}
 	var stale towonelv1alpha1.TowonelTunnel
 	if err := cl.Get(t.Context(), key, &stale); err != nil {
@@ -152,12 +147,8 @@ func TestTunnelFailPreservesCause(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
-				t.Fatal(err)
-			}
 			tunnel := &towonelv1alpha1.TowonelTunnel{Name: "edge", Namespace: "default"}
-			store := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
+			store := fake.NewClientBuilder().WithScheme(testScheme(t)).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
 			cl := interceptor.NewClient(store, interceptor.Funcs{
 				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
 					return tc.statusErr
@@ -195,12 +186,8 @@ func TestTunnelFailHonorsRateLimitHint(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
-				t.Fatal(err)
-			}
 			tunnel := &towonelv1alpha1.TowonelTunnel{Name: "edge", Namespace: "default"}
-			store := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
+			store := fake.NewClientBuilder().WithScheme(testScheme(t)).WithStatusSubresource(tunnel).WithObjects(tunnel).Build()
 			cl := interceptor.NewClient(store, interceptor.Funcs{
 				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
 					return tc.statusErr

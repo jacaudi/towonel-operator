@@ -11,7 +11,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -44,12 +43,8 @@ func availableDep(avail bool) *appsv1.Deployment {
 }
 
 func TestAgentStatusWriteConflictPreservesNewerStatus(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := towonelv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
 	agent := &towonelv1alpha1.TowonelAgent{Name: "edge", Namespace: "default", Generation: 2}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(agent).WithObjects(agent).Build()
+	cl := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithStatusSubresource(agent).WithObjects(agent).Build()
 	key := types.NamespacedName{Namespace: "default", Name: "edge"}
 	var stale towonelv1alpha1.TowonelAgent
 	if err := cl.Get(t.Context(), key, &stale); err != nil {
