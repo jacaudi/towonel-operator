@@ -1,12 +1,11 @@
 package envtest_test
 
 import (
-	"context"
+	"slices"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -28,6 +27,15 @@ func annService(ns, name string, ann map[string]string, ports ...corev1.ServiceP
 	}
 }
 
+// handAuthoredAgent is a user-owned agent (no labels, no mode) bound to tunnel
+// ns/app, the issue #18 shape.
+func handAuthoredAgent(ns, name string) *towonelv1alpha1.TowonelAgent {
+	return &towonelv1alpha1.TowonelAgent{
+		Namespace: ns, Name: name,
+		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}},
+	}
+}
+
 // defaultAgentNN returns the NamespacedName for the default operator-owned agent for a tunnel.
 func defaultAgentNN(agentNS string, tunnel types.NamespacedName) types.NamespacedName {
 	name := ctrlpkg.DefaultAgentNameForTest(tunnel.Namespace, tunnel.Name)
@@ -41,9 +49,14 @@ func getDefaultAgent(t *testing.T, agentNS string, tunnel types.NamespacedName) 
 	nn := defaultAgentNN(agentNS, tunnel)
 	var ta towonelv1alpha1.TowonelAgent
 	waitFor(t, 60*time.Second, func() bool {
-		return k8sClient.Get(context.Background(), nn, &ta) == nil
+		return k8sClient.Get(t.Context(), nn, &ta) == nil
 	})
 	return &ta
+}
+
+// hasHostname reports whether the agent has a service entry for host.
+func hasHostname(ta *towonelv1alpha1.TowonelAgent, host string) bool {
+	return slices.ContainsFunc(ta.Spec.Services, func(s towonelv1alpha1.AgentService) bool { return s.Hostname == host })
 }
 
 // TestSourceOptInCreatesAgentAndEntry verifies that an annotated Service causes
@@ -51,19 +64,16 @@ func getDefaultAgent(t *testing.T, agentNS string, tunnel types.NamespacedName) 
 func TestSourceOptInCreatesAgentAndEntry(t *testing.T) {
 	ns := mustNamespace(t)
 	tunnel := types.NamespacedName{Namespace: ns, Name: "app"}
-	svc := annService(ns, "web", map[string]string{
+	mustCreate(t, k8sClient, annService(ns, "web", map[string]string{
 		ctrlpkg.AnnotationTunnel:      "enable",
 		ctrlpkg.AnnotationTunnelRef:   "app",
 		ctrlpkg.AnnotationSrcHostname: "app.example",
 		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:8080",
-	}, corev1.ServicePort{Port: 8080})
-	if err := k8sClient.Create(context.Background(), svc); err != nil {
-		t.Fatal(err)
-	}
+	}, corev1.ServicePort{Port: 8080}))
 
 	ta := getDefaultAgent(t, ns, tunnel)
 	waitFor(t, 60*time.Second, func() bool {
-		if err := k8sClient.Get(context.Background(), defaultAgentNN(ns, tunnel), ta); err != nil {
+		if err := k8sClient.Get(t.Context(), defaultAgentNN(ns, tunnel), ta); err != nil {
 			return false
 		}
 		return len(ta.Spec.Services) == 1 && ta.Spec.Services[0].Hostname == "app.example"
@@ -86,20 +96,17 @@ func TestTwoSourcesFoldIntoOneAgent(t *testing.T) {
 		{"svc-a", "a.example"},
 		{"svc-b", "b.example"},
 	} {
-		s := annService(ns, h.name, map[string]string{
+		mustCreate(t, k8sClient, annService(ns, h.name, map[string]string{
 			ctrlpkg.AnnotationTunnel:      "enable",
 			ctrlpkg.AnnotationTunnelRef:   "app",
 			ctrlpkg.AnnotationSrcHostname: h.host,
 			ctrlpkg.AnnotationSrcOrigin:   h.name + ".svc:80",
-		}, corev1.ServicePort{Port: 80})
-		if err := k8sClient.Create(context.Background(), s); err != nil {
-			t.Fatal(err)
-		}
+		}, corev1.ServicePort{Port: 80}))
 	}
 
 	var ta towonelv1alpha1.TowonelAgent
 	waitFor(t, 60*time.Second, func() bool {
-		if err := k8sClient.Get(context.Background(), defaultAgentNN(ns, tunnel), &ta); err != nil {
+		if err := k8sClient.Get(t.Context(), defaultAgentNN(ns, tunnel), &ta); err != nil {
 			return false
 		}
 		return len(ta.Spec.Services) == 2
@@ -109,33 +116,31 @@ func TestTwoSourcesFoldIntoOneAgent(t *testing.T) {
 // TestOptOutPrunesAndGCsAgent verifies that removing the opt-in annotation causes
 // the controller to release the routing entry and GC the auto-created agent.
 func TestOptOutPrunesAndGCsAgent(t *testing.T) {
+	ctx := t.Context()
 	ns := mustNamespace(t)
 	tunnel := types.NamespacedName{Namespace: ns, Name: "app"}
 
-	svc := annService(ns, "web", map[string]string{
+	mustCreate(t, k8sClient, annService(ns, "web", map[string]string{
 		ctrlpkg.AnnotationTunnel:      "enable",
 		ctrlpkg.AnnotationTunnelRef:   "app",
 		ctrlpkg.AnnotationSrcHostname: "app.example",
 		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:8080",
-	}, corev1.ServicePort{Port: 8080})
-	if err := k8sClient.Create(context.Background(), svc); err != nil {
-		t.Fatal(err)
-	}
+	}, corev1.ServicePort{Port: 8080}))
 
 	// Wait until the agent is created.
 	agentNN := defaultAgentNN(ns, tunnel)
 	var ta towonelv1alpha1.TowonelAgent
 	waitFor(t, 60*time.Second, func() bool {
-		return k8sClient.Get(context.Background(), agentNN, &ta) == nil
+		return k8sClient.Get(ctx, agentNN, &ta) == nil
 	})
 
 	// Opt out by setting the annotation to "disable".
 	var live corev1.Service
 	waitFor(t, 5*time.Second, func() bool {
-		return k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "web"}, &live) == nil
+		return k8sClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: "web"}, &live) == nil
 	})
 	live.Annotations[ctrlpkg.AnnotationTunnel] = "disable"
-	if err := k8sClient.Update(context.Background(), &live); err != nil {
+	if err := k8sClient.Update(ctx, &live); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,7 +149,7 @@ func TestOptOutPrunesAndGCsAgent(t *testing.T) {
 	// 30s after the release to fire; allow 45s to cover the full window.
 	waitFor(t, 45*time.Second, func() bool {
 		var gone towonelv1alpha1.TowonelAgent
-		return k8sClient.Get(context.Background(), agentNN, &gone) != nil
+		return k8sClient.Get(ctx, agentNN, &gone) != nil
 	})
 }
 
@@ -155,37 +160,19 @@ func TestOptOutPrunesAndGCsAgent(t *testing.T) {
 func TestAgentRefContributesToHandAuthoredAgent(t *testing.T) {
 	ns := mustNamespace(t)
 
-	user := &towonelv1alpha1.TowonelAgent{
-		Namespace: ns, Name: "home",
-	}
-	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
-	if err := k8sClient.Create(context.Background(), user); err != nil {
-		t.Fatal(err)
-	}
-
-	svc := annService(ns, "web", map[string]string{
+	mustCreate(t, k8sClient, handAuthoredAgent(ns, "home"))
+	mustCreate(t, k8sClient, annService(ns, "web", map[string]string{
 		ctrlpkg.AnnotationTunnel:      "enable",
 		ctrlpkg.AnnotationTunnelRef:   "app",
 		ctrlpkg.AnnotationAgentRef:    "home",
 		ctrlpkg.AnnotationSrcHostname: "new.example",
 		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:80",
-	}, corev1.ServicePort{Port: 80})
-	if err := k8sClient.Create(context.Background(), svc); err != nil {
-		t.Fatal(err)
-	}
+	}, corev1.ServicePort{Port: 80}))
 
 	nn := types.NamespacedName{Namespace: ns, Name: "home"}
 	var ta towonelv1alpha1.TowonelAgent
 	waitFor(t, 60*time.Second, func() bool {
-		if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
-			return false
-		}
-		for _, s := range ta.Spec.Services {
-			if s.Hostname == "new.example" {
-				return true
-			}
-		}
-		return false
+		return k8sClient.Get(t.Context(), nn, &ta) == nil && hasHostname(&ta, "new.example")
 	})
 	// Lifecycle markers must NOT have been added: the operator reconciles routing,
 	// it does not claim ownership of a hand-authored agent.
@@ -204,37 +191,30 @@ func TestAgentRefContributesToHandAuthoredAgent(t *testing.T) {
 // TestObserveOnlyModeNeverMutatesUserAgent verifies that spec.mode=ObserveOnly keeps
 // the operator hands-off even when a source explicitly references the agent.
 func TestObserveOnlyModeNeverMutatesUserAgent(t *testing.T) {
+	ctx := t.Context()
 	ns := mustNamespace(t)
 
-	user := &towonelv1alpha1.TowonelAgent{
-		Namespace: ns, Name: "mine",
-	}
+	user := handAuthoredAgent(ns, "mine")
 	user.Spec.Mode = towonelv1alpha1.ModeObserveOnly
-	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
 	user.Spec.Services = []towonelv1alpha1.AgentService{{Hostname: "user.example", Origin: "u:1"}}
-	if err := k8sClient.Create(context.Background(), user); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, user)
 	var before towonelv1alpha1.TowonelAgent
-	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "mine"}, &before); err != nil {
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: "mine"}, &before); err != nil {
 		t.Fatal(err)
 	}
 	rvBefore := before.ResourceVersion
 
-	svc := annService(ns, "web", map[string]string{
+	mustCreate(t, k8sClient, annService(ns, "web", map[string]string{
 		ctrlpkg.AnnotationTunnel:      "enable",
 		ctrlpkg.AnnotationTunnelRef:   "app",
 		ctrlpkg.AnnotationAgentRef:    "mine",
 		ctrlpkg.AnnotationSrcHostname: "new.example",
 		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:80",
-	}, corev1.ServicePort{Port: 80})
-	if err := k8sClient.Create(context.Background(), svc); err != nil {
-		t.Fatal(err)
-	}
+	}, corev1.ServicePort{Port: 80}))
 	time.Sleep(500 * time.Millisecond)
 
 	var after towonelv1alpha1.TowonelAgent
-	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "mine"}, &after); err != nil {
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: "mine"}, &after); err != nil {
 		t.Fatal(err)
 	}
 	if after.ResourceVersion != rvBefore || len(after.Spec.Services) != 1 {
@@ -245,6 +225,7 @@ func TestObserveOnlyModeNeverMutatesUserAgent(t *testing.T) {
 // TestHostnameConflictAcrossSources verifies that two Services contributing the
 // same hostname to the same agent result in exactly one entry (no silent overwrite).
 func TestHostnameConflictAcrossSources(t *testing.T) {
+	ctx := t.Context()
 	ns := mustNamespace(t)
 	tunnel := types.NamespacedName{Namespace: ns, Name: "app"}
 
@@ -259,13 +240,11 @@ func TestHostnameConflictAcrossSources(t *testing.T) {
 	}
 
 	// First Service wins the SSA field ownership.
-	if err := k8sClient.Create(context.Background(), mk("svc-a", "a:1")); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, mk("svc-a", "a:1"))
 	// Wait until the agent and the first entry exist.
 	var ta towonelv1alpha1.TowonelAgent
 	waitFor(t, 60*time.Second, func() bool {
-		if err := k8sClient.Get(context.Background(), defaultAgentNN(ns, tunnel), &ta); err != nil {
+		if err := k8sClient.Get(ctx, defaultAgentNN(ns, tunnel), &ta); err != nil {
 			return false
 		}
 		return len(ta.Spec.Services) == 1
@@ -273,12 +252,10 @@ func TestHostnameConflictAcrossSources(t *testing.T) {
 
 	// Second Service tries to claim the same hostname; the SSA conflict is surfaced
 	// as an Event — the agent must still have exactly one dup.example entry.
-	if err := k8sClient.Create(context.Background(), mk("svc-b", "b:2")); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, mk("svc-b", "b:2"))
 	time.Sleep(500 * time.Millisecond)
 
-	if err := k8sClient.Get(context.Background(), defaultAgentNN(ns, tunnel), &ta); err != nil {
+	if err := k8sClient.Get(ctx, defaultAgentNN(ns, tunnel), &ta); err != nil {
 		t.Fatal(err)
 	}
 	count := 0
@@ -298,13 +275,9 @@ func TestGatewayAndHTTPRouteRoundTrip(t *testing.T) {
 	ns := mustNamespace(t)
 
 	// Proxy Service backing the Gateway.
-	proxy := annService(ns, "envoy", nil, corev1.ServicePort{Port: 443})
-	if err := k8sClient.Create(context.Background(), proxy); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, annService(ns, "envoy", nil, corev1.ServicePort{Port: 443}))
 
-	hn := func(s string) *gwv1.Hostname { h := gwv1.Hostname(s); return &h }
-	gw := &gwv1.Gateway{
+	mustCreate(t, k8sClient, &gwv1.Gateway{
 		Namespace: ns,
 		Name:      "gw",
 		Annotations: map[string]string{
@@ -319,19 +292,16 @@ func TestGatewayAndHTTPRouteRoundTrip(t *testing.T) {
 					Name:     "https",
 					Protocol: gwv1.HTTPSProtocolType,
 					Port:     443,
-					Hostname: hn("gw.example"),
+					Hostname: new(gwv1.Hostname("gw.example")),
 				},
 			},
 		},
-	}
-	if err := k8sClient.Create(context.Background(), gw); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
 	var ta towonelv1alpha1.TowonelAgent
 	waitFor(t, 60*time.Second, func() bool {
-		if err := k8sClient.Get(context.Background(), defaultAgentNN(ns, tunnel), &ta); err != nil {
+		if err := k8sClient.Get(t.Context(), defaultAgentNN(ns, tunnel), &ta); err != nil {
 			return false
 		}
 		return len(ta.Spec.Services) == 1 && ta.Spec.Services[0].Hostname == "gw.example"
@@ -343,31 +313,22 @@ func TestGatewayAndHTTPRouteRoundTrip(t *testing.T) {
 // Managed agent (which carries no managed-by label) — and the agent, being
 // user-owned, is NOT garbage-collected.
 func TestRetargetReleasesFromHandAuthoredManagedAgent(t *testing.T) {
+	ctx := t.Context()
 	ns := mustNamespace(t)
 
-	user := &towonelv1alpha1.TowonelAgent{
-		Namespace: ns, Name: "home",
-	}
-	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
-	if err := k8sClient.Create(context.Background(), user); err != nil {
-		t.Fatal(err)
-	}
-
-	svc := annService(ns, "web", map[string]string{
+	mustCreate(t, k8sClient, handAuthoredAgent(ns, "home"))
+	mustCreate(t, k8sClient, annService(ns, "web", map[string]string{
 		ctrlpkg.AnnotationTunnel:      "enable",
 		ctrlpkg.AnnotationTunnelRef:   "app",
 		ctrlpkg.AnnotationAgentRef:    "home",
 		ctrlpkg.AnnotationSrcHostname: "new.example",
 		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:80",
-	}, corev1.ServicePort{Port: 80})
-	if err := k8sClient.Create(context.Background(), svc); err != nil {
-		t.Fatal(err)
-	}
+	}, corev1.ServicePort{Port: 80}))
 
 	nn := types.NamespacedName{Namespace: ns, Name: "home"}
 	var ta towonelv1alpha1.TowonelAgent
 	waitFor(t, 60*time.Second, func() bool {
-		if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+		if err := k8sClient.Get(ctx, nn, &ta); err != nil {
 			return false
 		}
 		return len(ta.Spec.Services) == 1
@@ -376,22 +337,22 @@ func TestRetargetReleasesFromHandAuthoredManagedAgent(t *testing.T) {
 	// Opt out — the source releases its routing.
 	var live corev1.Service
 	waitFor(t, 5*time.Second, func() bool {
-		return k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "web"}, &live) == nil
+		return k8sClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: "web"}, &live) == nil
 	})
 	live.Annotations[ctrlpkg.AnnotationTunnel] = "disable"
-	if err := k8sClient.Update(context.Background(), &live); err != nil {
+	if err := k8sClient.Update(ctx, &live); err != nil {
 		t.Fatal(err)
 	}
 
 	// Routing must be released from the hand-authored agent (filter no longer hides it).
 	waitFor(t, 45*time.Second, func() bool {
-		if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+		if err := k8sClient.Get(ctx, nn, &ta); err != nil {
 			return false
 		}
 		return len(ta.Spec.Services) == 0
 	})
 	// And the user-owned agent must STILL exist (never GC'd — not auto-created).
-	if err := k8sClient.Get(context.Background(), nn, &ta); err != nil {
+	if err := k8sClient.Get(ctx, nn, &ta); err != nil {
 		t.Fatalf("hand-authored agent was deleted; it must never be GC'd: %v", err)
 	}
 }
@@ -402,6 +363,7 @@ func TestRetargetReleasesFromHandAuthoredManagedAgent(t *testing.T) {
 // A unannotated Gateway is created to confirm no spurious agent appears when
 // gateway-api is disabled; the shared manager's predicate also ignores it.
 func TestGatewaySourcesDisabledWhenFlagFalse(t *testing.T) {
+	ctx := t.Context()
 	ns := mustNamespace(t)
 	// Per-test manager with gateway explicitly disabled; the Service controller
 	// is still active.
@@ -409,33 +371,30 @@ func TestGatewaySourcesDisabledWhenFlagFalse(t *testing.T) {
 
 	// Proxy Service — unannotated (no towonel.io/tunnel), so neither manager processes it.
 	proxy := annService(ns, "envoy", nil, corev1.ServicePort{Port: 443})
-	_ = k8sClient.Create(context.Background(), proxy)
+	_ = k8sClient.Create(ctx, proxy)
 
-	hn := func(s string) *gwv1.Hostname { h := gwv1.Hostname(s); return &h }
 	// Gateway without the towonel.io/tunnel annotation; the predicate filters it
 	// so neither the shared manager nor the gateway-disabled per-test manager
 	// will reconcile it.
 	gw := &gwv1.Gateway{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: ns,
-			Name:      "gw",
-			// No AnnotationTunnel — predicate filters this object in all managers.
-		},
+		Namespace: ns,
+		Name:      "gw",
+		// No AnnotationTunnel — predicate filters this object in all managers.
 		Spec: gwv1.GatewaySpec{
 			GatewayClassName: "x",
 			Listeners: []gwv1.Listener{
-				{Name: "l", Protocol: gwv1.HTTPSProtocolType, Port: 443, Hostname: hn("gw.example")},
+				{Name: "l", Protocol: gwv1.HTTPSProtocolType, Port: 443, Hostname: new(gwv1.Hostname("gw.example"))},
 			},
 		},
 	}
-	_ = k8sClient.Create(context.Background(), gw)
+	_ = k8sClient.Create(ctx, gw)
 
 	// Give any controller time to react; no agent should appear.
 	time.Sleep(500 * time.Millisecond)
 
 	var ta towonelv1alpha1.TowonelAgent
 	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
-	if err := k8sClient.Get(context.Background(), defaultAgentNN(ns, tunnel), &ta); err == nil {
+	if err := k8sClient.Get(ctx, defaultAgentNN(ns, tunnel), &ta); err == nil {
 		t.Fatal("no agent expected for unannotated gateway but one was created")
 	}
 }
@@ -445,35 +404,21 @@ func TestGatewaySourcesDisabledWhenFlagFalse(t *testing.T) {
 func TestReconcilingAgentEventOnHandAuthored(t *testing.T) {
 	ns := mustNamespace(t)
 
-	user := &towonelv1alpha1.TowonelAgent{
-		Namespace: ns, Name: "home",
-	}
-	user.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: ns}
-	if err := k8sClient.Create(context.Background(), user); err != nil {
-		t.Fatal(err)
-	}
-	svc := annService(ns, "web", map[string]string{
+	mustCreate(t, k8sClient, handAuthoredAgent(ns, "home"))
+	mustCreate(t, k8sClient, annService(ns, "web", map[string]string{
 		ctrlpkg.AnnotationTunnel:      "enable",
 		ctrlpkg.AnnotationTunnelRef:   "app",
 		ctrlpkg.AnnotationAgentRef:    "home",
 		ctrlpkg.AnnotationSrcHostname: "new.example",
 		ctrlpkg.AnnotationSrcOrigin:   "svc-web.svc:80",
-	}, corev1.ServicePort{Port: 80})
-	if err := k8sClient.Create(context.Background(), svc); err != nil {
-		t.Fatal(err)
-	}
+	}, corev1.ServicePort{Port: 80}))
 
 	waitFor(t, 60*time.Second, func() bool {
 		var events corev1.EventList
-		if err := k8sClient.List(context.Background(), &events, client.InNamespace(ns)); err != nil {
+		if err := k8sClient.List(t.Context(), &events, client.InNamespace(ns)); err != nil {
 			return false
 		}
-		for i := range events.Items {
-			if events.Items[i].Reason == ctrlpkg.ReasonReconcilingAgent {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(events.Items, func(e corev1.Event) bool { return e.Reason == ctrlpkg.ReasonReconcilingAgent })
 	})
 }
 
@@ -508,15 +453,7 @@ func autoRoutesGateway(ns, name, proxySvc string) *gwv1.Gateway {
 func agentHasHostname(t *testing.T, agentNS string, tunnel types.NamespacedName, host string) bool {
 	t.Helper()
 	var ta towonelv1alpha1.TowonelAgent
-	if err := k8sClient.Get(context.Background(), defaultAgentNN(agentNS, tunnel), &ta); err != nil {
-		return false
-	}
-	for _, s := range ta.Spec.Services {
-		if s.Hostname == host {
-			return true
-		}
-	}
-	return false
+	return k8sClient.Get(t.Context(), defaultAgentNN(agentNS, tunnel), &ta) == nil && hasHostname(&ta, host)
 }
 
 // eventFor reports whether an event with the given reason was recorded on the
@@ -524,16 +461,12 @@ func agentHasHostname(t *testing.T, agentNS string, tunnel types.NamespacedName,
 func eventFor(t *testing.T, ns, name, reason string) bool {
 	t.Helper()
 	var events corev1.EventList
-	if err := k8sClient.List(context.Background(), &events, client.InNamespace(ns)); err != nil {
+	if err := k8sClient.List(t.Context(), &events, client.InNamespace(ns)); err != nil {
 		return false
 	}
-	for i := range events.Items {
-		e := &events.Items[i]
-		if e.Reason == reason && e.InvolvedObject.Name == name {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(events.Items, func(e corev1.Event) bool {
+		return e.Reason == reason && e.InvolvedObject.Name == name
+	})
 }
 
 // autoSelectedEventFor reports whether a Normal AutoSelectedByGateway event was
@@ -569,30 +502,18 @@ func TestAutoRoutesPrecedenceMatrix(t *testing.T) {
 	ns := mustNamespace(t)
 	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
 
-	proxy := annService(ns, "envoy", nil, corev1.ServicePort{Port: 443})
-	if err := k8sClient.Create(context.Background(), proxy); err != nil {
-		t.Fatal(err)
-	}
-	gw := autoRoutesGateway(ns, "gw", "envoy")
-	if err := k8sClient.Create(context.Background(), gw); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, annService(ns, "envoy", nil, corev1.ServicePort{Port: 443}), autoRoutesGateway(ns, "gw", "envoy"))
 
 	// Every route carries a valid tunnel-ref so the ONLY variable is the
 	// towonel.io/tunnel key: optout/garbage/empty must NOT tunnel even though a
 	// resolvable tunnel and a valid gateway-service are both present.
-	routes := []*gwv1.HTTPRoute{
+	mustCreate(t, k8sClient,
 		httpRoute(ns, "inherit", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw", "inherit.example"),
 		httpRoute(ns, "optout", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: "false"}, "gw", "optout.example"),
 		httpRoute(ns, "optin", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: "true"}, "gw", "optin.example"),
 		httpRoute(ns, "garbage", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: "banana"}, "gw", "garbage.example"),
 		httpRoute(ns, "empty", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: ""}, "gw", "empty.example"),
-	}
-	for _, rt := range routes {
-		if err := k8sClient.Create(context.Background(), rt); err != nil {
-			t.Fatal(err)
-		}
-	}
+	)
 
 	// Settle anchor: the inherit route's terminal Normal event fires only after a full
 	// successful reconcile (select → resolve → derive → apply).
@@ -618,22 +539,12 @@ func TestAutoRoutesNamespaceScoped(t *testing.T) {
 	gwNS := mustNamespace(t)
 	routeNS := mustNamespace(t)
 
-	proxy := annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443})
-	if err := k8sClient.Create(context.Background(), proxy); err != nil {
-		t.Fatal(err)
-	}
-	gw := autoRoutesGateway(gwNS, "gw", "envoy")
-	if err := k8sClient.Create(context.Background(), gw); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443}), autoRoutesGateway(gwNS, "gw", "envoy"))
 
 	// Cross-namespace parentRef: route lives in routeNS, parents the Gateway in gwNS.
-	gwNSObj := gwv1.Namespace(gwNS)
 	rt := httpRoute(routeNS, "xroute", map[string]string{ctrlpkg.AnnotationTunnelRef: routeNS + "/gwtun"}, "gw", "xns.example")
-	rt.Spec.ParentRefs[0].Namespace = &gwNSObj
-	if err := k8sClient.Create(context.Background(), rt); err != nil {
-		t.Fatal(err)
-	}
+	rt.Spec.ParentRefs[0].Namespace = new(gwv1.Namespace(gwNS))
+	mustCreate(t, k8sClient, rt)
 
 	// Give the controller time to react; the cross-ns route must never be tunneled.
 	time.Sleep(1 * time.Second)
@@ -651,21 +562,15 @@ func TestAutoRoutesNoGatewayServiceIsNoOp(t *testing.T) {
 	ns := mustNamespace(t)
 
 	// auto-routes enabled but NO gateway-service annotation.
-	gw := &gwv1.Gateway{
+	mustCreate(t, k8sClient, &gwv1.Gateway{
 		Namespace: ns, Name: "gw", Annotations: map[string]string{
 			ctrlpkg.AnnotationAutoRoutes: "true",
 		},
 		Spec: gwv1.GatewaySpec{GatewayClassName: "x", Listeners: []gwv1.Listener{
 			{Name: "https", Protocol: gwv1.HTTPSProtocolType, Port: 443},
 		}},
-	}
-	if err := k8sClient.Create(context.Background(), gw); err != nil {
-		t.Fatal(err)
-	}
-	rt := httpRoute(ns, "r", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw", "noproxy.example")
-	if err := k8sClient.Create(context.Background(), rt); err != nil {
-		t.Fatal(err)
-	}
+	})
+	mustCreate(t, k8sClient, httpRoute(ns, "r", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw", "noproxy.example"))
 
 	// A GatewayServiceUnspecified Warning must be recorded on the route.
 	waitFor(t, 60*time.Second, func() bool { return eventFor(t, ns, "r", ctrlpkg.ReasonGatewayServiceUnset) })
@@ -680,21 +585,15 @@ func TestAutoRoutesNoGatewayServiceIsNoOp(t *testing.T) {
 // TestAutoRoutesDisableReleases verifies §11: removing towonel.io/auto-routes from a
 // Gateway releases its auto-selected routes and GCs the auto-created default agent.
 func TestAutoRoutesDisableReleases(t *testing.T) {
+	ctx := t.Context()
 	ns := mustNamespace(t)
 	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
 
-	proxy := annService(ns, "envoy", nil, corev1.ServicePort{Port: 443})
-	if err := k8sClient.Create(context.Background(), proxy); err != nil {
-		t.Fatal(err)
-	}
-	gw := autoRoutesGateway(ns, "gw", "envoy")
-	if err := k8sClient.Create(context.Background(), gw); err != nil {
-		t.Fatal(err)
-	}
-	rt := httpRoute(ns, "r", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw", "rel.example")
-	if err := k8sClient.Create(context.Background(), rt); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient,
+		annService(ns, "envoy", nil, corev1.ServicePort{Port: 443}),
+		autoRoutesGateway(ns, "gw", "envoy"),
+		httpRoute(ns, "r", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw", "rel.example"),
+	)
 
 	// Wait until the un-annotated route is auto-selected and tunneled.
 	waitFor(t, 60*time.Second, func() bool {
@@ -703,11 +602,11 @@ func TestAutoRoutesDisableReleases(t *testing.T) {
 
 	// Disable auto-routes by removing the annotation from the Gateway.
 	var live gwv1.Gateway
-	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "gw"}, &live); err != nil {
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: "gw"}, &live); err != nil {
 		t.Fatal(err)
 	}
 	delete(live.Annotations, ctrlpkg.AnnotationAutoRoutes)
-	if err := k8sClient.Update(context.Background(), &live); err != nil {
+	if err := k8sClient.Update(ctx, &live); err != nil {
 		t.Fatal(err)
 	}
 
@@ -717,7 +616,7 @@ func TestAutoRoutesDisableReleases(t *testing.T) {
 	agentNN := defaultAgentNN(ns, tunnel)
 	waitFor(t, 45*time.Second, func() bool {
 		var gone towonelv1alpha1.TowonelAgent
-		return k8sClient.Get(context.Background(), agentNN, &gone) != nil
+		return k8sClient.Get(ctx, agentNN, &gone) != nil
 	})
 }
 
@@ -729,27 +628,19 @@ func TestAutoRoutesAmbiguousMultiProxyNotTunneled(t *testing.T) {
 	ns := mustNamespace(t)
 	tunnel := types.NamespacedName{Namespace: ns, Name: "gwtun"}
 
-	// Two distinct proxy Services → two distinct origins.
-	if err := k8sClient.Create(context.Background(), annService(ns, "envoy-a", nil, corev1.ServicePort{Port: 443})); err != nil {
-		t.Fatal(err)
-	}
-	if err := k8sClient.Create(context.Background(), annService(ns, "envoy-b", nil, corev1.ServicePort{Port: 443})); err != nil {
-		t.Fatal(err)
-	}
-	// Two same-namespace auto-routes Gateways with DIFFERENT gateway-services.
-	if err := k8sClient.Create(context.Background(), autoRoutesGateway(ns, "gw-a", "envoy-a")); err != nil {
-		t.Fatal(err)
-	}
-	if err := k8sClient.Create(context.Background(), autoRoutesGateway(ns, "gw-b", "envoy-b")); err != nil {
-		t.Fatal(err)
-	}
+	// Two distinct proxy Services → two distinct origins, and two same-namespace
+	// auto-routes Gateways with DIFFERENT gateway-services.
+	mustCreate(t, k8sClient,
+		annService(ns, "envoy-a", nil, corev1.ServicePort{Port: 443}),
+		annService(ns, "envoy-b", nil, corev1.ServicePort{Port: 443}),
+		autoRoutesGateway(ns, "gw-a", "envoy-a"),
+		autoRoutesGateway(ns, "gw-b", "envoy-b"),
+	)
 	// Un-annotated route parenting BOTH gateways; explicit tunnel-ref so a broken
 	// ambiguity guard would actually tunnel it (non-vacuous negative).
 	rt := httpRoute(ns, "amb", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}, "gw-a", "amb.example")
 	rt.Spec.ParentRefs = append(rt.Spec.ParentRefs, gwv1.ParentReference{Name: "gw-b"})
-	if err := k8sClient.Create(context.Background(), rt); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient, rt)
 
 	// Ambiguity is reported as a Warning on the route...
 	waitFor(t, 60*time.Second, func() bool { return eventFor(t, ns, "amb", ctrlpkg.ReasonAmbiguousGateway) })
@@ -770,16 +661,9 @@ func autoRoutesGatewayNS(ns, name, proxySvc, allowlist string) *gwv1.Gateway {
 // crossNSRoute builds an HTTPRoute in routeNS with an explicit cross-namespace
 // Gateway parentRef into gwNS, one hostname, and the given annotations.
 func crossNSRoute(routeNS, name, gwNS, gwName, host string, ann map[string]string) *gwv1.HTTPRoute {
-	n := gwv1.Namespace(gwNS)
-	return &gwv1.HTTPRoute{
-		Namespace: routeNS, Name: name, Annotations: ann,
-		Spec: gwv1.HTTPRouteSpec{
-			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
-				{Name: gwv1.ObjectName(gwName), Namespace: &n},
-			}},
-			Hostnames: []gwv1.Hostname{gwv1.Hostname(host)},
-		},
-	}
+	rt := httpRoute(routeNS, name, ann, gwName, host)
+	rt.Spec.ParentRefs[0].Namespace = new(gwv1.Namespace(gwNS))
+	return rt
 }
 
 // TestAutoRoutesCrossNamespace verifies #39 end to end: a Gateway in ns A that
@@ -787,28 +671,20 @@ func crossNSRoute(routeNS, name, gwNS, gwName, host string, ann map[string]strin
 // an explicit towonel.io/tunnel:"false" route in B is excluded; and removing B from
 // the allowlist releases the route and GCs the auto-created agent.
 func TestAutoRoutesCrossNamespace(t *testing.T) {
+	ctx := t.Context()
 	gwNS := mustNamespace(t)
 	routeNS := mustNamespace(t)
 	tunnel := types.NamespacedName{Namespace: routeNS, Name: "gwtun"}
 
-	proxy := annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443})
-	if err := k8sClient.Create(context.Background(), proxy); err != nil {
-		t.Fatal(err)
-	}
-	gw := autoRoutesGatewayNS(gwNS, "gw", "envoy", routeNS) // allowlist exactly routeNS
-	if err := k8sClient.Create(context.Background(), gw); err != nil {
-		t.Fatal(err)
-	}
-	// un-annotated route in routeNS, explicit cross-ns parentRef into gwNS, tunnel-ref to its own ns.
-	inherit := crossNSRoute(routeNS, "inherit", gwNS, "gw", "inherit.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"})
-	optOut := crossNSRoute(routeNS, "optout", gwNS, "gw", "optout.example", map[string]string{
-		ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: "false",
-	})
-	for _, r := range []*gwv1.HTTPRoute{inherit, optOut} {
-		if err := k8sClient.Create(context.Background(), r); err != nil {
-			t.Fatal(err)
-		}
-	}
+	mustCreate(t, k8sClient,
+		annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443}),
+		autoRoutesGatewayNS(gwNS, "gw", "envoy", routeNS), // allowlist exactly routeNS
+		// un-annotated route in routeNS, explicit cross-ns parentRef into gwNS, tunnel-ref to its own ns.
+		crossNSRoute(routeNS, "inherit", gwNS, "gw", "inherit.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}),
+		crossNSRoute(routeNS, "optout", gwNS, "gw", "optout.example", map[string]string{
+			ctrlpkg.AnnotationTunnelRef: "gwtun", ctrlpkg.AnnotationTunnel: "false",
+		}),
+	)
 
 	// inherited route is tunneled + carries the Normal event.
 	waitFor(t, 60*time.Second, func() bool { return agentHasHostname(t, routeNS, tunnel, "inherit.example") })
@@ -826,15 +702,15 @@ func TestAutoRoutesCrossNamespace(t *testing.T) {
 	// Remove routeNS from the allowlist → the inherited route must be released and the agent GC'd.
 	var live gwv1.Gateway
 	waitFor(t, 5*time.Second, func() bool {
-		return k8sClient.Get(context.Background(), types.NamespacedName{Namespace: gwNS, Name: "gw"}, &live) == nil
+		return k8sClient.Get(ctx, types.NamespacedName{Namespace: gwNS, Name: "gw"}, &live) == nil
 	})
 	delete(live.Annotations, ctrlpkg.AnnotationAutoRoutesNamespaces)
-	if err := k8sClient.Update(context.Background(), &live); err != nil {
+	if err := k8sClient.Update(ctx, &live); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, 45*time.Second, func() bool {
 		var gone towonelv1alpha1.TowonelAgent
-		return k8sClient.Get(context.Background(), defaultAgentNN(routeNS, tunnel), &gone) != nil
+		return k8sClient.Get(ctx, defaultAgentNN(routeNS, tunnel), &gone) != nil
 	})
 }
 
@@ -845,18 +721,11 @@ func TestAutoRoutesAllWildcard(t *testing.T) {
 	routeNS := mustNamespace(t)
 	tunnel := types.NamespacedName{Namespace: routeNS, Name: "gwtun"}
 
-	proxy := annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443})
-	if err := k8sClient.Create(context.Background(), proxy); err != nil {
-		t.Fatal(err)
-	}
-	gw := autoRoutesGatewayNS(gwNS, "gw", "envoy", "all")
-	if err := k8sClient.Create(context.Background(), gw); err != nil {
-		t.Fatal(err)
-	}
-	route := crossNSRoute(routeNS, "any", gwNS, "gw", "any.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"})
-	if err := k8sClient.Create(context.Background(), route); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, k8sClient,
+		annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443}),
+		autoRoutesGatewayNS(gwNS, "gw", "envoy", "all"),
+		crossNSRoute(routeNS, "any", gwNS, "gw", "any.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}),
+	)
 	waitFor(t, 60*time.Second, func() bool { return agentHasHostname(t, routeNS, tunnel, "any.example") })
 }
 
@@ -873,21 +742,12 @@ func TestAutoRoutesMultiNamespaceSharedGateway(t *testing.T) {
 	tunAllowed := types.NamespacedName{Namespace: nsAllowed, Name: "gwtun"}
 	tunDenied := types.NamespacedName{Namespace: nsDenied, Name: "gwtun"}
 
-	proxy := annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443})
-	if err := k8sClient.Create(context.Background(), proxy); err != nil {
-		t.Fatal(err)
-	}
-	gw := autoRoutesGatewayNS(gwNS, "gw", "envoy", nsAllowed) // allowlist only nsAllowed
-	if err := k8sClient.Create(context.Background(), gw); err != nil {
-		t.Fatal(err)
-	}
-	allowed := crossNSRoute(nsAllowed, "r", gwNS, "gw", "allowed.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"})
-	denied := crossNSRoute(nsDenied, "r", gwNS, "gw", "denied.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"})
-	for _, rt := range []*gwv1.HTTPRoute{allowed, denied} {
-		if err := k8sClient.Create(context.Background(), rt); err != nil {
-			t.Fatal(err)
-		}
-	}
+	mustCreate(t, k8sClient,
+		annService(gwNS, "envoy", nil, corev1.ServicePort{Port: 443}),
+		autoRoutesGatewayNS(gwNS, "gw", "envoy", nsAllowed), // allowlist only nsAllowed
+		crossNSRoute(nsAllowed, "r", gwNS, "gw", "allowed.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}),
+		crossNSRoute(nsDenied, "r", gwNS, "gw", "denied.example", map[string]string{ctrlpkg.AnnotationTunnelRef: "gwtun"}),
+	)
 	// the allowlisted namespace's route tunnels...
 	waitFor(t, 60*time.Second, func() bool { return agentHasHostname(t, nsAllowed, tunAllowed, "allowed.example") })
 	// ...the non-allowlisted namespace's route never does.

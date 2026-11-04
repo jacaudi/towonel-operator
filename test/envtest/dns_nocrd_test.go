@@ -20,7 +20,6 @@ import (
 // picked up with no restart (Review Focus 3), and Delete-policy deletion
 // completes.
 func TestDNSWithoutDNSEndpointCRD(t *testing.T) {
-	t.Setenv("TOWONEL_API_KEY", "twk_env")
 	env := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
@@ -30,15 +29,12 @@ func TestDNSWithoutDNSEndpointCRD(t *testing.T) {
 		t.Fatalf("second envtest: %v", err)
 	}
 	t.Cleanup(func() { _ = env.Stop() })
-	c, _, stop := startManagerOn(t, cfg, testEdgeTargets)
-	defer stop()
+	c, _ := startManagerOn(t, cfg, testEdgeTargets)
 	ctx := t.Context()
 	key := types.NamespacedName{Namespace: "default", Name: "nocrd"}
 	tt := dnsTunnelObj(key.Namespace, key.Name, []string{"a.example.com"}, enabled())
 	tt.Spec.DeletionPolicy = towonelv1alpha1.DeletionPolicyDelete
-	if err := c.Create(ctx, tt); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, tt)
 	waitFor(t, 20*time.Second, func() bool {
 		cond, got := tunnelCond(ctx, c, key.Namespace, key.Name)
 		return cond != nil && cond.Reason == controller.ReasonDNSCRDMissing &&
@@ -54,9 +50,7 @@ func TestDNSWithoutDNSEndpointCRD(t *testing.T) {
 	delKey := types.NamespacedName{Namespace: "default", Name: "nocrd-del"}
 	del := dnsTunnelObj(delKey.Namespace, delKey.Name, []string{"del.example.com"}, enabled())
 	del.Spec.DeletionPolicy = towonelv1alpha1.DeletionPolicyDelete
-	if err := c.Create(ctx, del); err != nil {
-		t.Fatal(err)
-	}
+	mustCreate(t, c, del)
 	waitFor(t, 20*time.Second, func() bool {
 		cond, _ := tunnelCond(ctx, c, delKey.Namespace, delKey.Name)
 		return cond != nil && cond.Reason == controller.ReasonDNSCRDMissing
