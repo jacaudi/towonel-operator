@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,8 +14,7 @@ import (
 )
 
 func TestSourcesForAgentServiceMatchesByAgentRefAndNamespace(t *testing.T) {
-	agent := &towonelv1alpha1.TowonelAgent{}
-	agent.Namespace, agent.Name = "app", "my-agent"
+	agent := &towonelv1alpha1.TowonelAgent{Namespace: "app", Name: "my-agent"}
 	mk := func(name string, ann map[string]string) *corev1.Service {
 		return &corev1.Service{Name: name, Namespace: "app", Annotations: ann}
 	}
@@ -28,7 +27,7 @@ func TestSourcesForAgentServiceMatchesByAgentRefAndNamespace(t *testing.T) {
 	// D: agent-ref==my-agent but tunnel-ref ns "other" != agent ns → MUST NOT match
 	svcD := mk("d", map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "other/t", AnnotationAgentRef: "my-agent"})
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(svcA, svcB, svcC, svcD).Build()
-	reqs := (&ServiceSourceReconciler{Client: c}).sourcesForAgent(context.Background(), agent)
+	reqs := (&ServiceSourceReconciler{Client: c}).sourcesForAgent(t.Context(), agent)
 	if len(reqs) != 1 || reqs[0].NamespacedName.String() != "app/a" {
 		t.Fatalf("want exactly {app/a}, got %v", reqs)
 	}
@@ -52,12 +51,8 @@ func TestSourcesForTunnelServiceMatchesRefAndNoRef(t *testing.T) {
 	// D: NOT opted in → MUST NOT match even though its ref would
 	svcD := mk("d", "net", map[string]string{AnnotationTunnelRef: "net/app"})
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(svcA, svcB, svcC, svcD).Build()
-	reqs := (&ServiceSourceReconciler{Client: c}).sourcesForTunnel(context.Background(), tunnel)
-	got := map[string]bool{}
-	for _, r := range reqs {
-		got[r.NamespacedName.String()] = true
-	}
-	if len(reqs) != 2 || !got["app/a"] || !got["net/b"] {
+	reqs := (&ServiceSourceReconciler{Client: c}).sourcesForTunnel(t.Context(), tunnel)
+	if got := requestKeys(reqs); !slices.Equal(got, []string{"app/a", "net/b"}) {
 		t.Fatalf("want exactly {app/a, net/b}, got %v", reqs)
 	}
 }
@@ -75,9 +70,7 @@ func reflessSvc() *corev1.Service {
 }
 
 func mkTunnel(ns, name string) *towonelv1alpha1.TowonelTunnel {
-	tt := &towonelv1alpha1.TowonelTunnel{}
-	tt.Namespace, tt.Name = ns, name
-	return tt
+	return &towonelv1alpha1.TowonelTunnel{Namespace: ns, Name: name}
 }
 
 func TestServiceReconcileRefLessSingleTunnelContributes(t *testing.T) {
@@ -86,14 +79,14 @@ func TestServiceReconcileRefLessSingleTunnelContributes(t *testing.T) {
 		WithObjects(svc, mkTunnel("net", "only")).Build()
 	rec := record.NewFakeRecorder(8)
 	r := &ServiceSourceReconciler{Client: c, APIReader: c, Recorder: rec}
-	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+	if _, err := r.Reconcile(t.Context(), ctrl.Request{
 		Namespace: "net", Name: "app"}); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 	// The omission default resolved tunnel net/only and (no agent-ref) minted the
 	// operator-owned default agent for it.
 	var agents towonelv1alpha1.TowonelAgentList
-	if err := c.List(context.Background(), &agents); err != nil {
+	if err := c.List(t.Context(), &agents); err != nil {
 		t.Fatal(err)
 	}
 	if len(agents.Items) != 1 {
@@ -121,13 +114,13 @@ func TestServiceReconcileRefLessMultiTunnelSkipsLoudly(t *testing.T) {
 		WithObjects(svc, mkTunnel("net", "a"), mkTunnel("net", "b")).Build()
 	rec := record.NewFakeRecorder(8)
 	r := &ServiceSourceReconciler{Client: c, APIReader: c, Recorder: rec}
-	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+	if _, err := r.Reconcile(t.Context(), ctrl.Request{
 		Namespace: "net", Name: "app"}); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 	// Ambiguous: no agent contributed.
 	var agents towonelv1alpha1.TowonelAgentList
-	if err := c.List(context.Background(), &agents); err != nil {
+	if err := c.List(t.Context(), &agents); err != nil {
 		t.Fatal(err)
 	}
 	if len(agents.Items) != 0 {

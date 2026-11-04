@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"slices"
 	"testing"
 
@@ -13,9 +12,6 @@ import (
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
 )
 
-// nsPtr returns a pointer to a gwv1.Namespace for use in parentRef fixtures.
-func nsPtr(s string) *gwv1.Namespace { n := gwv1.Namespace(s); return &n }
-
 func TestRoutesForGatewayMatchesByDefaultedNamespace(t *testing.T) {
 	gw := &gwv1.Gateway{Name: "external", Namespace: "kgateway"}
 	// route A: parentRef nil-namespace, same namespace as gateway → matches.
@@ -26,26 +22,22 @@ func TestRoutesForGatewayMatchesByDefaultedNamespace(t *testing.T) {
 	// route B: annotated, explicit cross-namespace parentRef → matches.
 	routeB := &gwv1.HTTPRoute{
 		Name: "b", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"},
-		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: new(gwv1.Namespace("kgateway"))}}}},
 	}
 	// route C: UN-annotated, cross-namespace parentRef → now MUST enqueue (#39: the
 	// mapper enqueues every route parenting the gateway; Reconcile decides select/release).
 	routeC := &gwv1.HTTPRoute{
 		Name: "c", Namespace: "immich",
-		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: new(gwv1.Namespace("kgateway"))}}}},
 	}
 	// route D: parentRef targets a DIFFERENT gateway name → MUST NOT match (locks name scoping).
 	routeD := &gwv1.HTTPRoute{
 		Name: "d", Namespace: "immich", Annotations: map[string]string{AnnotationTunnel: "enable"},
-		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: nsPtr("kgateway")}}}},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: new(gwv1.Namespace("kgateway"))}}}},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(routeA, routeB, routeC, routeD).Build()
-	reqs := (&HTTPRouteSourceReconciler{Client: c}).routesForGateway(context.Background(), gw)
-	got := map[string]bool{}
-	for _, r := range reqs {
-		got[r.NamespacedName.String()] = true
-	}
-	if len(reqs) != 3 || !got["kgateway/a"] || !got["immich/b"] || !got["immich/c"] {
+	reqs := (&HTTPRouteSourceReconciler{Client: c}).routesForGateway(t.Context(), gw)
+	if got := requestKeys(reqs); !slices.Equal(got, []string{"immich/b", "immich/c", "kgateway/a"}) {
 		t.Fatalf("want exactly {kgateway/a, immich/b, immich/c}, got %v", reqs)
 	}
 }
@@ -62,27 +54,22 @@ func TestRoutesForGatewayEnqueuesAllParentingRoutes(t *testing.T) {
 	// every parenting route and lets Reconcile select-or-release.
 	crossNS := &gwv1.HTTPRoute{
 		Name: "x", Namespace: "immich",
-		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}}},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: new(gwv1.Namespace("kgateway"))}}}},
 	}
 	// route parenting a DIFFERENT gateway → not enqueued.
 	other := &gwv1.HTTPRoute{
 		Name: "o", Namespace: "immich",
-		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: nsPtr("kgateway")}}}},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "other", Namespace: new(gwv1.Namespace("kgateway"))}}}},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(sameNS, crossNS, other).Build()
-	reqs := (&HTTPRouteSourceReconciler{Client: c}).routesForGateway(context.Background(), gw)
-	got := map[string]bool{}
-	for _, r := range reqs {
-		got[r.NamespacedName.String()] = true
-	}
-	if len(reqs) != 2 || !got["kgateway/e"] || !got["immich/x"] {
+	reqs := (&HTTPRouteSourceReconciler{Client: c}).routesForGateway(t.Context(), gw)
+	if got := requestKeys(reqs); !slices.Equal(got, []string{"immich/x", "kgateway/e"}) {
 		t.Fatalf("want exactly {kgateway/e, immich/x}, got %v", reqs)
 	}
 }
 
 func TestSourcesForAgentHTTPRouteMatchesByAgentRefAndNamespace(t *testing.T) {
-	agent := &towonelv1alpha1.TowonelAgent{}
-	agent.Namespace, agent.Name = "app", "my-agent"
+	agent := &towonelv1alpha1.TowonelAgent{Namespace: "app", Name: "my-agent"}
 	// route A: agent-ref==my-agent, bare tunnel-ref → resolves to route ns "app" == agent ns → MUST match
 	routeA := &gwv1.HTTPRoute{Name: "a", Namespace: "app",
 		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "t", AnnotationAgentRef: "my-agent"}}
@@ -96,7 +83,7 @@ func TestSourcesForAgentHTTPRouteMatchesByAgentRefAndNamespace(t *testing.T) {
 	routeD := &gwv1.HTTPRoute{Name: "d", Namespace: "app",
 		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "other/t", AnnotationAgentRef: "my-agent"}}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(routeA, routeB, routeC, routeD).Build()
-	reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForAgent(context.Background(), agent)
+	reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForAgent(t.Context(), agent)
 	if len(reqs) != 1 || reqs[0].NamespacedName.String() != "app/a" {
 		t.Fatalf("want exactly {app/a}, got %v", reqs)
 	}
@@ -109,8 +96,7 @@ func TestSourcesForAgentHTTPRouteMatchesByAgentRefAndNamespace(t *testing.T) {
 // It also honors the #39 cross-namespace allowlist and the generous else-if path
 // (no-annotation route that still pins an explicit tunnel-ref).
 func TestSourcesForTunnelHTTPRouteMatchesExplicitAndAutoSelected(t *testing.T) {
-	tunnel := &towonelv1alpha1.TowonelTunnel{}
-	tunnel.Namespace, tunnel.Name = "net", "app"
+	tunnel := &towonelv1alpha1.TowonelTunnel{Namespace: "net", Name: "app"}
 
 	// gwAuto: auto-routes enabled, same-namespace default (#25).
 	gwAuto := &gwv1.Gateway{Name: "gw", Namespace: "app",
@@ -135,7 +121,7 @@ func TestSourcesForTunnelHTTPRouteMatchesExplicitAndAutoSelected(t *testing.T) {
 		Annotations: map[string]string{AnnotationTunnel: "enable", AnnotationTunnelRef: "net/other"}}
 	// E: cross-namespace auto-selected — route in "other", parent gwCross allowlists "other" → MUST match.
 	routeE := &gwv1.HTTPRoute{Name: "e", Namespace: "other",
-		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "xgw", Namespace: nsPtr("app")}}}}}
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "xgw", Namespace: new(gwv1.Namespace("app"))}}}}}
 	// F: no towonel.io/tunnel but an explicit tunnel-ref that matches → the generous
 	// else-if branch enqueues it (Reconcile is authoritative and releases if the
 	// route turns out not to be selected). Locks that branch's behavior.
@@ -144,19 +130,9 @@ func TestSourcesForTunnelHTTPRouteMatchesExplicitAndAutoSelected(t *testing.T) {
 
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).
 		WithObjects(gwAuto, gwPlain, gwCross, routeA, routeB, routeC, routeD, routeE, routeF).Build()
-	reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForTunnel(context.Background(), tunnel)
-	got := map[string]bool{}
-	for _, r := range reqs {
-		got[r.NamespacedName.String()] = true
-	}
-	want := []string{"app/a", "app/b", "other/e", "app/f"}
-	if len(reqs) != len(want) {
+	reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForTunnel(t.Context(), tunnel)
+	if got, want := requestKeys(reqs), []string{"app/a", "app/b", "app/f", "other/e"}; !slices.Equal(got, want) {
 		t.Fatalf("want exactly %v, got %v", want, reqs)
-	}
-	for _, w := range want {
-		if !got[w] {
-			t.Fatalf("want %s enqueued; got %v", w, reqs)
-		}
 	}
 }
 
@@ -169,13 +145,13 @@ func TestDeriveHTTPRouteForwardsToParentGatewayProxy(t *testing.T) {
 		Name: "immich", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
-				{Name: "external", Namespace: nsPtr("kgateway")}, // group/kind nil → defaults to Gateway
+				{Name: "external", Namespace: new(gwv1.Namespace("kgateway"))}, // group/kind nil → defaults to Gateway
 			}},
 			Hostnames: []gwv1.Hostname{"immich.clerici.tech"},
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw, svc).Build()
-	rt, ok, err := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(context.Background(), rtObj, func(string, string) {})
+	rt, ok, err := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(t.Context(), rtObj, func(string, string) {})
 	if err != nil || !ok {
 		t.Fatalf("expected ok, got ok=%v err=%v", ok, err)
 	}
@@ -198,7 +174,7 @@ func TestDeriveHTTPRouteNilGroupKindResolves(t *testing.T) {
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw, svc).Build()
-	rt, ok, err := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(context.Background(), rtObj, func(string, string) {})
+	rt, ok, err := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(t.Context(), rtObj, func(string, string) {})
 	if err != nil || !ok || len(rt.services) != 1 || rt.services[0]["origin"] != "10.0.0.9:443" {
 		t.Fatalf("nil group/kind/ns must resolve: ok=%v err=%v rt=%+v", ok, err, rt.services)
 	}
@@ -216,14 +192,14 @@ func TestDeriveHTTPRouteAmbiguousGateway(t *testing.T) {
 		Name: "r", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
-				{Name: "gw-a", Namespace: nsPtr("kgateway")}, {Name: "gw-b", Namespace: nsPtr("kgateway")},
+				{Name: "gw-a", Namespace: new(gwv1.Namespace("kgateway"))}, {Name: "gw-b", Namespace: new(gwv1.Namespace("kgateway"))},
 			}},
 			Hostnames: []gwv1.Hostname{"a.example"},
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gwA, gwB, svcA, svcB).Build()
 	var reason string
-	if _, ok, _ := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(context.Background(), rtObj, func(r, _ string) { reason = r }); ok || reason != ReasonAmbiguousGateway {
+	if _, ok, _ := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(t.Context(), rtObj, func(r, _ string) { reason = r }); ok || reason != ReasonAmbiguousGateway {
 		t.Fatalf("want AmbiguousGateway skip, got ok=%v reason=%q", ok, reason)
 	}
 }
@@ -236,29 +212,28 @@ func TestDeriveHTTPRoutePortlessGatewayServiceUsesFirstPort(t *testing.T) {
 	rtObj := &gwv1.HTTPRoute{
 		Name: "r", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
-			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}},
+			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: new(gwv1.Namespace("kgateway"))}}},
 			Hostnames:       []gwv1.Hostname{"a.example"},
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw, svc).Build()
-	rt, ok, err := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(context.Background(), rtObj, func(string, string) {})
+	rt, ok, err := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(t.Context(), rtObj, func(string, string) {})
 	if err != nil || !ok || len(rt.services) != 1 || rt.services[0]["origin"] != "10.0.0.5:8443" {
 		t.Fatalf("port-less must resolve to first Service port: ok=%v err=%v rt=%+v", ok, err, rt.services)
 	}
 }
 
 func TestDeriveHTTPRouteSkipsNonGatewayParent(t *testing.T) {
-	kind := gwv1.Kind("Service")
 	rtObj := &gwv1.HTTPRoute{
 		Name: "r", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
-			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "x", Kind: &kind}}},
+			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "x", Kind: new(gwv1.Kind("Service"))}}},
 			Hostnames:       []gwv1.Hostname{"a.example"},
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	var reason string
-	if _, ok, _ := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(context.Background(), rtObj, func(r, _ string) { reason = r }); ok || reason != ReasonGatewayServiceUnset {
+	if _, ok, _ := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(t.Context(), rtObj, func(r, _ string) { reason = r }); ok || reason != ReasonGatewayServiceUnset {
 		t.Fatalf("non-Gateway parent must be skipped: ok=%v reason=%q", ok, reason)
 	}
 }
@@ -269,13 +244,13 @@ func TestDeriveHTTPRouteGatewayServiceUnset(t *testing.T) {
 	rtObj := &gwv1.HTTPRoute{
 		Name: "r", Namespace: "immich",
 		Spec: gwv1.HTTPRouteSpec{
-			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: nsPtr("kgateway")}}},
+			CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "external", Namespace: new(gwv1.Namespace("kgateway"))}}},
 			Hostnames:       []gwv1.Hostname{"a.example"},
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
 	var reason string
-	if _, ok, _ := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(context.Background(), rtObj, func(r, _ string) { reason = r }); ok || reason != ReasonGatewayServiceUnset {
+	if _, ok, _ := (&HTTPRouteSourceReconciler{Client: c}).deriveHTTPRouteRouting(t.Context(), rtObj, func(r, _ string) { reason = r }); ok || reason != ReasonGatewayServiceUnset {
 		t.Fatalf("want GatewayServiceUnset skip, got ok=%v reason=%q", ok, reason)
 	}
 }
@@ -299,10 +274,9 @@ func TestHTTPRouteSourcePredicateAdmitsUnannotatedWithGatewayParent(t *testing.T
 	}
 
 	// un-annotated route whose only parentRef is a NON-Gateway → not admitted.
-	svcKind := gwv1.Kind("Service")
 	nonGw := &gwv1.HTTPRoute{
 		Name: "r3", Namespace: "ns",
-		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "x", Kind: &svcKind}}}},
+		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "x", Kind: new(gwv1.Kind("Service"))}}}},
 	}
 	if p.Create(event.CreateEvent{Object: nonGw}) {
 		t.Fatal("un-annotated route with only a non-Gateway parentRef must NOT be admitted")
@@ -332,7 +306,7 @@ func TestAutoSelectedByGateway(t *testing.T) {
 		gw := mkGW(map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "envoy:443"})
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
 		r := &HTTPRouteSourceReconciler{Client: c}
-		sel, err := r.autoSelectedByGateway(context.Background(), mkRoute(ns, gwv1.ParentReference{Name: "gw"}), func(string, string) {})
+		sel, err := r.autoSelectedByGateway(t.Context(), mkRoute(ns, gwv1.ParentReference{Name: "gw"}), func(string, string) {})
 		if err != nil || !sel {
 			t.Fatalf("want selected, got sel=%v err=%v", sel, err)
 		}
@@ -342,7 +316,7 @@ func TestAutoSelectedByGateway(t *testing.T) {
 		gw := mkGW(map[string]string{AnnotationAutoRoutes: "false", AnnotationGatewayService: "envoy:443"})
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
 		r := &HTTPRouteSourceReconciler{Client: c}
-		if sel, err := r.autoSelectedByGateway(context.Background(), mkRoute(ns, gwv1.ParentReference{Name: "gw"}), func(string, string) {}); sel || err != nil {
+		if sel, err := r.autoSelectedByGateway(t.Context(), mkRoute(ns, gwv1.ParentReference{Name: "gw"}), func(string, string) {}); sel || err != nil {
 			t.Fatalf("want not selected, got sel=%v err=%v", sel, err)
 		}
 	})
@@ -352,7 +326,7 @@ func TestAutoSelectedByGateway(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
 		r := &HTTPRouteSourceReconciler{Client: c}
 		var reason string
-		sel, err := r.autoSelectedByGateway(context.Background(), mkRoute(ns, gwv1.ParentReference{Name: "gw"}), func(rs, _ string) { reason = rs })
+		sel, err := r.autoSelectedByGateway(t.Context(), mkRoute(ns, gwv1.ParentReference{Name: "gw"}), func(rs, _ string) { reason = rs })
 		if sel || err != nil {
 			t.Fatalf("want not selected, got sel=%v err=%v", sel, err)
 		}
@@ -365,8 +339,8 @@ func TestAutoSelectedByGateway(t *testing.T) {
 		gw := mkGW(map[string]string{AnnotationAutoRoutes: "true", AnnotationGatewayService: "envoy:443"})
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
 		r := &HTTPRouteSourceReconciler{Client: c}
-		route := mkRoute("other", gwv1.ParentReference{Name: "gw", Namespace: nsPtr(ns)})
-		if sel, err := r.autoSelectedByGateway(context.Background(), route, func(string, string) {}); sel || err != nil {
+		route := mkRoute("other", gwv1.ParentReference{Name: "gw", Namespace: new(gwv1.Namespace(ns))})
+		if sel, err := r.autoSelectedByGateway(t.Context(), route, func(string, string) {}); sel || err != nil {
 			t.Fatalf("cross-namespace route must NOT be auto-selected, got sel=%v err=%v", sel, err)
 		}
 	})
@@ -374,9 +348,8 @@ func TestAutoSelectedByGateway(t *testing.T) {
 	t.Run("no Gateway parent → not selected", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 		r := &HTTPRouteSourceReconciler{Client: c}
-		svcKind := gwv1.Kind("Service")
-		route := mkRoute(ns, gwv1.ParentReference{Name: "x", Kind: &svcKind})
-		if sel, err := r.autoSelectedByGateway(context.Background(), route, func(string, string) {}); sel || err != nil {
+		route := mkRoute(ns, gwv1.ParentReference{Name: "x", Kind: new(gwv1.Kind("Service"))})
+		if sel, err := r.autoSelectedByGateway(t.Context(), route, func(string, string) {}); sel || err != nil {
 			t.Fatalf("want not selected, got sel=%v err=%v", sel, err)
 		}
 	})
@@ -391,7 +364,7 @@ func TestAutoSelectedByGatewayCrossNamespace(t *testing.T) {
 	route := &gwv1.HTTPRoute{
 		Name: "r", Namespace: "b",
 		Spec: gwv1.HTTPRouteSpec{CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{
-			{Name: "gw", Namespace: nsPtr(gwNS)},
+			{Name: "gw", Namespace: new(gwv1.Namespace(gwNS))},
 		}}},
 	}
 
@@ -402,7 +375,7 @@ func TestAutoSelectedByGatewayCrossNamespace(t *testing.T) {
 			AnnotationGatewayService:       "envoy:443",
 		})
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
-		sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(context.Background(), route, func(string, string) {})
+		sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(t.Context(), route, func(string, string) {})
 		if err != nil || !sel {
 			t.Fatalf("allowlisted cross-ns route must be selected: sel=%v err=%v", sel, err)
 		}
@@ -415,7 +388,7 @@ func TestAutoSelectedByGatewayCrossNamespace(t *testing.T) {
 			AnnotationGatewayService:       "envoy:443",
 		})
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
-		sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(context.Background(), route, func(string, string) {})
+		sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(t.Context(), route, func(string, string) {})
 		if err != nil || !sel {
 			t.Fatalf(`"all" must select a cross-ns route: sel=%v err=%v`, sel, err)
 		}
@@ -428,7 +401,7 @@ func TestAutoSelectedByGatewayCrossNamespace(t *testing.T) {
 			// no auto-routes-namespaces → same-namespace only; "b" excluded
 		})
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
-		if sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(context.Background(), route, func(string, string) {}); sel || err != nil {
+		if sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(t.Context(), route, func(string, string) {}); sel || err != nil {
 			t.Fatalf("un-allowlisted cross-ns route must NOT be selected: sel=%v err=%v", sel, err)
 		}
 	})
@@ -441,7 +414,7 @@ func TestAutoSelectedByGatewayCrossNamespace(t *testing.T) {
 		})
 		c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(gw).Build()
 		var reason string
-		sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(context.Background(), route, func(rs, _ string) { reason = rs })
+		sel, err := (&HTTPRouteSourceReconciler{Client: c}).autoSelectedByGateway(t.Context(), route, func(rs, _ string) { reason = rs })
 		if sel || err != nil {
 			t.Fatalf("want not selected, got sel=%v err=%v", sel, err)
 		}
@@ -490,7 +463,7 @@ func TestParentRefNamespace(t *testing.T) {
 	if got := parentRefNamespace(gwv1.ParentReference{Name: "gw"}, "route-ns"); got != "route-ns" {
 		t.Fatalf("nil namespace must default to route ns, got %q", got)
 	}
-	if got := parentRefNamespace(gwv1.ParentReference{Name: "gw", Namespace: nsPtr("other")}, "route-ns"); got != "other" {
+	if got := parentRefNamespace(gwv1.ParentReference{Name: "gw", Namespace: new(gwv1.Namespace("other"))}, "route-ns"); got != "other" {
 		t.Fatalf("explicit namespace must win, got %q", got)
 	}
 }

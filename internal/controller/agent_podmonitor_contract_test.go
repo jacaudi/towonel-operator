@@ -2,7 +2,6 @@ package controller
 
 import (
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -41,23 +40,12 @@ type podMonitorSelector struct {
 	} `json:"spec"`
 }
 
-// renderAgentPodMonitor shells out to `helm template` with the agent PodMonitor
-// enabled and returns the decoded PodMonitor selector document. It skips (not
-// fails) when the helm binary is unavailable so `go test ./...` stays green in
-// sandboxes without helm; the maintainer's CI has helm (it runs `task ci`),
-// so the guard executes there.
+// renderAgentPodMonitor renders the chart with the agent PodMonitor enabled
+// and returns the decoded PodMonitor selector document.
 func renderAgentPodMonitor(t *testing.T) podMonitorSelector {
 	t.Helper()
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm binary not found on PATH; cross-boundary render guard runs under maintainer CI (task helm-*)")
-	}
-	// chart lives at repo-root/chart; this test package is internal/controller.
-	out, err := exec.Command("helm", "template", "../../chart",
-		"--set", "observability.metrics.agentPodMonitor.enabled=true").CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template failed: %v\n%s", err, out)
-	}
-	for doc := range strings.SplitSeq(string(out), "\n---") {
+	out := helmTemplate(t, "--set", "observability.metrics.agentPodMonitor.enabled=true")
+	for doc := range strings.SplitSeq(out, "\n---") {
 		if !strings.Contains(doc, "kind: PodMonitor") {
 			continue
 		}
@@ -164,14 +152,7 @@ func TestAgentDashboardJobMatchesPodMonitorJob(t *testing.T) {
 // above is scoped strictly to the enabled path and never asserts against a
 // phantom document.
 func TestAgentPodMonitorNotRenderedWhenDisabled(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm binary not found on PATH; runs under maintainer CI")
-	}
-	out, err := exec.Command("helm", "template", "../../chart").CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template failed: %v\n%s", err, out)
-	}
-	if strings.Contains(string(out), "kind: PodMonitor") {
+	if strings.Contains(helmTemplate(t), "kind: PodMonitor") {
 		t.Error("PodMonitor must NOT render when agentPodMonitor.enabled is false (default)")
 	}
 }

@@ -16,15 +16,8 @@ import (
 // args back into the same variables — including a value carrying its own '='
 // and ',' (RUST_LOG directives), the case a naive split or unquoted YAML breaks.
 func TestChartAgentEnvRoundTripsThroughFlagParser(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm binary not found on PATH; chart render guard runs under maintainer CI")
-	}
-	out, err := exec.Command("helm", "template", "../../chart", "--set-json",
-		`agentEnv={"RUST_LOG":"info,iroh::socket::transports=trace","A_FIRST":"1"}`).CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template failed: %v\n%s", err, out)
-	}
-	got, err := ParseAgentEnv(renderedManagerArgs(t, string(out), "--agent-env="))
+	out := helmTemplate(t, "--set-json", `agentEnv={"RUST_LOG":"info,iroh::socket::transports=trace","A_FIRST":"1"}`)
+	got, err := ParseAgentEnv(renderedManagerArgs(t, out, "--agent-env="))
 	if err != nil {
 		t.Fatalf("manager would reject the chart-rendered --agent-env args: %v", err)
 	}
@@ -37,13 +30,26 @@ func TestChartAgentEnvRoundTripsThroughFlagParser(t *testing.T) {
 	}
 
 	// Default values: no --agent-env arg at all.
-	out, err = exec.Command("helm", "template", "../../chart").CombinedOutput()
+	if args := renderedManagerArgs(t, helmTemplate(t), "--agent-env="); len(args) != 0 {
+		t.Fatalf("no agentEnv must render no --agent-env args, got %v", args)
+	}
+}
+
+// helmTemplate renders the chart (repo-root/chart; this package is
+// internal/controller) with the extra args and returns the output. It skips
+// (not fails) when the helm binary is unavailable so `go test ./...` stays
+// green in sandboxes without helm; the maintainer's CI has helm (it runs
+// `task ci`), so the chart/Go contract guards execute there.
+func helmTemplate(t *testing.T, args ...string) string {
+	t.Helper()
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm binary not found on PATH; chart render guard runs under maintainer CI")
+	}
+	out, err := exec.CommandContext(t.Context(), "helm", append([]string{"template", "../../chart"}, args...)...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("helm template failed: %v\n%s", err, out)
 	}
-	if args := renderedManagerArgs(t, string(out), "--agent-env="); len(args) != 0 {
-		t.Fatalf("no agentEnv must render no --agent-env args, got %v", args)
-	}
+	return string(out)
 }
 
 // renderedManagerArgs returns the payload after flagPrefix of every matching

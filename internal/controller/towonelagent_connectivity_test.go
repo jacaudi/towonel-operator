@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"reflect"
 	"slices"
 	"testing"
@@ -99,10 +98,8 @@ func TestConnectivityEnvAutodiscover(t *testing.T) {
 
 func TestConnectivityEnvSkippedHasNoAutodiscover(t *testing.T) {
 	ta := agentWithConn(towonelv1alpha1.ConnectivitySpec{Autodiscover: true, NodePort: towonelv1alpha1.NodePortSpec{Create: true}}) // no irohPort -> skipped
-	for _, e := range connectivityEnv(ta, planConnectivity(ta)) {
-		if e.Name == "TOWONEL_AGENT_K8S_AUTODISCOVER" {
-			t.Error("skipped autodiscover must not render autodiscover env")
-		}
+	if slices.ContainsFunc(connectivityEnv(ta, planConnectivity(ta)), func(e corev1.EnvVar) bool { return e.Name == "TOWONEL_AGENT_K8S_AUTODISCOVER" }) {
+		t.Error("skipped autodiscover must not render autodiscover env")
 	}
 }
 
@@ -180,7 +177,7 @@ func TestComputeNodeReaderSubjects(t *testing.T) {
 	off.Name, off.Namespace = "off", "ns2"
 	cl := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithObjects(auto("a", "ns1"), auto("b", "ns2"), off).Build()
 	r := &TowonelAgentReconciler{Client: cl}
-	subs, err := r.computeNodeReaderSubjects(context.Background())
+	subs, err := r.computeNodeReaderSubjects(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +194,7 @@ func TestReconcileNodeReaderShellMissing(t *testing.T) {
 	a.Name, a.Namespace = "a", "ns1"
 	cl := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithObjects(a).Build() // no ClusterRoleBinding shell
 	r := &TowonelAgentReconciler{Client: cl}
-	missing, err := r.reconcileNodeReaderSubjects(context.Background())
+	missing, err := r.reconcileNodeReaderSubjects(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,11 +244,11 @@ func TestReconcileNodeReaderPatchesSubjects(t *testing.T) {
 	}
 	cl := fake.NewClientBuilder().WithScheme(agentScheme(t)).WithObjects(a, shell).Build()
 	r := &TowonelAgentReconciler{Client: cl}
-	if _, err := r.reconcileNodeReaderSubjects(context.Background()); err != nil {
+	if _, err := r.reconcileNodeReaderSubjects(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	var got rbacv1.ClusterRoleBinding
-	if err := cl.Get(context.Background(), types.NamespacedName{Name: nodeReaderName}, &got); err != nil {
+	if err := cl.Get(t.Context(), types.NamespacedName{Name: nodeReaderName}, &got); err != nil {
 		t.Fatal(err)
 	}
 	if len(got.Subjects) != 1 || got.Subjects[0].Name != "a" || got.Subjects[0].Namespace != "ns1" {

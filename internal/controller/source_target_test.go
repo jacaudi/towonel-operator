@@ -1,13 +1,15 @@
 package controller
 
 import (
-	"context"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	towonelv1alpha1 "github.com/jacaudi/towonel-operator/api/v1alpha1"
@@ -22,6 +24,17 @@ func srcScheme(t *testing.T) *runtime.Scheme {
 	_ = corev1.AddToScheme(s)
 	_ = gwv1.Install(s)
 	return s
+}
+
+// requestKeys returns the sorted "ns/name" keys of the enqueued requests, so a
+// map function's output can be compared exactly against the expected set.
+func requestKeys(reqs []reconcile.Request) []string {
+	keys := make([]string, 0, len(reqs))
+	for _, r := range reqs {
+		keys = append(keys, r.String())
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func TestDefaultAgentNameCollisionSafe(t *testing.T) {
@@ -61,15 +74,10 @@ func TestParseTunnelRef(t *testing.T) {
 }
 
 func TestResolveTunnelOmissionDefault(t *testing.T) {
-	mkTunnel := func(ns, name string) *towonelv1alpha1.TowonelTunnel {
-		tt := &towonelv1alpha1.TowonelTunnel{}
-		tt.Namespace, tt.Name = ns, name
-		return tt
-	}
 	cases := []struct {
 		name       string
 		raw, srcNS string
-		tunnels    []*towonelv1alpha1.TowonelTunnel
+		tunnels    []client.Object
 		wantNN     types.NamespacedName
 		wantOK     bool
 		wantReason string // "" => no Event expected
@@ -78,7 +86,7 @@ func TestResolveTunnelOmissionDefault(t *testing.T) {
 			name:    "empty ref + exactly one tunnel resolves to it",
 			raw:     "",
 			srcNS:   "src",
-			tunnels: []*towonelv1alpha1.TowonelTunnel{mkTunnel("net", "only")},
+			tunnels: []client.Object{mkTunnel("net", "only")},
 			wantNN:  types.NamespacedName{Namespace: "net", Name: "only"},
 			wantOK:  true,
 		},
@@ -94,7 +102,7 @@ func TestResolveTunnelOmissionDefault(t *testing.T) {
 			name:       "empty ref + multiple tunnels skips loudly",
 			raw:        "",
 			srcNS:      "src",
-			tunnels:    []*towonelv1alpha1.TowonelTunnel{mkTunnel("net", "a"), mkTunnel("net", "b")},
+			tunnels:    []client.Object{mkTunnel("net", "a"), mkTunnel("net", "b")},
 			wantOK:     false,
 			wantReason: ReasonTunnelRefMissing,
 		},
@@ -102,7 +110,7 @@ func TestResolveTunnelOmissionDefault(t *testing.T) {
 			name:    "non-empty bare ref parses unchanged (ignores tunnel count)",
 			raw:     "app",
 			srcNS:   "src",
-			tunnels: []*towonelv1alpha1.TowonelTunnel{mkTunnel("net", "a"), mkTunnel("net", "b")},
+			tunnels: []client.Object{mkTunnel("net", "a"), mkTunnel("net", "b")},
 			wantNN:  types.NamespacedName{Namespace: "src", Name: "app"},
 			wantOK:  true,
 		},
@@ -118,20 +126,16 @@ func TestResolveTunnelOmissionDefault(t *testing.T) {
 			name:       "non-empty malformed ref skips loudly",
 			raw:        "net/",
 			srcNS:      "src",
-			tunnels:    []*towonelv1alpha1.TowonelTunnel{mkTunnel("net", "only")},
+			tunnels:    []client.Object{mkTunnel("net", "only")},
 			wantOK:     false,
 			wantReason: ReasonTunnelRefMissing,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			b := fake.NewClientBuilder().WithScheme(srcScheme(t))
-			for _, tt := range c.tunnels {
-				b = b.WithObjects(tt)
-			}
-			cl := b.Build()
+			cl := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(c.tunnels...).Build()
 			var reason string
-			nn, ok, err := resolveTunnel(context.Background(), cl, func(r, _ string) { reason = r }, c.raw, c.srcNS)
+			nn, ok, err := resolveTunnel(t.Context(), cl, func(r, _ string) { reason = r }, c.raw, c.srcNS)
 			if err != nil {
 				t.Fatalf("unexpected transient error: %v", err)
 			}
@@ -151,7 +155,7 @@ func TestResolveTunnelOmissionDefault(t *testing.T) {
 func TestResolveTargetDefaultCreatesOperatorOwned(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", nil, tunnel, "")
+	ta, mode, err := resolveTarget(t.Context(), c, func(string, string) {}, "", nil, tunnel, "")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v", mode, err)
 	}
@@ -166,11 +170,12 @@ func TestResolveTargetDefaultCreatesOperatorOwned(t *testing.T) {
 func TestResolveTargetAgentRefUnlabeledDefaultsToWrite(t *testing.T) {
 	// #18 regression: a hand-authored agent with NO labels and NO mode field,
 	// referenced via agent-ref with a matching tunnelRef, defaults to Managed -> write.
-	mine := &towonelv1alpha1.TowonelAgent{}
-	mine.Namespace, mine.Name = "net", "home"
-	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
+	mine := &towonelv1alpha1.TowonelAgent{
+		Namespace: "net", Name: "home",
+		Spec: towonelv1alpha1.TowonelAgentSpec{TunnelRef: towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}},
+	}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", nil, types.NamespacedName{Namespace: "net", Name: "app"}, "home")
+	ta, mode, err := resolveTarget(t.Context(), c, func(string, string) {}, "", nil, types.NamespacedName{Namespace: "net", Name: "app"}, "home")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v; want write (unlabeled no-mode agent defaults to Managed)", mode, err)
 	}
@@ -181,12 +186,11 @@ func TestResolveTargetAgentRefUnlabeledDefaultsToWrite(t *testing.T) {
 
 func TestResolveTargetAgentRefObserveOnlyMode(t *testing.T) {
 	// Explicit ObserveOnly is honored regardless of ownership label.
-	mine := &towonelv1alpha1.TowonelAgent{}
-	mine.Namespace, mine.Name = "net", "mine"
+	mine := &towonelv1alpha1.TowonelAgent{Namespace: "net", Name: "mine"}
 	mine.Spec.Mode = towonelv1alpha1.ModeObserveOnly
 	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "app", Namespace: "net"}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
-	_, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", nil, types.NamespacedName{Namespace: "net", Name: "app"}, "mine")
+	_, mode, err := resolveTarget(t.Context(), c, func(string, string) {}, "", nil, types.NamespacedName{Namespace: "net", Name: "app"}, "mine")
 	if err != nil || mode != modeObserve {
 		t.Fatalf("mode=%v err=%v; want observe (explicit ObserveOnly)", mode, err)
 	}
@@ -206,13 +210,13 @@ func TestAgentModeDefaultsToManaged(t *testing.T) {
 func TestResolveTargetAgentRefNotFoundSkips(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	var reason string
-	_, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", nil, types.NamespacedName{Namespace: "net", Name: "app"}, "ghost")
+	_, mode, err := resolveTarget(t.Context(), c, func(r, _ string) { reason = r }, "", nil, types.NamespacedName{Namespace: "net", Name: "app"}, "ghost")
 	if err != nil || mode != modeSkip || reason != ReasonAgentRefNotFound {
 		t.Fatalf("mode=%v reason=%q err=%v", mode, reason, err)
 	}
 	// And it must NOT have auto-created anything.
 	var list towonelv1alpha1.TowonelAgentList
-	_ = c.List(context.Background(), &list)
+	_ = c.List(t.Context(), &list)
 	if len(list.Items) != 0 {
 		t.Fatalf("agent-ref must never auto-create; found %d", len(list.Items))
 	}
@@ -228,7 +232,7 @@ func TestResolveTargetDefaultSquatSkips(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(squat).Build()
 
 	var reason string
-	ta, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", nil, tunnel, "")
+	ta, mode, err := resolveTarget(t.Context(), c, func(r, _ string) { reason = r }, "", nil, tunnel, "")
 	if err != nil || mode != modeSkip || reason != ReasonDefaultAgentClash {
 		t.Fatalf("mode=%v reason=%q err=%v; want skip/%s", mode, reason, err, ReasonDefaultAgentClash)
 	}
@@ -240,14 +244,13 @@ func TestResolveTargetDefaultSquatSkips(t *testing.T) {
 func TestResolveTargetAgentRefCrossTunnelConflictSkips(t *testing.T) {
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
 	// Operator-owned agent bound to a DIFFERENT tunnel than the source's.
-	other := &towonelv1alpha1.TowonelAgent{}
-	other.Namespace, other.Name = "net", "other-agent"
+	other := &towonelv1alpha1.TowonelAgent{Namespace: "net", Name: "other-agent"}
 	other.Labels = map[string]string{LabelManagedBy: ManagedByValue}
 	other.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: "different", Namespace: "net"}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(other).Build()
 
 	var reason string
-	ta, mode, err := resolveTarget(context.Background(), c, func(r, _ string) { reason = r }, "", nil, tunnel, "other-agent")
+	ta, mode, err := resolveTarget(t.Context(), c, func(r, _ string) { reason = r }, "", nil, tunnel, "other-agent")
 	if err != nil || mode != modeSkip || reason != ReasonAgentRefConflict {
 		t.Fatalf("mode=%v reason=%q err=%v; want skip/%s", mode, reason, err, ReasonAgentRefConflict)
 	}
@@ -259,13 +262,12 @@ func TestResolveTargetAgentRefCrossTunnelConflictSkips(t *testing.T) {
 func TestResolveTargetAgentRefOperatorOwnedSameTunnelWrites(t *testing.T) {
 	tunnel := types.NamespacedName{Namespace: "net", Name: "app"}
 	// Operator-owned agent bound to the SAME tunnel as the source's.
-	mine := &towonelv1alpha1.TowonelAgent{}
-	mine.Namespace, mine.Name = "net", "my-agent"
+	mine := &towonelv1alpha1.TowonelAgent{Namespace: "net", Name: "my-agent"}
 	mine.Labels = map[string]string{LabelManagedBy: ManagedByValue}
 	mine.Spec.TunnelRef = towonelv1alpha1.TunnelReference{Name: tunnel.Name, Namespace: tunnel.Namespace}
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).WithObjects(mine).Build()
 
-	ta, mode, err := resolveTarget(context.Background(), c, func(string, string) {}, "", nil, tunnel, "my-agent")
+	ta, mode, err := resolveTarget(t.Context(), c, func(string, string) {}, "", nil, tunnel, "my-agent")
 	if err != nil || mode != modeWrite {
 		t.Fatalf("mode=%v err=%v; want write", mode, err)
 	}
@@ -311,13 +313,13 @@ func TestSourceTargetsTunnel(t *testing.T) {
 func TestSourcesForTunnelNilOnWrongType(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(srcScheme(t)).Build()
 	notATunnel := &corev1.Service{}
-	if reqs := (&GatewaySourceReconciler{Client: c}).sourcesForTunnel(context.Background(), notATunnel); reqs != nil {
+	if reqs := (&GatewaySourceReconciler{Client: c}).sourcesForTunnel(t.Context(), notATunnel); reqs != nil {
 		t.Errorf("gateway sourcesForTunnel(wrong type) = %v, want nil", reqs)
 	}
-	if reqs := (&ServiceSourceReconciler{Client: c}).sourcesForTunnel(context.Background(), notATunnel); reqs != nil {
+	if reqs := (&ServiceSourceReconciler{Client: c}).sourcesForTunnel(t.Context(), notATunnel); reqs != nil {
 		t.Errorf("service sourcesForTunnel(wrong type) = %v, want nil", reqs)
 	}
-	if reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForTunnel(context.Background(), notATunnel); reqs != nil {
+	if reqs := (&HTTPRouteSourceReconciler{Client: c}).sourcesForTunnel(t.Context(), notATunnel); reqs != nil {
 		t.Errorf("httproute sourcesForTunnel(wrong type) = %v, want nil", reqs)
 	}
 }
