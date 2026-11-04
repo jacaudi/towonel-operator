@@ -1,7 +1,6 @@
 package towonel
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"testing"
@@ -96,9 +95,9 @@ func TestClient_429SurfacesRetryAfter(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			})
 
-			err := c.do(context.Background(), http.MethodGet, "/v1/auth/me", nil, nil)
-			var apiErr *APIError
-			if !errors.As(err, &apiErr) {
+			err := c.do(t.Context(), http.MethodGet, "/v1/auth/me", nil, nil)
+			apiErr, ok := errors.AsType[*APIError](err)
+			if !ok {
 				t.Fatalf("error = %v, want *APIError", err)
 			}
 			if apiErr.RetryAfter != tc.want {

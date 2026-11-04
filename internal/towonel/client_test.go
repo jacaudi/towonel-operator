@@ -1,7 +1,6 @@
 package towonel
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"testing"
@@ -17,7 +16,7 @@ func TestClient_SendsAuthHeaderAndBaseURL(t *testing.T) {
 	})
 
 	var out struct{}
-	if err := c.do(context.Background(), http.MethodGet, "/v1/auth/me", nil, &out); err != nil {
+	if err := c.do(t.Context(), http.MethodGet, "/v1/auth/me", nil, &out); err != nil {
 		t.Fatalf("do() error = %v", err)
 	}
 	if gotAuth != "Bearer test-key" {
@@ -34,9 +33,9 @@ func TestClient_Non2xxReturnsAPIError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"nope"}`))
 	})
 
-	err := c.do(context.Background(), http.MethodGet, "/v1/auth/me", nil, nil)
-	var apiErr *APIError
-	if !errors.As(err, &apiErr) {
+	err := c.do(t.Context(), http.MethodGet, "/v1/auth/me", nil, nil)
+	apiErr, ok := errors.AsType[*APIError](err)
+	if !ok {
 		t.Fatalf("error = %v, want *APIError", err)
 	}
 	if apiErr.StatusCode != http.StatusForbidden {
