@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.10.1](https://github.com/jacaudi/towonel-operator/compare/v1.10.0...v1.10.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **task:** force-update helm repos in chart:deps so a pre-registered name cannot abort it ([aa23edb](https://github.com/jacaudi/towonel-operator/commit/aa23edb5028e4c292d61cfbc4647b0f29bf2fec7))
+
+
+### Refactors
+
+* **controller:** drop the unused Scheme field from the source reconcilers ([0c53471](https://github.com/jacaudi/towonel-operator/commit/0c53471719c232ce036e8dbdaf3be5af035df7ad))
+* **controller:** hoist duplicated branches in the secret and deploy paths ([b5ced3f](https://github.com/jacaudi/towonel-operator/commit/b5ced3f504be8a031d1f8df4cdeaef3e1e967b06))
+* **controller:** parse annotation refs with the strings.Cut family ([cab6830](https://github.com/jacaudi/towonel-operator/commit/cab6830df87d993903111daba596272b862ba876))
+* **controller:** replace hand-rolled slice and once helpers with stdlib ([9df36ba](https://github.com/jacaudi/towonel-operator/commit/9df36ba7e6f6fde40729dd19ad5198604a04a673))
+* **controller:** share one reader() helper in the agent reconciler ([7ca0ef8](https://github.com/jacaudi/towonel-operator/commit/7ca0ef81380042c3f107f1b438e0c1c156a8630b))
+* **controller:** share the agent/tunnel source map functions across source kinds ([f3fa39a](https://github.com/jacaudi/towonel-operator/commit/f3fa39a93f1aa22acb77a41f5c5f91438151167d))
+* **controller:** use cmp.Or for single-fallback defaults ([2cd6da3](https://github.com/jacaudi/towonel-operator/commit/2cd6da356ac1f52a6d382d6699a50252afaba1c7))
+* **manager:** build the scheme in newScheme instead of a package init ([b6a023e](https://github.com/jacaudi/towonel-operator/commit/b6a023ec6f878b42f12770d1bcb8b8f10f581f93))
+* **manager:** drop the empty TLSOpts slice and build the replicas pointer with new ([116aeb3](https://github.com/jacaudi/towonel-operator/commit/116aeb3139d1b8406e70b5ccaeb70854b8e69e10))
+* **towoneltest:** use slices.DeleteFunc and cmp.Or in the fake hub ([63ec4f8](https://github.com/jacaudi/towonel-operator/commit/63ec4f808e8873477bdb4a5a7719c37e5a0ff56b))
+
 ## [1.10.0](https://github.com/jacaudi/towonel-operator/compare/v1.9.1...v1.10.0) (2026-10-31)
 
 
