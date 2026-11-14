@@ -82,7 +82,7 @@ const (
 	// defaultAgentImage is used when a TowonelAgent leaves spec.workload.image unset.
 	// Pinned to a tag (never :latest) for reproducible rollouts; Renovate bumps it as
 	// upstream tags new releases (see .github/renovate.json customManagers).
-	defaultAgentImage = "codeberg.org/towonel/towonel-agent:1.13.4"
+	defaultAgentImage = "codeberg.org/towonel/towonel-agent:1.13.7"
 	agentHealthAddr   = "0.0.0.0:9090"
 	agentHealthPort   = 9090
 
